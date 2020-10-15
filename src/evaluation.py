@@ -10,11 +10,11 @@ __version__ = "1.0.1"
 __maintainer__ = "Evripidis Gkanias"
 
 
-from geometry import fibonacci_sphere
+from sphere import fibonacci_sphere
 from transform import tilt
 from sky import T_L
 from light import spectrum_influence, spectrum
-from distance import azidist
+from sphere import azidist
 from utils import eps
 
 import numpy as np

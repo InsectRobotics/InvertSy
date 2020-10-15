@@ -10,8 +10,8 @@ __version__ = "1.0.1"
 __maintainer__ = "Evripidis Gkanias"
 
 
-from src.geometry import fibonacci_sphere
-from src.evaluation import evaluate
+from sphere import fibonacci_sphere
+from evaluation import evaluate
 
 from ephemeris import Sun
 from datetime import datetime, timedelta
@@ -646,7 +646,7 @@ def plot_terrain(terrain, max_altitude=.5):
 
 
 def plot_route(opath, ipath, id=None, label=None, subplot=111, xlim=None):
-    if type(subplot) is not type(int):
+    if not isinstance(subplot, int):
         plt.subplot(*subplot)
     else:
         plt.subplot(subplot)
@@ -657,8 +657,8 @@ def plot_route(opath, ipath, id=None, label=None, subplot=111, xlim=None):
     else:
         plt.plot(opath[:, 0], opath[:, 1], 'r-')
         plt.plot(ipath[:, 0], ipath[:, 1], 'k--')
-    plt.xlim([4, 7] if xlim is None else xlim)
-    plt.ylim([-1, 9])
+    # plt.xlim([4, 7] if xlim is None else xlim)
+    # plt.ylim([-1, 9])
 
     return plt
 
