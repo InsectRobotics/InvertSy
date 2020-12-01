@@ -17,6 +17,7 @@ class Sun(object):
         self._sea = 0.
         self._aar = 0.
         self._hra = 0.
+        self._tst = 0.
 
         self._alt = 0.
         self._azi = 0.
@@ -57,7 +58,7 @@ class Sun(object):
         self._sst = sunset_time(hasr, sn)
         self._sld = sunlight_duration(hasr)
 
-        tst = true_solar_time(lon, observer.date, eot, tz=self.obs.tzgmt)
+        tst = self._tst = true_solar_time(lon, observer.date, eot, tz=self.obs.tzgmt)
         ha = self._hra = hour_angle(tst)
         sza = solar_zenith_angle(lat, sd, ha)
         sea = self._sea = solar_elevation_angle(sza)
@@ -222,7 +223,7 @@ def eq_of_time(gmls: float, gmas: float, eeo: float, vy: float):
 
 
 def ha_sunrise(lat: float, sd: float):
-    return np.arccos(np.cos(np.deg2rad(90.833)) / (np.cos(lat) * np.cos(sd)) - np.tan(lat) * np.tan(sd))
+    return np.arccos(np.clip(np.cos(np.deg2rad(90.833)) / (np.cos(lat) * np.cos(sd)) - np.tan(lat) * np.tan(sd), -1, 1))
 
 
 def solar_noon(lon: float, eot: float, tz: int = 0):
@@ -283,7 +284,7 @@ def solar_azimuth_angle(lat: float, ha: float, sza: float, sd: float):
 
 
 def relative_to_absolute_time(obs, time):
-    h = time * 24
+    h = (time % 1) * 24
     m = (h - int(h)) * 60
     s = (m - int(m)) * 60
     return datetime(year=obs.date.year, month=obs.date.month, day=obs.date.day,
