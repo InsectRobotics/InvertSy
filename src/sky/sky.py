@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 __author__ = "Evripidis Gkanias"
 __copyright__ = "Copyright (c) 2019, Insect Robotics Group," \
                 "Institude of Perception, Action and Behaviour," \
@@ -10,8 +8,9 @@ __version__ = "1.0.1"
 __maintainer__ = "Evripidis Gkanias"
 
 
-from transform import tilt
-from utils import eps
+from ._helpers import eps, add_noise, RNG
+
+from scipy.spatial.transform import Rotation as R
 
 import numpy as np
 
@@ -28,37 +27,32 @@ class Sky(object):
     The Sky environment class. This environment class provides skylight cues.
     """
 
-    def __init__(self, theta_s=0., phi_s=0., theta_t=0., phi_t=0., name="sky"):
+    def __init__(self, theta_s=0., phi_s=0., name="sky"):
         """
 
-        :param theta_s: sun elevation (distance from zenith)
+        :param theta_s: sun elevation (distance from horizon)
         :param phi_s: sun azimuth (clockwise from North)
-        :param theta_t: elevation of observer's zenith point with respect to the sky zenith point
-        :param phi_t: azimuth of observer's zenith point with respect to the sky zenith point
         """
         super(Sky, self).__init__()
         self.__a, self.__b, self.__c, self.__d, self.__e = 0., 0., 0., 0., 0.
-        self.__tau_L = 2.  # type: float
+        self.__tau_L = 2.
         self._update_luminance_coefficients(self.__tau_L)
-        self.__c1 = .6  # type: float
-        self.__c2 = 4.  # type: float
+        self.__c1 = .6
+        self.__c2 = 4.
         self.theta_s = theta_s
         self.phi_s = phi_s
-        self.theta_t = theta_t
-        self.phi_t = phi_t
 
-        self.__theta = np.full(1, np.nan)  # type: np.ndarray
-        self.__phi = np.full(1, np.nan)  # type: np.ndarray
-        self.__aop = np.full(1, np.nan)  # type: np.ndarray
-        self.__dop = np.full(1, np.nan)  # type: np.ndarray
-        self.__y = np.full(1, np.nan)  # type: np.ndarray
-        self.__eta = np.full(1, False)  # type: np.ndarray
+        self.__theta = np.full(1, np.nan)
+        self.__phi = np.full(1, np.nan)
+        self.__aop = np.full(1, np.nan)
+        self.__dop = np.full(1, np.nan)
+        self.__y = np.full(1, np.nan)
+        self.__eta = np.full(1, False)
 
-        self.verbose = False  # type: bool
-        self.__is_generated = False  # type: bool
+        self.__is_generated = False
         self.__name = name
 
-    def __call__(self, theta=None, phi=None, noise=0., eta=None, uniform_polariser=False):
+    def __call__(self, ori: R = None, irgbu=None, noise=0., eta=None, rng=RNG):
         """
         Call the sky instance to generate the sky cues.
 
@@ -76,15 +70,21 @@ class Sky(object):
         """
 
         # set default arguments
-        theta = ((self.__theta if theta is None else theta) + np.pi) % (2 * np.pi) - np.pi
-        phi = ((self.__phi if phi is None else phi) + np.pi) % (2 * np.pi) - np.pi
+        if ori is not None:
+            xyz = ori.apply([1, 0, 0])
+            phi = np.arctan2(xyz[..., 1], xyz[..., 0])
+            theta = np.arccos(xyz[..., 2])
+            # theta[xyz[..., 2] > 0] = np.pi - theta[xyz[..., 2] > 0]
+            phi = (phi + np.pi) % (2 * np.pi) - np.pi
 
-        # save points of interest
-        self.__theta = theta.copy()
-        self.__phi = phi.copy()
+            # save points of interest
+            self.__theta = theta.copy()
+            self.__phi = phi.copy()
+        else:
+            theta = self.__theta
+            phi = self.__phi
+            ori = R.from_euler('ZY', np.vstack([phi, theta]).T, degrees=False)
 
-        # transform points in the sky according to tilting parameters
-        theta, phi = tilt(self.theta_t, self.phi_t + np.pi, theta=theta, phi=phi)
         theta_s, phi_s = self.theta_s, self.phi_s
 
         # SKY INTEGRATION
@@ -97,42 +97,29 @@ class Sky(object):
         i_90 = self.L(np.pi / 2, np.absolute(theta_s - np.pi / 2))  # the luminance (Cd/m^2) on the horizon
         # influence of sky intensity
         i = (1. / (i_prez + eps) - 1. / (i_00 + eps)) * i_00 * i_90 / (i_00 - i_90 + eps)
-        if uniform_polariser:
-            y = np.maximum(np.full_like(i_prez, self.Y_z), 0.)
-        else:
-            y = np.maximum(self.Y_z * i_prez / (i_00 + eps), 0.)  # Illumination
+        y = np.maximum(self.Y_z * i_prez / (i_00 + eps), 0.)  # Illumination
 
         # Degree of Polarisation
         lp = np.square(np.sin(gamma)) / (1 + np.square(np.cos(gamma)))
-        if uniform_polariser:
-            p = np.ones_like(lp)
-        else:
-            p = np.clip(2. / np.pi * self.M_p * lp * (theta * np.cos(theta) + (np.pi / 2 - theta) * i), 0., 1.)
+        p = np.clip(2. / np.pi * self.M_p * lp * (theta * np.cos(theta) + (np.pi / 2 - theta) * i), 0., 1.)
 
         # Angle of polarisation
-        if uniform_polariser:
-            a = np.full_like(p, phi_s + np.pi)
-        else:
-            _, a = tilt(theta_s, phi_s + np.pi, theta, phi)
+        ori_s = R.from_euler('ZY', [phi_s, np.pi/2 - theta_s], degrees=False)
+        x_s, y_s, _ = ori_s.apply([1, 0, 0]).T
+        x_p, y_p, _ = ori.apply([1, 0, 0]).T
+        a_x = np.arctan2(y_p - y_s, x_p - x_s) + np.pi/2
+        a = (a_x + np.pi) % (2 * np.pi) - np.pi
 
         # create cloud disturbance
         if eta is None:
-            if type(noise) is np.ndarray:
-                if noise.size == p.size:
-                    # print "yeah!"
-                    eta = np.array(noise, dtype=bool)
-                    if self.verbose:
-                        print("Noise level: %.4f (%.2f %%)" % (noise, 100. * eta.sum() / float(eta.size)))
-                else:
-                    eta = np.zeros_like(theta, dtype=bool)
-                    eta[:noise.size] = noise
-            elif noise > 0:
-                eta = np.argsort(np.absolute(np.random.randn(*p.shape)))[:int(noise * p.shape[0])]
-            else:
-                eta = np.zeros_like(theta, dtype=bool)
+            eta = add_noise(noise=noise, rng=rng)
         y[eta] = 0.
         p[eta] = 0.  # destroy the polarisation pattern
         a[eta] = np.nan
+
+        y[theta < 0] = np.nan
+        p[theta < 0] = np.nan
+        a[theta < 0] = np.nan
 
         self.__y = y
         self.__dop = p
@@ -140,6 +127,9 @@ class Sky(object):
         self.__eta = eta
 
         self.__is_generated = True
+
+        if irgbu is not None:
+            y = spectrum_influence(y, irgbu).sum(axis=1)
 
         return y, p, a
 
@@ -278,7 +268,7 @@ class Sky(object):
         """
         :return: the zenith luminance (K cd/m^2)
         """
-        chi = (4. / 9. - self.tau_L / 120.) * (np.pi - 2 * self.theta_s)
+        chi = (4. / 9. - self.tau_L / 120.) * (np.pi - 2 * (np.pi/2 - self.theta_s))
         return (4.0453 * self.tau_L - 4.9710) * np.tan(chi) - 0.2155 * self.tau_L + 2.4192
 
     @property
@@ -429,6 +419,24 @@ class Sky(object):
         return s
 
 
+def spectrum_influence(v, irgbu):
+    wl = np.array([1200, 715, 535, 475, 350], dtype='float32')
+    v = v[..., np.newaxis]
+    l1 = 10.0 * irgbu * np.power(wl / 1000., 8) * np.square(v) / float(v.size)
+    l2 = 0.001 * irgbu * np.power(1000. / wl, 8) * np.square(v).sum() / float(v.size)
+
+    v_max = v.max()
+    w_max = (v + l1 + l2).max()
+    w = v_max * (v + l1 + l2) / w_max
+    if isinstance(irgbu, np.ndarray):
+        if irgbu.shape[0] == 1 and w.shape[0] > irgbu.shape[0]:
+            irgbu = np.vstack([irgbu] * w.shape[0])
+        w[irgbu < 0] = np.hstack([v] * irgbu.shape[1])[irgbu < 0]
+    elif irgbu < 0:
+        w = v
+    return w
+
+
 def visualise_luminance(sky):
     import matplotlib.pyplot as plt
 
@@ -437,7 +445,7 @@ def visualise_luminance(sky):
     ax.set_theta_zero_location("N")
     ax.set_theta_direction(-1)
 
-    theta_s, phi_s = tilt(sky.theta_t, sky.phi_t, theta=sky.theta_s, phi=sky.phi_s)
+    theta_s, phi_s = sky.theta_s, sky.phi_s
     ax.scatter(sky.phi, sky.theta, s=20, c=sky.Y, marker='.', cmap='Blues_r', vmin=0, vmax=6)
     ax.scatter(phi_s, theta_s, s=100, edgecolor='black', facecolor='yellow')
     # ax.scatter(sky.phi_t + np.pi, sky.theta_t, s=200, edgecolor='black', facecolor='greenyellow')
@@ -458,7 +466,7 @@ def visualise_degree_of_polarisation(sky):
     ax.set_theta_zero_location("N")
     ax.set_theta_direction(-1)
 
-    theta_s, phi_s = tilt(sky.theta_t, sky.phi_t, theta=sky.theta_s, phi=sky.phi_s)
+    theta_s, phi_s = sky.theta_s, sky.phi_s
     print(theta_s, phi_s)
     ax.scatter(sky.phi, sky.theta, s=10, c=sky.DOP, marker='.', cmap='Greys', vmin=0, vmax=1)
     ax.scatter(phi_s, theta_s, s=100, edgecolor='black', facecolor='yellow')
@@ -480,8 +488,7 @@ def visualise_angle_of_polarisation(sky):
     ax.set_theta_zero_location("N")
     ax.set_theta_direction(-1)
 
-    theta_s, phi_s = tilt(sky.theta_t, sky.phi_t, theta=sky.theta_s, phi=sky.phi_s)
-    print(theta_s, phi_s)
+    theta_s, phi_s = sky.theta_s, sky.phi_s
     ax.scatter(sky.phi, sky.theta, s=10, c=sky.AOP, marker='.', cmap='hsv', vmin=-np.pi, vmax=np.pi)
     ax.scatter(phi_s, theta_s, s=100, edgecolor='black', facecolor='yellow')
     # ax.scatter(sky.phi_t + np.pi, sky.theta_t, s=200, edgecolor='black', facecolor='greenyellow')
