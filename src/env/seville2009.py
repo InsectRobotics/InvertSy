@@ -9,7 +9,6 @@ __license__ = "MIT"
 __version__ = "1.0.1"
 __maintainer__ = "Evripidis Gkanias"
 
-from .geometry3 import Route
 from ._helpers import RNG, add_noise
 
 from scipy.io import loadmat
@@ -43,7 +42,7 @@ z_terrain = np.zeros_like(x_terrain)
 
 
 class Seville2009(object):
-    def __init__(self, horizon=10., dtype='float32'):
+    def __init__(self, horizon=2., dtype='float32'):
         self.__polygons, self.__colours = load_world()
         self.__horizon = horizon
         self.dtype = dtype
@@ -64,7 +63,7 @@ class Seville2009(object):
 
         # Add the polygons (vegetation)
         # calculate the relative position of each point in the polygon
-        xyz = np.nanmean(pos, axis=0) - self.polygons
+        xyz = self.polygons - np.nanmean(pos, axis=0)
 
         # calculate the distance from the closest point of the polygon to the agent's position
         dist = np.min(np.linalg.norm(xyz, axis=2), axis=1)
@@ -79,8 +78,8 @@ class Seville2009(object):
         ind = np.argsort(dist[visible])[::-1]
 
         for polygon, colour in zip(polygons[ind], colours[ind]):
-            phi = np.arctan2(polygon[..., 1], polygon[..., 0])
-            theta = np.pi/2 - np.arctan2(np.linalg.norm(polygon[..., :2], axis=1), polygon[..., 2])
+            phi = np.arctan2(polygon[..., 0], polygon[..., 1])
+            theta = np.arctan2(np.linalg.norm(polygon[..., :2], axis=1), polygon[..., 2]) - np.pi/2
 
             poi = np.array([pitch, yaw]).T
             pol = np.array([theta, phi]).T
@@ -96,7 +95,7 @@ class Seville2009(object):
             c[i] = colour
 
         if eta is None:
-            eta = add_noise(noise=noise, rng=rng)
+            eta = add_noise(noise=noise, shape=c.shape, rng=rng)
         c[eta] = 0.
 
         return c

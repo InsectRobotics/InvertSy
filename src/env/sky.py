@@ -27,7 +27,7 @@ class Sky(object):
     The Sky environment class. This environment class provides skylight cues.
     """
 
-    def __init__(self, theta_s=0., phi_s=0., name="sky"):
+    def __init__(self, theta_s=0., phi_s=0., name="env"):
         """
 
         :param theta_s: sun elevation (distance from horizon)
@@ -54,7 +54,7 @@ class Sky(object):
 
     def __call__(self, ori: R = None, irgbu=None, noise=0., eta=None, rng=RNG):
         """
-        Call the sky instance to generate the sky cues.
+        Call the env instance to generate the env cues.
 
         :param theta: array of points' elevation
         :type theta: np.ndarray
@@ -95,7 +95,7 @@ class Sky(object):
         i_prez = self.L(gamma, theta)
         i_00 = self.L(0., theta_s)  # the luminance (Cd/m^2) at the zenith point
         i_90 = self.L(np.pi / 2, np.absolute(theta_s - np.pi / 2))  # the luminance (Cd/m^2) on the horizon
-        # influence of sky intensity
+        # influence of env intensity
         i = (1. / (i_prez + eps) - 1. / (i_00 + eps)) * i_00 * i_90 / (i_00 - i_90 + eps)
         y = np.maximum(self.Y_z * i_prez / (i_00 + eps), 0.)  # Illumination
 
@@ -112,10 +112,12 @@ class Sky(object):
 
         # create cloud disturbance
         if eta is None:
-            eta = add_noise(noise=noise, rng=rng)
+            eta = add_noise(noise=noise, shape=y.shape, rng=rng)
         y[eta] = 0.
         p[eta] = 0.  # destroy the polarisation pattern
         a[eta] = np.nan
+
+        y[gamma < np.pi/60] = 17
 
         y[theta < 0] = np.nan
         p[theta < 0] = np.nan
@@ -137,7 +139,7 @@ class Sky(object):
         """
         Prez. et. al. Luminance function.
         Combines the scattering indicatrix and luminance gradation functions to compute the total
-        luminance observed at the given sky element(s).
+        luminance observed at the given env element(s).
 
         :param chi: angular distance between the observed element and the sun location -- [0, pi]
         :param z: angular distance between the observed element and the zenith point -- [0, pi/2]
@@ -281,30 +283,30 @@ class Sky(object):
     @property
     def Y(self):
         """
-        :return: luminance of the sky (K cd/m^2)
+        :return: luminance of the env (K cd/m^2)
         """
-        assert self.__is_generated, "Sky is not generated yet. In order to generate the sky, use the call function."
+        assert self.__is_generated, "Sky is not generated yet. In order to generate the env, use the call function."
         return self.__y
 
     @property
     def DOP(self):
         """
-        :return: the linear degree of polarisation in the sky
+        :return: the linear degree of polarisation in the env
         """
-        assert self.__is_generated, "Sky is not generated yet. In order to generate the sky, use the call function."
+        assert self.__is_generated, "Sky is not generated yet. In order to generate the env, use the call function."
         return self.__dop
 
     @property
     def AOP(self):
         """
-        :return: the angle of linear polarisation in the sky
+        :return: the angle of linear polarisation in the env
         """
-        assert self.__is_generated, "Sky is not generated yet. In order to generate the sky, use the call function."
+        assert self.__is_generated, "Sky is not generated yet. In order to generate the env, use the call function."
         return self.__aop
 
     @property
     def theta(self):
-        assert self.__is_generated, "Sky is not generated yet. In order to generate the sky, use the call function."
+        assert self.__is_generated, "Sky is not generated yet. In order to generate the env, use the call function."
         return self.__theta
 
     @theta.setter
@@ -314,7 +316,7 @@ class Sky(object):
 
     @property
     def phi(self):
-        assert self.__is_generated, "Sky is not generated yet. In order to generate the sky, use the call function."
+        assert self.__is_generated, "Sky is not generated yet. In order to generate the env, use the call function."
         return self.__phi
 
     @phi.setter
@@ -324,7 +326,7 @@ class Sky(object):
 
     @property
     def eta(self):
-        assert self.__is_generated, "Sky is not generated yet. In order to generate the sky, use the call function."
+        assert self.__is_generated, "Sky is not generated yet. In order to generate the env, use the call function."
         return self.__eta
 
     @eta.setter
@@ -363,7 +365,7 @@ class Sky(object):
     @staticmethod
     def from_observer(obs=None, date=None, yaw=0., theta_t=0., phi_t=0.):
         """
-        Creates sky using an Ephem observer (Requires Ephem library)
+        Creates env using an Ephem observer (Requires Ephem library)
         :param obs: the observer (location on Earth)
         :param date: the date of the observation
         :param yaw: the heading orientation of the observer
@@ -399,7 +401,7 @@ class Sky(object):
             try:
                 sp = yaml.load(f)
             except yaml.YAMLError as exc:
-                print("Could not load the sky types.", exc)
+                print("Could not load the env types.", exc)
                 return None
 
         rep = sp['type'][sky_type-1]
@@ -448,7 +450,7 @@ def visualise_luminance(sky):
     theta_s, phi_s = sky.theta_s, sky.phi_s
     ax.scatter(sky.phi, sky.theta, s=20, c=sky.Y, marker='.', cmap='Blues_r', vmin=0, vmax=6)
     ax.scatter(phi_s, theta_s, s=100, edgecolor='black', facecolor='yellow')
-    # ax.scatter(sky.phi_t + np.pi, sky.theta_t, s=200, edgecolor='black', facecolor='greenyellow')
+    # ax.scatter(env.phi_t + np.pi, env.theta_t, s=200, edgecolor='black', facecolor='greenyellow')
     ax.set_ylim([0, np.pi/2])
     ax.set_yticks([])
     ax.set_xticks(np.linspace(0, 2*np.pi, 8, endpoint=False))
@@ -470,7 +472,7 @@ def visualise_degree_of_polarisation(sky):
     print(theta_s, phi_s)
     ax.scatter(sky.phi, sky.theta, s=10, c=sky.DOP, marker='.', cmap='Greys', vmin=0, vmax=1)
     ax.scatter(phi_s, theta_s, s=100, edgecolor='black', facecolor='yellow')
-    # ax.scatter(sky.phi_t + np.pi, sky.theta_t, s=200, edgecolor='black', facecolor='greenyellow')
+    # ax.scatter(env.phi_t + np.pi, env.theta_t, s=200, edgecolor='black', facecolor='greenyellow')
     ax.set_ylim([0, np.pi/2])
     ax.set_yticks([])
     ax.set_xticks(np.linspace(0, 2*np.pi, 8, endpoint=False))
@@ -491,7 +493,7 @@ def visualise_angle_of_polarisation(sky):
     theta_s, phi_s = sky.theta_s, sky.phi_s
     ax.scatter(sky.phi, sky.theta, s=10, c=sky.AOP, marker='.', cmap='hsv', vmin=-np.pi, vmax=np.pi)
     ax.scatter(phi_s, theta_s, s=100, edgecolor='black', facecolor='yellow')
-    # ax.scatter(sky.phi_t + np.pi, sky.theta_t, s=200, edgecolor='black', facecolor='greenyellow')
+    # ax.scatter(env.phi_t + np.pi, env.theta_t, s=200, edgecolor='black', facecolor='greenyellow')
     ax.set_ylim([0, np.pi/2])
     ax.set_yticks([])
     ax.set_xticks(np.linspace(0, 2*np.pi, 8, endpoint=False))

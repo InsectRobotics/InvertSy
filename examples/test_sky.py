@@ -1,5 +1,5 @@
 from invertsensing._helpers import fibonacci_sphere
-from sky.sky import Sky
+from env.sky import Sky
 from invertsensing.comoundeye import CompoundEye
 from plots import plot_sky
 
@@ -27,5 +27,5 @@ y, p, a = sky(oris)
 y = np.square(r[..., 1])
 # print(r.min(), r.max())
 
-plt.figure("sky", figsize=(10, 3.33))
+plt.figure("env", figsize=(10, 3.33))
 plot_sky(eye.omm_ori, y, p, a, flat=flat).show()

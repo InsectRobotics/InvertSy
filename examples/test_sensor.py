@@ -1,4 +1,4 @@
-from sky import Sky
+from env import Sky
 from sensor import Compass, decode_sph
 from transform import tilt
 
@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 if __name__ == '__main__':
     sky = Sky(phi_s=np.pi, theta_s=np.pi/3)
-    # sky = Sky(theta_s=0)
+    # env = Sky(theta_s=0)
     compass = Compass()
     dra = compass.dra
     # dra.theta_t = np.pi/6

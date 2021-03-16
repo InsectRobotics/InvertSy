@@ -18,19 +18,19 @@ from conditions import Hybrid
 
 class Route(object):
     """
-    Route of an agent in a world.
+    Route of an agent in a temp.
     """
 
     def __init__(self, xs, ys, zs=None, phis=None, condition=Hybrid(), agent_no=None, route_no=None):
         """
 
-        :param xs: the x position of the agent in the world (in meters) in each time-step
+        :param xs: the x position of the agent in the temp (in meters) in each time-step
         :type xs: np.ndarray, list
-        :param ys: the y position of the agent in the world (in meters) in each time-step
+        :param ys: the y position of the agent in the temp (in meters) in each time-step
         :type ys: np.ndarray, list
-        :param zs: the z position of the agent in the world (in meters) in each time-step
+        :param zs: the z position of the agent in the temp (in meters) in each time-step
         :type zs: np.ndarray, list, float
-        :param phis: the facing direction of the agent in the world (in meters) in each time-step
+        :param phis: the facing direction of the agent in the temp (in meters) in each time-step
         :type phis: np.ndarray, list, float
         :param condition: the stepping condition - default it NoneCondition
         :type condition: Hybrid
@@ -131,9 +131,9 @@ class Route(object):
         :type ymax: float
         :param zmax: the positive bound of z
         :type zmax: float
-        :param centralise: make zero the centre of the world
+        :param centralise: make zero the centre of the temp
         :type centralise: bool
-        :param decentralise: undo zero the centre of the world
+        :param decentralise: undo zero the centre of the temp
         :type decentralise: bool
         :return: a sequence generator with the transformed positions
         """

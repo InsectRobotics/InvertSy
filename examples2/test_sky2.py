@@ -1,5 +1,5 @@
 from invertsensing._helpers import fibonacci_sphere
-from sky.sky import Sky
+from env.sky import Sky
 from observer import get_seville_observer
 from plots import plot_sky
 
@@ -15,6 +15,6 @@ theta, phi = fibonacci_sphere(samples, np.pi/2)
 sky = Sky(np.deg2rad(30), np.pi)
 y, p, a = sky(theta, phi)
 
-plt.figure("sky", figsize=(10, 3.33))
+plt.figure("env", figsize=(10, 3.33))
 # plot_sky(phi, theta, y, p, a).show()
 plot_sky(phi, theta, y, p, a, flat=flat).show()
