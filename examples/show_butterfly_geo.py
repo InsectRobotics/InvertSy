@@ -1,4 +1,4 @@
-from sky import Sky
+from env import Sky
 from ephemeris import Sun
 from observer import Observer, get_distance, interpolate
 from sphere import angdist, sph2vec, vec2sph

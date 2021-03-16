@@ -12,7 +12,7 @@ __maintainer__ = "Evripidis Gkanias"
 
 from sphere import fibonacci_sphere
 from transform import tilt
-from sky import T_L
+from env import T_L
 from light import spectrum_influence, spectrum
 from sphere import azidist
 from utils import eps
@@ -37,7 +37,7 @@ def evaluate(nb_pol=60, omega=56, sigma=np.deg2rad(13), shift=np.deg2rad(40),
     tau_L = 2.
     c1 = .6
     c2 = 4.
-    AA, BB, CC, DD, EE = T_L.dot(np.array([tau_L, 1.]))  # sky parameters
+    AA, BB, CC, DD, EE = T_L.dot(np.array([tau_L, 1.]))  # env parameters
     T_T = np.linalg.pinv(T_L)
     tau_L, c = T_T.dot(np.array([AA, BB, CC, DD, EE]))
     tau_L /= c  # turbidity correction
@@ -111,7 +111,7 @@ def evaluate(nb_pol=60, omega=56, sigma=np.deg2rad(13), shift=np.deg2rad(40),
             gamma = np.arccos(np.cos(theta_) * np.cos(e_org) + np.sin(theta_) * np.sin(e_org) * np.cos(phi_ - a_org))
             # Intensity
             I_prez, I_00, I_90 = L(gamma, theta_), L(0., e_org), L(np.pi / 2, np.absolute(e_org - np.pi / 2))
-            # influence of sky intensity
+            # influence of env intensity
             I = (1. / (I_prez + eps) - 1. / (I_00 + eps)) * I_00 * I_90 / (I_00 - I_90 + eps)
             chi = (4. / 9. - tau_L / 120.) * (np.pi - 2 * e_org)
             Y_z = (4.0453 * tau_L - 4.9710) * np.tan(chi) - 0.2155 * tau_L + 2.4192
