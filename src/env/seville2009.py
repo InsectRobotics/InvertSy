@@ -42,10 +42,11 @@ z_terrain = np.zeros_like(x_terrain)
 
 
 class Seville2009(object):
-    def __init__(self, horizon=2., dtype='float32'):
+    def __init__(self, horizon=2., dtype='float32', name="seville_2009"):
         self.__polygons, self.__colours = load_world()
         self.__horizon = horizon
         self.dtype = dtype
+        self.name = name
 
     def __call__(self, pos, ori: R = None, init_c=None, brightness=1., noise=0., eta=None, rng=RNG):
         if init_c is None:
@@ -78,7 +79,7 @@ class Seville2009(object):
         ind = np.argsort(dist[visible])[::-1]
 
         for polygon, colour in zip(polygons[ind], colours[ind]):
-            phi = np.arctan2(polygon[..., 0], polygon[..., 1])
+            phi = np.arctan2(polygon[..., 1], polygon[..., 0])
             theta = np.arctan2(np.linalg.norm(polygon[..., :2], axis=1), polygon[..., 2]) - np.pi/2
 
             poi = np.array([pitch, yaw]).T
@@ -126,16 +127,23 @@ def same_side(p1, p2, a, b):
     return np.multiply(np.cross(b - a, p1 - a), np.cross(b - a, p2 - a)) >= 0
 
 
-def load_routes(routes_filename=ROUTES_FILENAME):
+def load_routes(routes_filename=ROUTES_FILENAME, degrees=False):
     mat = loadmat(os.path.join(__seville_2009__, routes_filename))
     ant, route, key = 1, 1, lambda a, r: "Ant%d_Route%d" % (a, r)
-    routes = []
+    routes = {"ant_no": [], "route_no": [], "path": []}
     while key(ant, route) in mat.keys():
         while key(ant, route) in mat.keys():
             mat[key(ant, route)][:, :2] /= 100.  # convert the route data to meters
             xs, ys, phis = mat[key(ant, route)].T
-            r = Route(xs, ys, .01, phis=np.deg2rad(phis), agent_no=ant, route_no=route)
-            routes.append(r)
+            phis = 90 - phis
+            r = np.zeros((xs.shape[0], 4))
+            r[:, 0] = ys
+            r[:, 1] = xs
+            r[:, 2] = 0.01
+            r[:, 3] = phis if degrees else np.deg2rad(phis)
+            routes["ant_no"].append(ant)
+            routes["route_no"].append(route)
+            routes["path"].append(r)
             route += 1
         ant += 1
         route = 1
@@ -143,11 +151,14 @@ def load_routes(routes_filename=ROUTES_FILENAME):
 
 
 def load_route(name):
-    return Route.from_file(__data__ + "routes/" + name + ".npz")
+    path = os.path.join(__data__, "routes", name + ".npz")
+    data = np.load(path)
+    return data["path"], data["ant"], data["route"]
 
 
-def save_route(rt, name):
-    rt.save(os.path.join(__data__, "routes", name + ".npz"))
+def save_route(name, **rt):
+    path = os.path.join(__data__, "routes", name + ".npz")
+    np.save(path, **rt)
 
 
 def load_world(world_filename=WORLD_FILENAME, dtype='float32'):
@@ -157,7 +168,7 @@ def load_world(world_filename=WORLD_FILENAME, dtype='float32'):
     colours = []
     green = np.array([0, 1, 1], dtype=dtype)
     for xs, ys, zs, col in zip(mat['X'], mat['Y'], mat['Z'], mat['colp']):
-        polygons.append([xs, ys, zs])
+        polygons.append([ys, xs, zs])
         colours.append(col * green)
 
     polygons = np.transpose(np.array(polygons, dtype=dtype), axes=(0, 2, 1))
