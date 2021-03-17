@@ -27,7 +27,7 @@ class Sky(object):
     The Sky environment class. This environment class provides skylight cues.
     """
 
-    def __init__(self, theta_s=0., phi_s=0., name="env"):
+    def __init__(self, theta_s=0., phi_s=0., degrees=False, name="sky"):
         """
 
         :param theta_s: sun elevation (distance from horizon)
@@ -39,8 +39,8 @@ class Sky(object):
         self._update_luminance_coefficients(self.__tau_L)
         self.__c1 = .6
         self.__c2 = 4.
-        self.theta_s = theta_s
-        self.phi_s = phi_s
+        self.theta_s = np.deg2rad(theta_s) if degrees else theta_s
+        self.phi_s = np.deg2rad(phi_s) if degrees else phi_s
 
         self.__theta = np.full(1, np.nan)
         self.__phi = np.full(1, np.nan)
