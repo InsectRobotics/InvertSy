@@ -1,5 +1,5 @@
 __author__ = "Evripidis Gkanias"
-__copyright__ = "Copyright (c) 2019, Insect Robotics Group," \
+__copyright__ = "Copyright (c) 2021, Insect Robotics Group," \
                 "Institude of Perception, Action and Behaviour," \
                 "School of Informatics, the University of Edinburgh"
 __credits__ = ["Evripidis Gkanias"]
@@ -9,9 +9,8 @@ __maintainer__ = "Evripidis Gkanias"
 
 
 from invertsensing._helpers import fibonacci_sphere
-# from evaluation import evaluate
 
-from ephemeris import Sun
+from env.ephemeris import Sun
 from datetime import datetime, timedelta
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
