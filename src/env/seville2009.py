@@ -135,7 +135,7 @@ def load_routes(routes_filename=ROUTES_FILENAME, degrees=False):
         while key(ant, route) in mat.keys():
             mat[key(ant, route)][:, :2] /= 100.  # convert the route data to meters
             xs, ys, phis = mat[key(ant, route)].T
-            phis = 90 - phis
+            phis = (90 - phis + 180) % 360 - 180
             r = np.zeros((xs.shape[0], 4))
             r[:, 0] = ys
             r[:, 1] = xs

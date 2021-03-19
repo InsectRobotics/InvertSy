@@ -1,5 +1,4 @@
 from .agent import Agent
-from env.sky import Sky
 
 from invertsensing.polarisation import PolarisationSensor
 from invertbrain.compass import PolarisationCompass, decode_sph
@@ -52,45 +51,3 @@ class PathIntegrationAgent(Agent):
         steer = get_steering(self._cx)
         self.rotate(R.from_euler('Z', steer, degrees=False))
         self.move_forward()
-
-
-def pi_routine(agent: PathIntegrationAgent, route: np.ndarray):
-
-    sky = Sky(theta_s=60, phi_s=170, degrees=True)
-
-    agent.xyz = route[0, :3]
-    agent.ori = R.from_euler('Z', route[0, 3], degrees=True)
-
-    stats = {
-        "path": [],
-        "L": [],  # straight distance from the nest
-        "C": [],  # distance towards the nest that the agent has covered
-    }
-
-    def callback_all(a: PathIntegrationAgent):
-        stats["path"].append([a.x, a.y, a.z, a.yaw])
-        stats["L"].append(np.linalg.norm(a.xyz - route[0, :3]))
-
-    def callback_outbound(a: PathIntegrationAgent):
-        callback_all(a)
-        stats["C"].append(0.)
-
-    def callback_inbound(a: PathIntegrationAgent):
-        callback_all(a)
-        stats["C"].append(stats["C"][-1] + a.step_size)
-
-    # outbound path
-    for x, y, z, yaw in route:
-        dx = np.linalg.norm(np.array([x, y, z]) - agent.xyz)
-        flow = dx * np.ones(2) / np.sqrt(2)
-        agent(sky=sky, flow=flow, act=False, callback=callback_outbound)
-        agent.xyz = [x, y, z]
-        agent.ori = R.from_euler('Z', yaw, degrees=True)
-        print(agent)
-
-    # inbound path
-    while stats["C"][-1] < 15:
-        agent(sky=sky, act=True, callback=callback_inbound)
-        print(agent)
-
-    return stats

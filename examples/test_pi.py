@@ -1,8 +1,5 @@
-from agent.pathintegration import PathIntegrationAgent
 from env.seville2009 import load_routes
-from simplot.routes import anim_path_integration
-
-import sys
+from simplot.animation import PathIntegrationAnimation
 
 
 def main(*args):
@@ -10,11 +7,15 @@ def main(*args):
     ant_no, rt_no, rt = routes['ant_no'][0], routes['route_no'][0], routes['path'][0]
     print("Ant#: %d, Route#: %d, steps#: %d" % (ant_no, rt_no, rt.shape[0]))
 
-    agent = PathIntegrationAgent()
-
-    anim_path_integration(agent, rt, save=True, show=False, fps=15,
-                          title="pi-ant%d-route%d" % (ant_no, rt_no))
+    ani = PathIntegrationAnimation(rt, name="pi-ant%d-route%d" % (ant_no, rt_no))
+    ani(save=False, show=True, save_type="mp4")
 
 
 if __name__ == '__main__':
-    main(*sys.argv)
+    import warnings
+    import sys
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+
+        main(*sys.argv)
