@@ -7,8 +7,10 @@ def main(*args):
     ant_no, rt_no, rt = routes['ant_no'][0], routes['route_no'][0], routes['path'][0]
     print("Ant#: %d, Route#: %d, steps#: %d" % (ant_no, rt_no, rt.shape[0]))
 
-    ani = VisualNavigationAnimation(rt, world=Seville2009(),
-                                    name="vn-ant%d-route%d" % (ant_no, rt_no))
+    nb_scans = 61
+    ani = VisualNavigationAnimation(rt, world=Seville2009(), show_history=True, show_weights=False,
+                                    calibrate=True, nb_scans=nb_scans,
+                                    name="vn-whillshaw-pca-%d-ant%d-route%d" % (nb_scans, ant_no, rt_no))
     ani(save=True, show=False, save_type="mp4")
 
 
