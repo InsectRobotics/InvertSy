@@ -1,3 +1,12 @@
+__author__ = "Evripidis Gkanias"
+__copyright__ = "Copyright (c) 2021, Insect Robotics Group," \
+                "Institude of Perception, Action and Behaviour," \
+                "School of Informatics, the University of Edinburgh"
+__credits__ = ["Evripidis Gkanias"]
+__license__ = "MIT"
+__version__ = "1.0.1"
+__maintainer__ = "Evripidis Gkanias"
+
 from env import Sky, Seville2009
 from agent import PathIntegrationAgent, VisualNavigationAgent
 
@@ -148,15 +157,15 @@ class RouteAnimation(Animation):
 
 class VisualNavigationAnimation(Animation):
 
-    def __init__(self, route, agent=None, sky=None, world=None, cmap="Greens_r", show_history=False, show_weights=False,
+    def __init__(self, route, agent=None, sky=None, world=None, cmap="Greens_r", show_history=True, show_weights=False,
                  calibrate=False, frequency=False, nb_scans=7, *args, **kwargs):
         self._route = route
-        kwargs.setdefault('nb_iterations', int(2 * route.shape[0]))
+        kwargs.setdefault('nb_iterations', int(2.5 * route.shape[0]))
         name = kwargs.get('name', None)
         super().__init__(*args, **kwargs)
 
         if agent is None:
-            agent = VisualNavigationAgent(saturation=4., freq_trans=frequency, nb_scans=nb_scans)
+            agent = VisualNavigationAgent(saturation=4., freq_trans=frequency, nb_scans=nb_scans, speed=0.01)
         self._agent = agent
 
         if sky is None:
@@ -179,11 +188,11 @@ class VisualNavigationAnimation(Animation):
         if show_history:
             ax_dict = self.fig.subplot_mosaic(
                 """
-                AB
-                AB
-                CB
-                DB
-                EB
+                AABB
+                AABB
+                CFBB
+                DGBB
+                EHBB
                 """
             )
         else:
@@ -198,16 +207,24 @@ class VisualNavigationAnimation(Animation):
         omm = create_eye_axis(self._eye, cmap=cmap, ax=ax_dict["A"])
         line_c, line_b, pos, self._marker, cal = create_map_axis(world=world, ax=ax_dict["B"])
 
+        self._lines.extend([omm, line_c, line_b, pos, cal])
+
         if show_history:
             pn = create_pn_history(self._agent, self.nb_frames, cmap="Greys", ax=ax_dict["C"])
             kc = create_kc_history(self._agent, self.nb_frames, cmap="Greys", ax=ax_dict["D"])
-            fam = create_familiarity_history(self._agent, self.nb_frames, ax=ax_dict["E"])
+            fam_all = create_familiarity_response_history(self._agent, self.nb_frames, cmap="Greys", ax=ax_dict["E"])
+
+            dist = create_single_line_history(self.nb_frames, title="d_nest (m)", ylim=8, ax=ax_dict["F"])
+            cap = create_capacity_history(self.nb_frames, ax=ax_dict["G"])
+            fam = create_familiarity_history(self.nb_frames, ax=ax_dict["H"])
+
+            self._lines.extend([pn, kc, fam, dist, cap, fam_all])
         else:
             pn, kc, fam = create_mem_axis(self._agent, cmap="Greys", ax=ax_dict["C"])
 
-        plt.tight_layout()
+            self._lines.extend([pn, kc, fam])
 
-        self._lines.extend([omm, pn, kc, fam, line_c, line_b, pos, cal])
+        plt.tight_layout()
 
         self._show_history = show_history
         self._show_weights = show_weights
@@ -276,8 +293,22 @@ class VisualNavigationAnimation(Animation):
                 kc[:, i] = self._mem.r_kc[0].T.flatten()
             self.kc.set_array(kc)
             fam = self.fam.get_data()
-            fam[1][i] = self._familiarity
+            fam[1][i] = self._familiarity * 100
             self.fam.set_data(*fam)
+
+            if self.dist is not None:
+                dist = self.dist.get_data()
+                dist[1][i] = self._d_nest
+                self.dist.set_data(*dist)
+            if self.capacity is not None:
+                cap = self.capacity.get_data()
+                cap[1][i] = self._capacity * 100.
+                self.capacity.set_data(*cap)
+            if self.fam_all is not None:
+                fam_all = self.fam_all.get_array()
+                fam_all[:, i] = self._agent.familiarity
+                self.fam_all.set_array(fam_all)
+
         else:
             self.pn.set_array(self._mem.r_cs[0].T.flatten())
             if self._show_weights:
@@ -292,15 +323,19 @@ class VisualNavigationAnimation(Animation):
         fam = self._familiarity
         pn_diff = np.absolute(self._mem.r_cs[0] - self.pn.get_array()[:, self._iteration-1]).mean()
         kc_diff = np.absolute(self._mem.r_kc[0] - self.kc.get_array()[:, self._iteration-1]).mean()
-        capacity = self._mem.w_k2m.sum() / float(self._mem.w_k2m.size)
+        capacity = self._capacity
+        d_nest = self._d_nest
+        d_trav = (self._stats["C"][-1] if len(self._stats["C"]) > 0
+                  else (self._stats["C_out"][-1] if "C_out" in self._stats else 0.))
         return (super()._print_message() +
                 " - x: %.2f, y: %.2f, z: %.2f, Φ: %.0f"
-                " - PN (change): %.2f%%, KC (change): %.2f%%, familiarity: %.2f%%, capacity: %.2f%%") % (
-            x, y, z, phi, pn_diff * 100., kc_diff * 100., fam * 100., capacity * 100.)
+                " - PN (change): %.2f%%, KC (change): %.2f%%, familiarity: %.2f%%,"
+                " capacity: %.2f%%, L: %.2fm, C: %.2fm") % (
+            x, y, z, phi, pn_diff * 100., kc_diff * 100., fam * 100., capacity * 100., d_nest, d_trav)
 
     def callback_all(self, a: PathIntegrationAgent):
         self._stats["path"].append([a.x, a.y, a.z, a.yaw])
-        self._stats["L"].append(np.linalg.norm(a.xyz - self._route[0, :3]))
+        self._stats["L"].append(np.linalg.norm(a.xyz - self._route[-1, :3]))
         self._stats["capacity"].append(self._mem.w_k2m.sum() / float(self._mem.w_k2m.size))
         self._stats["familiarity"].append(self._familiarity)
 
@@ -319,36 +354,66 @@ class VisualNavigationAnimation(Animation):
         return fam_array[len(fam_array) // 2] if self._iteration < self._route.shape[0] else fam_array.min()
 
     @property
+    def _capacity(self):
+        return self._mem.w_k2m.sum() / float(self._mem.w_k2m.size)
+
+    @property
+    def _d_nest(self):
+        return (self._stats["L"][-1] if len(self._stats["L"]) > 0
+                else np.linalg.norm(self._route[-1, :3] - self._route[0, :3]))
+
+    @property
     def omm(self):
         return self._lines[0]
 
     @property
-    def pn(self):
+    def line_c(self):
         return self._lines[1]
 
     @property
-    def kc(self):
+    def line_b(self):
         return self._lines[2]
 
     @property
-    def fam(self):
+    def pos(self):
         return self._lines[3]
 
     @property
-    def line_c(self):
+    def cal(self):
         return self._lines[4]
 
     @property
-    def line_b(self):
+    def pn(self):
         return self._lines[5]
 
     @property
-    def pos(self):
+    def kc(self):
         return self._lines[6]
 
     @property
-    def cal(self):
+    def fam(self):
         return self._lines[7]
+
+    @property
+    def dist(self):
+        if len(self._lines) > 8:
+            return self._lines[8]
+        else:
+            return None
+
+    @property
+    def capacity(self):
+        if len(self._lines) > 9:
+            return self._lines[9]
+        else:
+            return None
+
+    @property
+    def fam_all(self):
+        if len(self._lines) > 10:
+            return self._lines[10]
+        else:
+            return None
 
 
 class PathIntegrationAnimation(Animation):
@@ -526,8 +591,8 @@ def create_eye_axis(eye: CompoundEye, cmap="Greys_r", subplot=111, ax=None):
 
 
 def create_mem_axis(agent: VisualNavigationAgent, cmap="Greys", subplot=111, ax=None):
-    if ax is None:
-        ax = plt.subplot(subplot)
+    ax = get_axis(ax, subplot)
+
     ax.set_yticks([])
     ax.set_xticks([])
     ax.set_ylim([0, 5])
@@ -562,66 +627,45 @@ def create_mem_axis(agent: VisualNavigationAgent, cmap="Greys", subplot=111, ax=
 
 def create_pn_history(agent: VisualNavigationAgent, nb_frames: int, cmap="Greys", subplot=111, ax=None):
     nb_pn = agent.brain[0].nb_cs
-    if ax is None:
-        ax = plt.subplot(subplot)
-    ax.set_yticks([])
-    ax.set_xticks([])
-    ax.set_ylim([0, nb_pn])
-    ax.set_xlim([0, nb_frames])
-    ax.set_aspect('auto')
-    ax.spines['right'].set_visible(False)
-    ax.spines['top'].set_visible(False)
-    ax.spines['bottom'].set_visible(False)
-    ax.spines['left'].set_visible(False)
-    ax.set_ylabel("PN")
-
-    pn = ax.imshow(np.zeros((nb_pn, nb_frames), dtype='float32'), cmap=cmap, vmin=0, vmax=1,
-                   interpolation="none", aspect="auto")
-
-    return pn
+    return create_image_history(nb_pn, nb_frames, title="PN",  cmap=cmap, subplot=subplot, ax=ax)
 
 
 def create_kc_history(agent: VisualNavigationAgent, nb_frames: int, cmap="Greys", subplot=111, ax=None):
     nb_kc = agent.brain[0].nb_kc
-    if ax is None:
-        ax = plt.subplot(subplot)
+    return create_image_history(nb_kc, nb_frames, title="KC",  cmap=cmap, subplot=subplot, ax=ax)
+
+
+def create_familiarity_response_history(agent: VisualNavigationAgent, nb_frames: int, cmap="Greys",
+                                        subplot=111, ax=None):
+    nb_scans = agent.nb_scans
+
+    ax = get_axis(ax, subplot)
+
     ax.set_yticks([])
     ax.set_xticks([])
-    ax.set_ylim([0, nb_kc])
+    ax.set_ylim([0, nb_scans])
     ax.set_xlim([0, nb_frames])
+    ax.set_yticks([0, nb_scans//2, nb_scans-1])
+    ax.set_yticklabels([agent.pref_angles[0], agent.pref_angles[nb_scans//2], agent.pref_angles[-1]])
     ax.set_aspect('auto')
     ax.spines['right'].set_visible(False)
     ax.spines['top'].set_visible(False)
     ax.spines['bottom'].set_visible(False)
     ax.spines['left'].set_visible(False)
-    ax.set_ylabel("KC")
-
-    kc = ax.imshow(np.zeros((nb_kc, nb_frames), dtype='float32'), cmap=cmap, vmin=0, vmax=1,
-                   interpolation="none", aspect="auto")
-    return kc
-
-
-def create_familiarity_history(agent: VisualNavigationAgent, nb_frames: int, subplot=111, ax=None):
-    nb_en = agent.brain[0].nb_mbon
-
-    if ax is None:
-        if isinstance(subplot, int):
-            ax = plt.subplot(subplot)
-        else:
-            ax = plt.subplot(*subplot)
-
-    ax.set_ylim([0, .2])
-    ax.set_xlim([0, nb_frames])
+    ax.set_ylabel("familiarity")
     ax.tick_params(axis='both', labelsize=8)
-    ax.set_aspect('auto', 'box')
-    ax.spines['right'].set_visible(False)
-    ax.spines['top'].set_visible(False)
-    ax.spines['left'].set_visible(False)
 
-    fam, = ax.plot(np.full((nb_frames, nb_en), np.nan), 'k-', lw=2)
-    ax.text(120, .21, "familiarity", fontsize=10)
-
+    fam = ax.imshow(np.zeros((nb_scans, nb_frames), dtype='float32'), cmap=cmap, vmin=0, vmax=.2,
+                    interpolation="none", aspect="auto")
     return fam
+
+
+def create_familiarity_history(nb_frames: int, subplot=111, ax=None):
+    return create_single_line_history(nb_frames, title="familiarity (%)", ylim=20, subplot=subplot, ax=ax)
+
+
+def create_capacity_history(nb_frames: int, subplot=111, ax=None):
+    return create_single_line_history(nb_frames, title="capacity (%)", ylim=100, subplot=subplot, ax=ax)
 
 
 def create_cx_axis(agent: PathIntegrationAgent, cmap="coolwarm", subplot=111, ax=None):
@@ -665,3 +709,54 @@ def create_cx_axis(agent: PathIntegrationAgent, cmap="coolwarm", subplot=111, ax
                          c=np.zeros_like(agent.brain[1].r_cpu4), cmap=cmap, vmin=0, vmax=1)
 
     return omm, tb1, cl1, cpu1, cpu4, cpu4mem
+
+
+def create_image_history(nb_values: int, nb_frames: int, title: str = None, cmap="Greys", subplot=111, ax=None):
+    ax = get_axis(ax, subplot)
+
+    ax.set_yticks([])
+    ax.set_xticks([])
+    ax.set_ylim([0, nb_values])
+    ax.set_xlim([0, nb_frames])
+    ax.set_aspect('auto')
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+    ax.spines['bottom'].set_visible(False)
+    ax.spines['left'].set_visible(False)
+    if title is not None:
+        ax.set_ylabel(title)
+
+    im = ax.imshow(np.zeros((nb_values, nb_frames), dtype='float32'), cmap=cmap, vmin=0, vmax=1,
+                   interpolation="none", aspect="auto")
+    return im
+
+
+def create_single_line_history(nb_frames: int, title: str = None, ylim: float = 1., subplot=111, ax=None):
+    return create_multi_line_history(nb_frames, 1, title=title, ylim=ylim, subplot=subplot, ax=ax)
+
+
+def create_multi_line_history(nb_frames: int, nb_lines: int, title: str = None, ylim: float = 1., subplot=111, ax=None):
+    ax = get_axis(ax, subplot)
+
+    ax.set_ylim([0, ylim])
+    ax.set_xlim([0, nb_frames])
+    ax.tick_params(axis='both', labelsize=8)
+    ax.set_aspect('auto', 'box')
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+    ax.spines['left'].set_visible(False)
+
+    lines, = ax.plot(np.full((nb_frames, nb_lines), np.nan), 'k-', lw=2)
+    if title is not None:
+        ax.text(120, ylim * 1.05, title, fontsize=10)
+
+    return lines
+
+
+def get_axis(ax=None, subplot=111):
+    if ax is None:
+        if isinstance(subplot, int):
+            ax = plt.subplot(subplot)
+        else:
+            ax = plt.subplot(*subplot)
+    return ax
