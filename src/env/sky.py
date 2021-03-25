@@ -71,7 +71,7 @@ class Sky(object):
 
         # set default arguments
         if ori is not None:
-            xyz = ori.apply([1, 0, 0])
+            xyz = np.clip(ori.apply([1, 0, 0]), -1, 1)
             phi = np.arctan2(xyz[..., 1], xyz[..., 0])
             theta = np.arccos(xyz[..., 2])
             # theta[xyz[..., 2] > 0] = np.pi - theta[xyz[..., 2] > 0]
@@ -118,10 +118,6 @@ class Sky(object):
         a[eta] = np.nan
 
         y[gamma < np.pi/60] = 17
-
-        y[theta < 0] = np.nan
-        p[theta < 0] = np.nan
-        a[theta < 0] = np.nan
 
         self.__y = y
         self.__dop = p
@@ -425,10 +421,10 @@ def spectrum_influence(v, irgbu):
     wl = np.array([1200, 715, 535, 475, 350], dtype='float32')
     v = v[..., np.newaxis]
     l1 = 10.0 * irgbu * np.power(wl / 1000., 8) * np.square(v) / float(v.size)
-    l2 = 0.001 * irgbu * np.power(1000. / wl, 8) * np.square(v).sum() / float(v.size)
+    l2 = 0.001 * irgbu * np.power(1000. / wl, 8) * np.nansum(np.square(v)) / float(v.size)
 
-    v_max = v.max()
-    w_max = (v + l1 + l2).max()
+    v_max = np.nanmax(v)
+    w_max = np.nanmax(v + l1 + l2)
     w = v_max * (v + l1 + l2) / w_max
     if isinstance(irgbu, np.ndarray):
         if irgbu.shape[0] == 1 and w.shape[0] > irgbu.shape[0]:
