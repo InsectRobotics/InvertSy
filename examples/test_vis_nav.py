@@ -1,4 +1,5 @@
 from env.seville2009 import load_routes, Seville2009
+from sim.simulation import VisualNavigationSimulation
 from simplot.animation import VisualNavigationAnimation
 
 
@@ -7,13 +8,18 @@ def main(*args):
     ant_no, rt_no, rt = routes['ant_no'][0], routes['route_no'][0], routes['path'][0]
     print("Ant#: %d, Route#: %d, steps#: %d" % (ant_no, rt_no, rt.shape[0]), end='')
 
-    nb_scans = 31
-    agent_name = "vn-whillshaw-pca-%d-ant%d-route%d" % (nb_scans, ant_no, rt_no)
-    print(" - Agent: %s" % agent_name)
+    save, show = False, True
+    nb_scans = 11
+    nb_ommatidia = 360
+    replace = True
+    agent_name = "vn-whillshaw-pca-scan%d-ant%d-route%d%s" % (nb_scans, ant_no, rt_no, "-replace" if replace else "")
+    agent_name += ("-omm%d" % nb_ommatidia) if nb_ommatidia is not None else ""
+    print(" - Agent: %s" % agent_name, ("- save " if save else "") + ("- show" if show else ""))
 
-    ani = VisualNavigationAnimation(rt, world=Seville2009(), show_history=True, calibrate=True,
-                                    nb_scans=nb_scans, name=agent_name)
-    ani(save=True, show=False, save_type="mp4")
+    sim = VisualNavigationSimulation(rt, world=Seville2009(), calibrate=True, nb_scans=nb_scans,
+                                     nb_ommatidia=nb_ommatidia, name=agent_name, free_motion=not replace)
+    ani = VisualNavigationAnimation(sim, show_history=True, name=agent_name)
+    ani(save=save, show=show, save_type="mp4")
 
 
 if __name__ == '__main__':

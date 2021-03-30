@@ -22,7 +22,7 @@ import numpy as np
 
 
 class Agent(object):
-    def __init__(self, xyz=None, ori=None, speed=0.1, delta_time=0.1, dtype='float32', name='agent', rng=RNG):
+    def __init__(self, xyz=None, ori=None, speed=0.1, delta_time=1., dtype='float32', name='agent', rng=RNG):
         """
 
         Parameters
@@ -316,7 +316,8 @@ class VisualNavigationAgent(Agent):
                               c_sensitive=[0, 0., 1., 0., 0.])
 
         if memory is None:
-            memory = WillshawNetwork(nb_cs=eye.nb_ommatidia, nb_kc=eye.nb_ommatidia * 20, sparseness=0.01)
+            memory = WillshawNetwork(nb_cs=eye.nb_ommatidia, nb_kc=eye.nb_ommatidia * 20, sparseness=0.01,
+                                     eligibility_trace=.1)
 
         self.add_sensor(eye)
         self.add_brain_component(memory)
