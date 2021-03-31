@@ -732,7 +732,7 @@ def create_image_history(nb_values: int, nb_frames: int, sep: float = None, titl
 
 
 def create_single_line_history(nb_frames: int, sep: float = None, title: str = None, ylim: float = 1., subplot=111, ax=None):
-    return create_multi_line_history(nb_frames, 1, sep=sep,title=title, ylim=ylim, subplot=subplot, ax=ax)
+    return create_multi_line_history(nb_frames, 1, sep=sep, title=title, ylim=ylim, subplot=subplot, ax=ax)
 
 
 def create_multi_line_history(nb_frames: int, nb_lines: int, sep: float = None, title: str = None, ylim: float = 1.,

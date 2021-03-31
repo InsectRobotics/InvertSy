@@ -241,7 +241,7 @@ class VisualNavigationSimulation(Simulation):
     def update_stats(self, a: VisualNavigationAgent):
         eye = a.sensors[0]
         mem = a.brain[0]
-        self._stats["ommatidia"].append(eye.r_pol.copy())
+        self._stats["ommatidia"].append(eye.responses.copy())
         self._stats["PN"].append(mem.r_cs.copy())
         self._stats["KC"].append(mem.r_kc.copy())
         self._stats["MBON"].append(mem.r_mbon.copy())
@@ -354,6 +354,8 @@ class PathIntegrationSimulation(Simulation):
         self._stats["path"] = []
         self._stats["L"] = []
         self._stats["C"] = []
+
+        self.agent.reset()
 
     def init_inbound(self):
         # create a separate line
