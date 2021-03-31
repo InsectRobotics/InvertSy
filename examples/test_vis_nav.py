@@ -10,7 +10,7 @@ def main(*args):
 
     save, show = False, True
     nb_scans = 11
-    nb_ommatidia = 360
+    nb_ommatidia = 5000
     replace = True
     agent_name = "vn-whillshaw-pca-scan%d-ant%d-route%d%s" % (nb_scans, ant_no, rt_no, "-replace" if replace else "")
     agent_name += ("-omm%d" % nb_ommatidia) if nb_ommatidia is not None else ""

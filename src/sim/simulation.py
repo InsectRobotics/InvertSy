@@ -1,6 +1,6 @@
-from env import Sky
+from env import Sky, Seville2009
 from env.seville2009 import __root__
-from agent import VisualNavigationAgent
+from agent import VisualNavigationAgent, PathIntegrationAgent
 
 from invertsensing import CompoundEye
 
@@ -74,6 +74,63 @@ class Simulation(object):
     @property
     def name(self):
         return self._name
+
+
+class RouteSimulation(Simulation):
+    def __init__(self, route, eye=None, sky=None, world=None, *args, **kwargs):
+        kwargs.setdefault('nb_iterations', route.shape[0])
+        name = kwargs.get('name', None)
+        super().__init__(*args, **kwargs)
+
+        self._route = route
+
+        if eye is None:
+            eye = CompoundEye(nb_input=5000, omm_pol_op=0, noise=0., omm_rho=np.deg2rad(10), omm_res=5.,
+                              c_sensitive=[0., 0., 1., 0., 0.])
+        self._eye = eye
+
+        if sky is None:
+            sky = Sky(30, 180, degrees=True)
+        self._sky = sky
+
+        if world is None:
+            world = Seville2009()
+        self._world = world
+
+        if name is None:
+            name = world.name
+        self._name = name
+
+        self._r = eye(sky=sky, scene=world).mean(axis=1)
+
+    def reset(self):
+        self._step(0)
+
+    def _step(self, i: int):
+        self._iteration = i
+        self._eye._xyz = self._route[i, :3]
+        self._eye._ori = R.from_euler('Z', self._route[i, 3], degrees=True)
+
+        self._r = self._eye(sky=self._sky, scene=self._world)
+
+    def message(self):
+        return super().message() + " - x: %.2f, y: %.2f, z: %.2f, Φ: %.0f" % tuple(self._route[self._iteration])
+
+    @property
+    def world(self):
+        return self._world
+
+    @property
+    def route(self):
+        return self._route
+
+    @property
+    def eye(self):
+        return self._eye
+
+    @property
+    def responses(self):
+        return self._r.T.flatten()
 
 
 class VisualNavigationSimulation(Simulation):
@@ -184,7 +241,7 @@ class VisualNavigationSimulation(Simulation):
     def update_stats(self, a: VisualNavigationAgent):
         eye = a.sensors[0]
         mem = a.brain[0]
-        self._stats["ommatidia"].append(eye.responses.copy())
+        self._stats["ommatidia"].append(eye.r_pol.copy())
         self._stats["PN"].append(mem.r_cs.copy())
         self._stats["KC"].append(mem.r_kc.copy())
         self._stats["MBON"].append(mem.r_mbon.copy())
@@ -261,3 +318,131 @@ class VisualNavigationSimulation(Simulation):
     @property
     def free_motion(self):
         return self._free_motion
+
+
+class PathIntegrationSimulation(Simulation):
+
+    def __init__(self, route, agent=None, sky=None, world=None, *args, **kwargs):
+        name = kwargs.pop('name', None)
+        kwargs.setdefault('nb_iterations', int(2.5 * route.shape[0]))
+        super().__init__(*args, **kwargs)
+        self._route = route
+
+        if agent is None:
+            agent = PathIntegrationAgent(speed=.01)
+        self._agent = agent
+
+        if sky is None:
+            sky = Sky(30, 180, degrees=True)
+        self._sky = sky
+        self._world = world
+
+        if name is None and world is not None:
+            self._name = world.name
+
+        self._compass_sensor = agent.sensors[0]
+        self._compass_model, self._cx = agent.brain
+
+    def reset(self):
+        self._stats["POL"] = []
+        self._stats["SOL"] = []
+        self._stats["TB1"] = []
+        self._stats["CL1"] = []
+        self._stats["CPU1"] = []
+        self._stats["CPU4"] = []
+        self._stats["CPU4mem"] = []
+        self._stats["path"] = []
+        self._stats["L"] = []
+        self._stats["C"] = []
+
+    def init_inbound(self):
+        # create a separate line
+        self._stats["outbound"] = self._stats["path"]
+        self._stats["L_out"] = self._stats["L"]
+        self._stats["C_out"] = self._stats["C"]
+        self._stats["path"] = []
+        self._stats["L"] = []
+        self._stats["C"] = []
+
+    def _step(self, i: int):
+        self._iteration = i
+
+        act = True
+        if i < self._route.shape[0]:  # outbound
+            x, y, z, yaw = self._route[i]
+            self._agent.xyz = [x, y, z]
+            self._agent.ori = R.from_euler('Z', yaw, degrees=True)
+            act = False
+        self._agent(sky=self._sky, act=act, callback=self.update_stats)
+
+    def update_stats(self, a: PathIntegrationAgent):
+        compass, cx = a.brain
+        self._stats["POL"].append(compass.r_pol.copy())
+        self._stats["SOL"].append(compass.r_sol.copy())
+        self._stats["TB1"].append(cx.r_tb1.copy())
+        self._stats["CL1"].append(cx.r_cl1.copy())
+        self._stats["CPU1"].append(cx.r_cpu1.copy())
+        self._stats["CPU4"].append(cx.r_cpu4.copy())
+        self._stats["CPU4mem"].append(cx.cpu4_mem.copy())
+        self._stats["path"].append([a.x, a.y, a.z, a.yaw])
+        self._stats["L"].append(np.linalg.norm(a.xyz - self._route[-1, :3]))
+        c = self._stats["C"][-1] if len(self._stats["C"]) > 0 else 0.
+        if len(self._stats["path"]) > 1:
+            step = np.linalg.norm(np.array(self._stats["path"][-1])[:3] - np.array(self._stats["path"][-2])[:3])
+        else:
+            step = 0.
+        self._stats["C"].append(c + step)
+
+    def message(self):
+        x, y, z = self._agent.xyz
+        phi = self._agent.yaw_deg
+        d_nest = self.d_nest
+        d_trav = (self._stats["C"][-1] if len(self._stats["C"]) > 0
+                  else (self._stats["C_out"][-1] if "C_out" in self._stats else 0.))
+        return (super().message() + " - x: %.2f, y: %.2f, z: %.2f, Φ: %.0f - L: %.2fm, C: %.2fm") % (
+            x, y, z, phi, d_nest, d_trav)
+
+    @property
+    def agent(self):
+        return self._agent
+
+    @property
+    def route(self):
+        return self._route
+
+    @property
+    def sky(self):
+        return self._sky
+
+    @property
+    def world(self):
+        return self._world
+
+    @property
+    def d_nest(self):
+        return (self._stats["L"][-1] if len(self._stats["L"]) > 0
+                else np.linalg.norm(self._route[-1, :3] - self._route[0, :3]))
+
+    @property
+    def r_pol(self):
+        return self._compass_model.r_pol.T.flatten()
+
+    @property
+    def r_tb1(self):
+        return self._cx.r_tb1.T.flatten()
+
+    @property
+    def r_cl1(self):
+        return self._cx.r_cl1.T.flatten()
+
+    @property
+    def r_cpu1(self):
+        return self._cx.r_cpu1.T.flatten()
+
+    @property
+    def r_cpu4(self):
+        return self._cx.r_cpu4.T.flatten()
+
+    @property
+    def cpu4_mem(self):
+        return self._cx.cpu4_mem.T.flatten()
