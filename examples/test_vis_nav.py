@@ -1,5 +1,5 @@
 from invertbrain.mushroombody import PerfectMemory
-from invertsensing import CompoundEye
+from invertsense import CompoundEye
 
 from agent import VisualNavigationAgent
 from env.seville2009 import load_routes, Seville2009
@@ -32,7 +32,7 @@ def main(*args):
                                      nb_ommatidia=nb_ommatidia, name=agent_name, free_motion=not replace)
     ani = VisualNavigationAnimation(sim, show_history=True)
     ani(save=save, show=show, save_type="mp4")
-    # sim(save=False)
+    # sim(save=True)
 
 
 if __name__ == '__main__':

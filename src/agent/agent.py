@@ -9,7 +9,7 @@ __maintainer__ = "Evripidis Gkanias"
 
 from ._helpers import eps, RNG
 
-from invertsensing import PolarisationSensor, CompoundEye, Sensor
+from invertsense import PolarisationSensor, CompoundEye, Sensor
 from invertbrain import MushroomBody, WillshawNetwork, CentralComplex, PolarisationCompass, Component
 from invertbrain.compass import decode_sph
 from invertbrain.synapses import whitening_synapses, whitening, dct_synapses

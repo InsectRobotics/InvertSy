@@ -1,7 +1,7 @@
 from agent import VisualNavigationAgent, PathIntegrationAgent
 
 from invertbrain import CelestialCompass
-from invertsensing import CompoundEye
+from invertsense import CompoundEye
 
 import matplotlib.pyplot as plt
 import numpy as np

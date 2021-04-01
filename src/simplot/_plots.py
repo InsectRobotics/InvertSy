@@ -8,7 +8,7 @@ __version__ = "1.0.1"
 __maintainer__ = "Evripidis Gkanias"
 
 
-from invertsensing._helpers import fibonacci_sphere
+from invertsense._helpers import fibonacci_sphere
 
 from env.ephemeris import Sun
 from datetime import datetime, timedelta
