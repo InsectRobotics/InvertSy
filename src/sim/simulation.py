@@ -15,7 +15,7 @@ from env import Sky, Seville2009
 from env.seville2009 import __root__
 from agent import VisualNavigationAgent, PathIntegrationAgent
 
-from invertsense import CompoundEye
+from sense import CompoundEye
 
 from scipy.spatial.transform import Rotation as R
 

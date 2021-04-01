@@ -9,11 +9,11 @@ __maintainer__ = "Evripidis Gkanias"
 
 from ._helpers import eps, RNG
 
-from invertsense import PolarisationSensor, CompoundEye, Sensor
-from invertbrain import MushroomBody, WillshawNetwork, CentralComplex, PolarisationCompass, Component
-from invertbrain.compass import decode_sph
-from invertbrain.synapses import whitening_synapses, whitening, dct_synapses
-from invertbrain.activation import softmax
+from sense import PolarisationSensor, CompoundEye, Sensor
+from brain import MushroomBody, WillshawNetwork, CentralComplex, PolarisationCompass, Component
+from brain.compass import decode_sph
+from brain.synapses import whitening_synapses, whitening, dct_synapses
+from brain.activation import softmax
 
 from scipy.spatial.transform import Rotation as R
 from copy import copy

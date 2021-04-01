@@ -1,5 +1,5 @@
-from invertbrain.mushroombody import PerfectMemory
-from invertsense import CompoundEye
+from brain.mushroombody import PerfectMemory
+from sense import CompoundEye
 
 from agent import VisualNavigationAgent
 from env.seville2009 import load_routes, Seville2009

@@ -1,5 +1,5 @@
-from invertsense.vision import CompoundEye
-from invertbrain.synapses import dct_synapses, dct_omm_synapses
+from sense.vision import CompoundEye
+from brain.synapses import dct_synapses, dct_omm_synapses
 from env.sky import Sky
 from env.seville2009 import Seville2009
 

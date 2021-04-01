@@ -1,5 +1,5 @@
 from agent.agent import Agent
-from invertsense.vision import CompoundEye
+from sense.vision import CompoundEye
 
 from scipy.spatial.transform import Rotation as R
 
