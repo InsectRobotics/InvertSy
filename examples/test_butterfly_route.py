@@ -1,5 +1,5 @@
-from env.ephemeris import Sun
-from env.observer import Observer, get_distance
+from invertsy.env.ephemeris import Sun
+from invertsy.env.observer import Observer, get_distance
 from sphere import sphdist_angle, sphdist_meters
 
 from datetime import datetime, timedelta

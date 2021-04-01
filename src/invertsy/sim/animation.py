@@ -10,7 +10,7 @@ __maintainer__ = "Evripidis Gkanias"
 from ._helpers import *
 from .simulation import RouteSimulation, VisualNavigationSimulation, PathIntegrationSimulation, Simulation
 
-from env.seville2009 import __root__
+from invertsy.env.seville2009 import __root__
 
 from scipy.spatial.transform import Rotation as R
 from matplotlib import animation

@@ -11,11 +11,11 @@ __license__ = "MIT"
 __version__ = "1.0.1"
 __maintainer__ = "Evripidis Gkanias"
 
-from env import Sky, Seville2009
-from env.seville2009 import __root__
-from agent import VisualNavigationAgent, PathIntegrationAgent
+from invertsy.env import Sky, Seville2009
+from invertsy.env.seville2009 import __root__
+from invertsy.agent import VisualNavigationAgent, PathIntegrationAgent
 
-from sense import CompoundEye
+from invertpy.sense import CompoundEye
 
 from scipy.spatial.transform import Rotation as R
 

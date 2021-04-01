@@ -1,6 +1,6 @@
-from env.seville2009 import load_routes
-from sim.simulation import RouteSimulation
-from sim.animation import RouteAnimation
+from invertsy.env.seville2009 import load_routes
+from invertsy.sim.simulation import RouteSimulation
+from invertsy.sim.animation import RouteAnimation
 
 
 def main(*args):

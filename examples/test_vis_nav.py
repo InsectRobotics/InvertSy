@@ -1,10 +1,10 @@
-from brain.mushroombody import PerfectMemory
-from sense import CompoundEye
+from invertpy.brain.mushroombody import PerfectMemory
+from invertpy.sense import CompoundEye
 
-from agent import VisualNavigationAgent
-from env.seville2009 import load_routes, Seville2009
-from sim.simulation import VisualNavigationSimulation
-from sim.animation import VisualNavigationAnimation
+from invertsy.agent import VisualNavigationAgent
+from invertsy.env.seville2009 import load_routes, Seville2009
+from invertsy.sim.simulation import VisualNavigationSimulation
+from invertsy.sim.animation import VisualNavigationAnimation
 
 import numpy as np
 

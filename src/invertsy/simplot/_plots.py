@@ -7,10 +7,10 @@ __license__ = "MIT"
 __version__ = "1.0.1"
 __maintainer__ = "Evripidis Gkanias"
 
+from invertsy.env.ephemeris import Sun
 
-from sense._helpers import fibonacci_sphere
+from invertpy.sense._helpers import fibonacci_sphere
 
-from env.ephemeris import Sun
 from datetime import datetime, timedelta
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 

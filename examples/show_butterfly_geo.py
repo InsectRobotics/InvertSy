@@ -1,6 +1,6 @@
-from env import Sky
-from env.ephemeris import Sun
-from env.observer import Observer, get_distance, interpolate
+from invertsy.env import Sky
+from invertsy.env.ephemeris import Sun
+from invertsy.env.observer import Observer, get_distance, interpolate
 from sphere import angdist, sph2vec, vec2sph
 
 from datetime import datetime, timedelta

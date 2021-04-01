@@ -1,7 +1,8 @@
-from sense.vision import CompoundEye
-from brain.synapses import dct_synapses, dct_omm_synapses
-from env.sky import Sky
-from env.seville2009 import Seville2009
+from invertpy.sense.vision import CompoundEye
+from invertpy.brain.synapses import dct_synapses, dct_omm_synapses
+
+from invertsy.env.sky import Sky
+from invertsy.env.seville2009 import Seville2009
 
 import matplotlib.pyplot as plt
 import numpy as np
