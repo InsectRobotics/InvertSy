@@ -1,6 +1,12 @@
+from invertbrain.mushroombody import PerfectMemory
+from invertsensing import CompoundEye
+
+from agent import VisualNavigationAgent
 from env.seville2009 import load_routes, Seville2009
 from sim.simulation import VisualNavigationSimulation
-from simplot.animation import VisualNavigationAnimation
+from sim.animation import VisualNavigationAnimation
+
+import numpy as np
 
 
 def main(*args):
@@ -8,19 +14,25 @@ def main(*args):
     ant_no, rt_no, rt = routes['ant_no'][0], routes['route_no'][0], routes['path'][0]
     print("Ant#: %d, Route#: %d, steps#: %d" % (ant_no, rt_no, rt.shape[0]), end='')
 
-    save, show = False, True
+    save, show = True, False
     nb_scans = 121
     nb_ommatidia = 5000
     replace = True
-    agent_name = "vn-whillshaw-pca-scan%d-ant%d-route%d%s" % (nb_scans, ant_no, rt_no, "-replace" if replace else "")
+    calibrate = False
+    mem = PerfectMemory(nb_ommatidia)
+    agent_name = "vn-%s%s-scan%d-ant%d-route%d%s" % (
+        mem.__class__.__name__.lower(), "-pca" if calibrate else "", nb_scans, ant_no, rt_no, "-replace" if replace else "")
     agent_name += ("-omm%d" % nb_ommatidia) if nb_ommatidia is not None else ""
     print(" - Agent: %s" % agent_name, ("- save " if save else "") + ("- show" if show else ""))
 
-    sim = VisualNavigationSimulation(rt, world=Seville2009(), calibrate=True, nb_scans=nb_scans,
+    eye = CompoundEye(nb_input=nb_ommatidia, omm_pol_op=0, noise=0., omm_rho=np.deg2rad(15),
+                      omm_res=5., c_sensitive=[0, 0., 1., 0., 0.])
+    agent = VisualNavigationAgent(eye, mem, nb_scans=nb_scans, speed=.01)
+    sim = VisualNavigationSimulation(rt, agent=agent, world=Seville2009(), calibrate=calibrate, nb_scans=nb_scans,
                                      nb_ommatidia=nb_ommatidia, name=agent_name, free_motion=not replace)
-    # ani = VisualNavigationAnimation(sim, show_history=True, name=agent_name)
-    # ani(save=save, show=show, save_type="mp4")
-    sim(save=False)
+    ani = VisualNavigationAnimation(sim, show_history=True)
+    ani(save=save, show=show, save_type="mp4")
+    # sim(save=False)
 
 
 if __name__ == '__main__':

@@ -1,7 +1,6 @@
-from ephemeris import Sun
-from observer import Observer, get_distance
+from env.ephemeris import Sun
+from env.observer import Observer, get_distance
 from sphere import sphdist_angle, sphdist_meters
-from utils import eps
 
 from datetime import datetime, timedelta
 from pytz import timezone

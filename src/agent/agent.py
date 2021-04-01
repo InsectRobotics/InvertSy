@@ -357,7 +357,8 @@ class VisualNavigationAgent(Agent):
         if self.update:
             r = self.get_pn_responses(sky=sky, scene=scene)
             self._familiarity[front] = self._mem(cs=r, us=np.ones(1, dtype=self.dtype))
-            self._familiarity[front] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
+            if self._mem.nb_kc > 0:
+                self._familiarity[front] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
         else:
             ori = copy(self.ori)
 
@@ -365,7 +366,8 @@ class VisualNavigationAgent(Agent):
                 self.ori = ori * R.from_euler('Z', angle, degrees=True)
                 r = self.get_pn_responses(sky=sky, scene=scene)
                 self._familiarity[i] = self._mem(cs=r)
-                self._familiarity[i] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
+                if self._mem.nb_kc > 0:
+                    self._familiarity[i] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
             self.ori = ori
 
         return self._familiarity

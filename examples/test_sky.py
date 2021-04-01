@@ -1,7 +1,7 @@
 from invertsensing._helpers import fibonacci_sphere
 from env.sky import Sky
 from invertsensing.vision import CompoundEye
-from plots import plot_sky
+from simplot._plots import plot_sky
 
 from scipy.spatial.transform import Rotation as R
 

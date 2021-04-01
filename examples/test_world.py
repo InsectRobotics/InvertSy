@@ -1,6 +1,6 @@
 from env.seville2009 import load_routes
 from sim.simulation import RouteSimulation
-from simplot.animation import RouteAnimation
+from sim.animation import RouteAnimation
 
 
 def main(*args):

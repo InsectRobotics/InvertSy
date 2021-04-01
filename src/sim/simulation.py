@@ -1,3 +1,16 @@
+"""
+Package that contains a number of different simulations.
+"""
+
+__author__ = "Evripidis Gkanias"
+__copyright__ = "Copyright (c) 2021, Insect Robotics Group," \
+                "Institude of Perception, Action and Behaviour," \
+                "School of Informatics, the University of Edinburgh"
+__credits__ = ["Evripidis Gkanias"]
+__license__ = "MIT"
+__version__ = "1.0.1"
+__maintainer__ = "Evripidis Gkanias"
+
 from env import Sky, Seville2009
 from env.seville2009 import __root__
 from agent import VisualNavigationAgent, PathIntegrationAgent
@@ -137,7 +150,7 @@ class VisualNavigationSimulation(Simulation):
 
     def __init__(self, route, agent=None, sky=None, world=None, nb_ommatidia=None, nb_scans=7,
                  calibrate=False, frequency=False, free_motion=True, **kwargs):
-        kwargs.setdefault('nb_iterations', int(2.5 * route.shape[0]))
+        kwargs.setdefault('nb_iterations', int(2.1 * route.shape[0]))
         kwargs.setdefault('name', 'vn-simulation')
         super().__init__(**kwargs)
 
