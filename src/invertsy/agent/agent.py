@@ -9,11 +9,11 @@ __maintainer__ = "Evripidis Gkanias"
 
 from ._helpers import eps, RNG
 
-from sense import PolarisationSensor, CompoundEye, Sensor
-from brain import MushroomBody, WillshawNetwork, CentralComplex, PolarisationCompass, Component
-from brain.compass import decode_sph
-from brain.synapses import whitening_synapses, whitening, dct_synapses
-from brain.activation import softmax
+from invertpy.sense import PolarisationSensor, CompoundEye, Sensor
+from invertpy.brain import MushroomBody, WillshawNetwork, CentralComplex, PolarisationCompass, Component
+from invertpy.brain.compass import decode_sph
+from invertpy.brain.synapses import whitening_synapses, whitening, dct_synapses
+from invertpy.brain.activation import softmax
 
 from scipy.spatial.transform import Rotation as R
 from copy import copy
@@ -316,7 +316,8 @@ class VisualNavigationAgent(Agent):
                               c_sensitive=[0, 0., 1., 0., 0.])
 
         if memory is None:
-            memory = WillshawNetwork(nb_cs=eye.nb_ommatidia, nb_kc=eye.nb_ommatidia * 20, sparseness=0.01,
+            # #KC = 40 * #PN
+            memory = WillshawNetwork(nb_cs=eye.nb_ommatidia, nb_kc=eye.nb_ommatidia * 40, sparseness=0.01,
                                      eligibility_trace=.1)
 
         self.add_sensor(eye)

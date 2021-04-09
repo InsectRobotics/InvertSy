@@ -15,7 +15,7 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/evgkanias/InvertSy",
-    licence="GPLv3+",
+    license="GPLv3+",
     classifiers=[
         "Programming Language :: Python :: 3",
         "Licence :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
