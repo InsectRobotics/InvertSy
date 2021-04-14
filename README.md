@@ -1,4 +1,4 @@
-# InvertSy
+# InvertSy ![GitHub top language](https://img.shields.io/github/languages/top/evgkanias/InvertSimulations) [![GitHub license](https://img.shields.io/github/license/evgkanias/InvertSimulations)](https://github.com/evgkanias/InvertSimulations/blob/main/LICENSE) [![Build Status](https://travis-ci.com/evgkanias/InvertSimulations.svg?token=tyo7V4GZ2Vq6iYPrXVLD&branch=main)](https://travis-ci.com/evgkanias/InvertSimulations)
 
 This Python package implements environments such as the *sky* and an *AntWorld of
 vegetation*, using  simple-to-install python packages, e.g. NumPy and SciPy. These
