@@ -15,7 +15,7 @@ def main(*args):
     print("Ant#: %d, Route#: %d, steps#: %d" % (ant_no, rt_no, rt.shape[0]), end='')
 
     save, show = True, False
-    nb_scans = 61
+    nb_scans = 121
     nb_ommatidia = 5000
     replace = True
     calibrate = True
