@@ -1,0 +1,14 @@
+sudo: required
+dist: focal
+
+language: python
+
+python:
+  - "3.8"
+
+install:
+  - pip install -r requirements.txt
+  - pip install .
+
+script:
+  - cd examples/

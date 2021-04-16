@@ -18,8 +18,30 @@ examples of how to use the [InvertPy](https://github.com/InsectRobotics/InvertPy
 In order to be able to use this code, the required packages are listed below:
 * [Python 3.8](https://www.python.org/downloads/release/python-380/)
 * [NumPy](https://numpy.org/)  >= 1.20.1
-* [SciPy](https://www.scipy.org/) >= 1.6.0
+* [SciPy](https://www.scipy.org/) >= 1.6.1
 * [Matplotlib]() >= 3.3.4
+* [InvertPy](https://github.com/InsectRobotics/InvertPy)
+
+## Installation
+
+In order to install the package and reproduce the results of the manuscript you need to clone
+the code, navigate to the main directory of the project, install the dependencies and finally
+the package itself. Here is an example code that installs the package:
+
+```commandline
+mkdit ~/src
+cd ~/src
+git clone https://github.com/InsectRobotics/InvertSy.git
+cd InvertPy
+pip install -r requirements.txt
+pip install .
+```
+Note that the [pip](https://pypi.org/project/pip/) project is needed for the above installation.
+
+## Report an issue
+
+If you have any issues installing or using the package, you can report it
+[here](https://github.com/InsectRobotics/InvertSy/issues).
 
 ## Author
 
