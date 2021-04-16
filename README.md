@@ -1,4 +1,4 @@
-# InvertSy ![GitHub top language](https://img.shields.io/github/languages/top/InsectRobotics/InvertSy) [![GitHub license](https://img.shields.io/github/license/InsectRobotics/InvertSy)](https://github.com/InsectRobotics/InvertSy/blob/main/LICENSE) [![Build Status](https://travis-ci.com/InsectRobotics/InvertSy.svg?token=tyo7V4GZ2Vq6iYPrXVLD&branch=main)](https://travis-ci.com/InsectRobotics/InvertSy)
+# InvertSy ![GitHub top language](https://img.shields.io/github/languages/top/InsectRobotics/InvertSy) [![GitHub license](https://img.shields.io/github/license/InsectRobotics/InvertSy)](https://github.com/InsectRobotics/InvertSy/blob/main/LICENSE) ![GitHub last-commit](https://img.shields.io/github/last-commit/InsectRobotics/InvertSy) [![Build Status](https://travis-ci.com/InsectRobotics/InvertSy.svg?token=tyo7V4GZ2Vq6iYPrXVLD&branch=main)](https://travis-ci.com/InsectRobotics/InvertSy)
 
 This Python package implements environments such as the *sky* and an *AntWorld of
 vegetation*, using  simple-to-install python packages, e.g. NumPy and SciPy. These
