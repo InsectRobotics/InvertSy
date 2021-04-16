@@ -1,10 +1,10 @@
-# InvertSy ![GitHub top language](https://img.shields.io/github/languages/top/evgkanias/InvertSimulations) [![GitHub license](https://img.shields.io/github/license/evgkanias/InvertSimulations)](https://github.com/evgkanias/InvertSimulations/blob/main/LICENSE) [![Build Status](https://travis-ci.com/evgkanias/InvertSimulations.svg?token=tyo7V4GZ2Vq6iYPrXVLD&branch=main)](https://travis-ci.com/evgkanias/InvertSimulations)
+# InvertSy ![GitHub top language](https://img.shields.io/github/languages/top/InsectRobotics/InvertSy) [![GitHub license](https://img.shields.io/github/license/InsectRobotics/InvertSy)](https://github.com/InsectRobotics/InvertSy/blob/main/LICENSE) [![Build Status](https://travis-ci.com/InsectRobotics/InvertSy.svg?token=tyo7V4GZ2Vq6iYPrXVLD&branch=main)](https://travis-ci.com/InsectRobotics/InvertSy)
 
 This Python package implements environments such as the *sky* and an *AntWorld of
 vegetation*, using  simple-to-install python packages, e.g. NumPy and SciPy. These
 environments contain information that humans can or cannot detect but invertebrates
 definitely can (e.g. polarised light in the sky). This package also contains some
-examples of how to use the [InvertPy]() package.
+examples of how to use the [InvertPy](https://github.com/InsectRobotics/InvertPy) package.
 
 
 ## Agent
