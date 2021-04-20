@@ -1,13 +1,18 @@
+"""
+
+"""
+
 __author__ = "Evripidis Gkanias"
 __copyright__ = "Copyright (c) 2021, Insect Robotics Group," \
                 "Institude of Perception, Action and Behaviour," \
                 "School of Informatics, the University of Edinburgh"
 __credits__ = ["Evripidis Gkanias"]
-__license__ = "MIT"
-__version__ = "1.0.1"
+__license__ = "GPLv3+"
+__version__ = "v1.0.0-alpha"
 __maintainer__ = "Evripidis Gkanias"
 
 from ._helpers import eps, RNG
+from invertsy.env import Sky, Seville2009
 
 from invertpy.sense import PolarisationSensor, CompoundEye, Sensor
 from invertpy.brain import MushroomBody, WillshawNetwork, CentralComplex, PolarisationCompass, Component
@@ -24,22 +29,37 @@ import numpy as np
 class Agent(object):
     def __init__(self, xyz=None, ori=None, speed=0.1, delta_time=1., dtype='float32', name='agent', rng=RNG):
         """
+        Abstract agent class that holds all the basic methods and attributes of an agent such as:
+
+        - 3D position and initial position
+        - 3D orientation and initial orientation
+        - delta time: how fast its internal clock is ticking
+        - delta x: how fast is it moving
+        - name
+        - sensors
+        - brain components
+        - translation and rotation methods
 
         Parameters
         ----------
-        xyz: np.ndarray, list
-        ori: R
-        speed: float
-        delta_time: float
-        name: str
+        xyz: np.ndarray[float], optional
+            the initial 3D position of the agent. Default is p=[0, 0, 0]
+        ori: R, optional
+            the initial 3D orientation of the agent. Default is q=[1, 0, 0, 0]
+        speed: float, optional
+            the agent's speed. Default is dx=0.1 meters/sec
+        delta_time: float, optional
+            the agent's internal clock speed. Default is 1 tick/second
+        name: str, optional
+            the name of the agent. Default is 'agent'
         """
         if xyz is None:
             xyz = [0, 0, 0]
         if ori is None:
             ori = R.from_euler('Z', 0)
 
-        self._sensors = []
-        self._brain = []
+        self._sensors = []  # type: list[Sensor]
+        self._brain = []  # type: list[Component]
 
         self._xyz = np.array(xyz, dtype=dtype)
         self._ori = ori
@@ -56,6 +76,9 @@ class Agent(object):
         self.rng = rng
 
     def reset(self):
+        """
+        Re-initialises the parameters, sensors and brain components of the agent.
+        """
         self._xyz = self._xyz_init.copy()
         self._ori = copy(self._ori_init)
 
@@ -66,12 +89,39 @@ class Agent(object):
             component.reset()
 
     def _sense(self, *args, **kwargs):
+        """
+        Senses the environment. This method needs to be implemented by the sub-class.
+
+        Returns
+        -------
+        out
+            the output of the sensors
+
+        Raises
+        ------
+        NotImplementedError
+        """
         raise NotImplementedError()
 
     def _act(self):
+        """
+        Acts in the environment. This method needs to be implemented by the sub-class.
+
+        Raises
+        ------
+        NotImplementedError
+        """
         raise NotImplementedError()
 
     def __call__(self, *args, **kwargs):
+        """
+        Senses the environment and then acts in it given the parameters.
+
+        Returns
+        -------
+        out
+            the output of the sensors
+        """
         act = kwargs.pop('act', True)
         callback = kwargs.pop('callback', None)
 
@@ -91,48 +141,105 @@ class Agent(object):
             len(self.sensors), len(self.brain), self.name
         )
 
-    def move_forward(self, dt=None):
-        self.move_towards([1, 0, 0], dt)
-
-    def move_backward(self, dt=None):
-        self.move_towards([-1, 0, 0], dt)
-
-    def move_right(self, dt=None):
-        self.move_towards([0, 1, 0], dt)
-
-    def move_left(self, dt=None):
-        self.move_towards([0, -1, 0], dt)
-
-    def move_towards(self, direction_xyz, dt=None):
+    def move_forward(self, dx=None, dt=None):
         """
+        Move towards the facing direction.
 
         Parameters
         ----------
-        direction_xyz: np.ndarray, list
-        dt: float
+        dx: float, optional
+            the length of the motion per seconds. Default is the internal one
+        dt: float, optional
+            the seconds passing. Default is the internal one
+        """
+        self.move_towards([1, 0, 0], dx, dt)
+
+    def move_backward(self, dx=None, dt=None):
+        """
+        Move towards the opposite of the facing direction.
+
+        Parameters
+        ----------
+        dx: float, optional
+            the length of the motion per seconds. Default is the internal one
+        dt: float, optional
+            the seconds passing. Default is the internal one
+        """
+        self.move_towards([-1, 0, 0], dx, dt)
+
+    def move_right(self, dx=None, dt=None):
+        """
+        Move sideways to the right of the facing direction.
+
+        Parameters
+        ----------
+        dx: float, optional
+            the length of the motion per seconds. Default is the internal one
+        dt: float, optional
+            the seconds passing. Default is the internal one
+        """
+        self.move_towards([0, 1, 0], dx, dt)
+
+    def move_left(self, dx=None, dt=None):
+        """
+        Move sideways to the left of the facing direction.
+
+        Parameters
+        ----------
+        dx: float, optional
+            the length of the motion per seconds. Default is the internal one
+        dt: float, optional
+            the seconds passing. Default is the internal one
+        """
+        self.move_towards([0, -1, 0], dx, dt)
+
+    def move_towards(self, direction_xyz, dx=None, dt=None):
+        """
+        Moves the agent towards a 3D direction (locally - relative to the current direction) using for a dx/dt distance.
+
+        Parameters
+        ----------
+        direction_xyz: np.ndarray[float], list[float]
+            3D vector showing the direction of motion
+        dx: float, optional
+            the length of the motion per seconds. Default is the internal one
+        dt: float, optional
+            the seconds passing. Default is the internal one
         """
         if dt is None:
             dt = self._dt_default
+        if dx is None:
+            dx = self._dx
+
+        # compute the step size based on the new delta time
+        dx = dx * dt
 
         # normalise the vector
         direction_xyz = np.array(direction_xyz) / np.maximum(np.linalg.norm(direction_xyz), eps)
 
-        # compute the step size based on the new delta time
-        dx = self._dx * dt
-
         self.translate(self._ori.apply(dx * direction_xyz))
 
     def rotate(self, d_ori: R):
+        """
+        Rotate the agent and its sensor on the spot.
+
+        Parameters
+        ----------
+        d_ori: Rotation
+            the rotation to apply on the current direction of the agent
+        """
         self._ori = self._ori * d_ori
         for sensor in self._sensors:
             sensor.rotate(d_ori, around_xyz=self._xyz)
 
     def translate(self, d_xyz):
         """
+        Translates the agent and its sensors by adding the given vector in global coordinates.
 
         Parameters
         ----------
-        d_xyz: np.ndarray, list
+        d_xyz: np.ndarray[float], list[float]
+            the vector to add in global coordinates
         """
         self._xyz += np.array(d_xyz, dtype=self.dtype)
         for sensor in self._sensors:
@@ -140,6 +247,8 @@ class Agent(object):
 
     def add_sensor(self, sensor, local=False):
         """
+        Adds a sensor to the agent. By default, the sensor is assumed to have its orientation and position in global
+        coordinates, but this can be changed through the 'local' option.
 
         Parameters
         ----------
@@ -148,7 +257,6 @@ class Agent(object):
         local: bool
             If True, then the orientation and coordinates of the sensor are supposed to be local (with respect to the
             agent's orientation and coordinates, otherwise it is global. Default is False (global).
-
         """
         if local:
             sensor.rotate(self._ori)
@@ -160,92 +268,265 @@ class Agent(object):
 
     @property
     def sensors(self):
+        """
+        The sensors of the agent.
+
+        Returns
+        -------
+        sensors: list[Sensor]
+        """
         return self._sensors
 
     @property
     def brain(self):
+        """
+        The brain components of the agent.
+
+        Returns
+        -------
+        brain: list[Component]
+        """
         return self._brain
 
     @property
     def xyz(self):
+        """
+        The position of the agent.
+
+        Returns
+        -------
+        xyz: np.ndarray[float]
+
+        See Also
+        --------
+        Agent.position
+        """
         return self._xyz
 
     @xyz.setter
     def xyz(self, v):
+        """
+        The position of the agent.
+
+        Parameters
+        ----------
+        v: np.ndarray[float]
+
+        See Also
+        --------
+        Agent.position
+        """
         self.translate(np.array(v, dtype=self.dtype) - self._xyz)
 
     @property
     def x(self):
+        """
+        The x component of the position of the agent.
+
+        Returns
+        -------
+        x: float
+        """
         return self._xyz[0]
 
     @property
     def y(self):
+        """
+        The y component of the position of the agent.
+
+        Returns
+        -------
+        y: float
+        """
         return self._xyz[1]
 
     @property
     def z(self):
+        """
+        The z component of the position of the agent.
+
+        Returns
+        -------
+        z: float
+        """
         return self._xyz[2]
 
     @property
     def ori(self):
+        """
+        The orientation of the agent
+
+        Returns
+        -------
+        ori: R
+
+        See Also
+        --------
+        Agent.orientation
+        """
         return self._ori
 
     @ori.setter
     def ori(self, v):
+        """
+        Parameters
+        ----------
+        v: R
+
+        See Also
+        --------
+        Agent.orientation
+        """
         self.rotate(d_ori=self._ori.inv() * v)
 
     @property
     def euler(self):
+        """
+        The orientation of the agent as euler angles (yaw, pitch, roll) in radians.
+
+        Returns
+        -------
+        euler: np.ndarray[float]
+        """
         return self._ori.as_euler('ZYX', degrees=False)
 
     @property
     def yaw(self):
+        """
+        The yaw of the agent in radians.
+
+        Returns
+        -------
+        yaw: float
+        """
         return self.euler[0]
 
     @property
     def pitch(self):
+        """
+        The pitch of the agent in radians.
+
+        Returns
+        -------
+        pitch: float
+        """
         return self.euler[1]
 
     @property
     def roll(self):
+        """
+        The roll of the agent in radians.
+
+        Returns
+        -------
+        roll: float
+        """
         return self.euler[2]
 
     @property
     def euler_deg(self):
+        """
+        The orientation of the agent as euler angles (yaw, pitch, roll) in degrees.
+
+        Returns
+        -------
+        euler_deg: np.ndarray[float]
+        """
         return self._ori.as_euler('ZYX', degrees=True)
 
     @property
     def yaw_deg(self):
+        """
+        The yaw of the agent in degrees.
+
+        Returns
+        -------
+        yaw_deg: float
+        """
         return self.euler_deg[0]
 
     @property
     def pitch_deg(self):
+        """
+        The pitch of the agent in degrees.
+
+        Returns
+        -------
+        pitch_deg: float
+        """
         return self.euler_deg[1]
 
     @property
     def roll_deg(self):
+        """
+        The roll of the agent in degrees.
+
+        Returns
+        -------
+        roll_deg: float
+        """
         return self.euler_deg[2]
 
     @property
     def position(self):
+        """
+        The position of the agent.
+
+        Returns
+        -------
+        position: np.ndarray[float]
+
+        See Also
+        --------
+        Agent.xyz
+        """
         return self._xyz
 
     @property
     def orientation(self):
+        """
+        The orientation of the agent.
+
+        Returns
+        -------
+        orientation: np.ndarray[float]
+
+        See Also
+        --------
+        Agent.ori
+        """
         return self._ori
 
     @property
     def step_size(self):
+        """
+        The step size (dx) per delta time (dt).
+
+        Returns
+        -------
+        dx: float
+        """
         return self._dx
 
     @property
     def delta_time(self):
+        """
+        The delta time (dt) among time-steps.
+
+        Returns
+        -------
+        dt: float
+        """
         return self._dt_default
 
 
 class PathIntegrationAgent(Agent):
 
     def __init__(self, *args, **kwargs):
+        """
+        Agent specialised on the path integration task. It contains the Dorsal Rim Area as a sensor, the polarised
+        light compass and the central complex as brain components.
+        """
         super().__init__(*args, **kwargs)
 
         pol_sensor = PolarisationSensor(nb_input=60, field_of_view=56, degrees=True)
@@ -263,6 +544,24 @@ class PathIntegrationAgent(Agent):
         self._default_flow = self._dx * np.ones(2) / np.sqrt(2)
 
     def _sense(self, sky=None, scene=None, flow=None, **kwargs):
+        """
+        Using its only sensor (the dorsal rim area) it senses the radiation from the sky which is interrupted by the
+        given scene, and the optic flow for self motion calculation.
+
+        Parameters
+        ----------
+        sky: Sky, optional
+            the sky instance. Default is None
+        scene: Seville2009, optional
+            the world instance. Default is None
+        flow: np.ndarray[float], optional
+            the optic flow. Default is the preset optic flow
+
+        Returns
+        -------
+        out: np.ndarray[float]
+            the output of the central complex
+        """
         if sky is None:
             r = 0.
         else:
@@ -280,6 +579,9 @@ class PathIntegrationAgent(Agent):
         return self._cx(phi=phi, flow=flow)
 
     def _act(self):
+        """
+        Uses the output of the central complex to compute the next movement and moves the agent to its new position.
+        """
         steer = self.get_steering(self._cx)
         self.rotate(R.from_euler('Z', steer, degrees=False))
         self.move_forward()
@@ -291,11 +593,13 @@ class PathIntegrationAgent(Agent):
 
         Parameters
         ----------
-        cx
+        cx: CentralComplex
+            the central complex instance of the agent
 
         Returns
         -------
-
+        output: float
+            the angle of steering in radians
         """
 
         cpu1a = cx.r_cpu1[1:-1]

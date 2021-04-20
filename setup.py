@@ -17,7 +17,7 @@ setuptools.setup(
                 "packages, e.g. NumPy and SciPy.",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/evgkanias/InvertSy",
+    url="https://github.com/InsectRobotics/InvertSy",
     license="GPLv3+",
     classifiers=[
         "Development Status :: 3 - Alpha",
@@ -29,5 +29,9 @@ setuptools.setup(
     package_dir={"": "src"},
     packages=setuptools.find_packages(where="src"),
     python_requires=">=3.8",
-    install_requirements=requirements
+    install_requirements=requirements,
+    project_urls={
+        "Bug Reports": "https://github.com/InsectRobotics/InvertSy/issues",
+        "Source": "https://github.com/InsectRobotics/InvertSy"
+    }
 )

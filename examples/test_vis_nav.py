@@ -16,7 +16,7 @@ def main(*args):
 
     save, show = True, False
     nb_scans = 121
-    nb_ommatidia = 2000
+    nb_ommatidia = 3000
     replace = True
     calibrate = True
     # mem = PerfectMemory(nb_ommatidia)
