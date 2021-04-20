@@ -1,3 +1,8 @@
+"""
+Package that implements the observer on earth. Observers are used in order to place agents on earths coordinates,
+calculate the sun position and also how this changes based on the movement of the agent on the earth.
+"""
+
 __author__ = "Evripidis Gkanias"
 __copyright__ = "Copyright (c) 2021, Insect Robotics Group," \
                 "Institude of Perception, Action and Behaviour," \

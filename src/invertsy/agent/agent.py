@@ -1,5 +1,5 @@
 """
-
+Package the contains the default agents.
 """
 
 __author__ = "Evripidis Gkanias"
@@ -52,6 +52,8 @@ class Agent(object):
             the agent's internal clock speed. Default is 1 tick/second
         name: str, optional
             the name of the agent. Default is 'agent'
+        dtype: np.dtype, optional
+            the type of the agents parameters
         """
         if xyz is None:
             xyz = [0, 0, 0]
@@ -524,7 +526,7 @@ class PathIntegrationAgent(Agent):
 
     def __init__(self, *args, **kwargs):
         """
-        Agent specialised on the path integration task. It contains the Dorsal Rim Area as a sensor, the polarised
+        Agent specialised in the path integration task. It contains the Dorsal Rim Area as a sensor, the polarised
         light compass and the central complex as brain components.
         """
         super().__init__(*args, **kwargs)
@@ -611,8 +613,27 @@ class PathIntegrationAgent(Agent):
 
 class VisualNavigationAgent(Agent):
 
-    def __init__(self, eye: CompoundEye = None, memory: MushroomBody = None, saturation=1.5, nb_scans=7,
-                 freq_trans=True, *args, **kwargs):
+    def __init__(self, eye=None, memory=None, saturation=1.5, nb_scans=7, freq_trans=True, *args, **kwargs):
+        """
+        Agent specialised in the visual navigation task. It contains the CompoundEye as a sensor and the mushroom body
+        as the brain component.
+
+        Parameters
+        ----------
+        eye: CompoundEye, optional
+            instance of the compound eye of the agent. Default is a compound eye with 5000 ommatidia, with 15 deg
+            acceptance angle each, sensitive to green only and not sensitive to polarised light.
+        memory: MushroomBody, optional
+            instance of a mushroom body model as a processing component. Default is the WillshawNetwork with #PN equal
+            to the number of ommatidia, #KC equal to 40 x #PN, sparseness is 1%, and eligibility trace (lambda) is 0.1
+        saturation: float, optional
+            the maximum radiation level that the eye can handle, anything above this threshold will be saturated.
+            Default is 1.5
+        nb_scans: int, optional
+            the number of scans during the route following task. Default is 7
+        freq_trans: bool, optional
+            whether to transform the visual input into the frequency domain by using the DCT method. Default is False
+        """
         super().__init__(*args, **kwargs)
 
         if eye is None:
@@ -627,18 +648,39 @@ class VisualNavigationAgent(Agent):
         self.add_sensor(eye)
         self.add_brain_component(memory)
 
-        self._eye = eye
-        self._mem = memory
+        self._eye = eye  # type: CompoundEye
+        self._mem = memory  # type: MushroomBody
 
         self._pref_angles = np.linspace(-60, 60, nb_scans)
+        """
+        The preferred angles for scanning
+        """
         self._familiarity = np.zeros_like(self._pref_angles)
+        """
+        The familiarity of each preferred angle
+        """
 
         self._w_white = None
+        """
+        Whitening synaptic weights.
+        """
         self._m_white = None
+        """
+        Whitening mean.
+        """
         self._is_calibrated = False
+        """
+        Indicates if the calibration process has been completed.
+        """
 
         self._w_dct = None
+        """
+        The Discrete Cosine Transform synaptic weights.
+        """
         self._freq_trans = freq_trans
+        """
+        Indicates whether the input to the mushroom body will be in the frequency domain or not.
+        """
 
         self.reset()
 
@@ -655,6 +697,23 @@ class VisualNavigationAgent(Agent):
             self._w_dct = dct_synapses(self._eye.nb_ommatidia, dtype=self._eye.dtype)
 
     def _sense(self, sky=None, scene=None, **kwargs):
+        """
+        Using its only sensor (the compound eye) it senses the radiation from the sky and the given scene to calculate
+        the familiarity. In the case of route following (when there is no update), it scans in all the preferred angles
+        and calculates the familiarity in all of them.
+
+        Parameters
+        ----------
+        sky: Sky, optional
+            the sky instance. Default is None
+        scene: Seville2009, optional
+            the world instance. Default is None
+
+        Returns
+        -------
+        familiarity: np.ndarray[float]
+            how familiar does the agent is with every scan made
+        """
 
         front = self._familiarity.shape[0] // 2
         self._familiarity[:] = 0.
@@ -678,11 +737,38 @@ class VisualNavigationAgent(Agent):
         return self._familiarity
 
     def _act(self):
+        """
+        Uses the familiarity vector to compute the next movement and moves the agent to its new position.
+        """
         steer = self.get_steering(self.familiarity, self.pref_angles, max_steering=20, degrees=True)
         self.rotate(R.from_euler('Z', steer, degrees=True))
         self.move_forward()
 
     def calibrate(self, sky=None, scene=None, nb_samples=32, radius=2.):
+        """
+        Approximates the calibration of the optic lobes of the agent.
+        In this case, it randomly collects a number of samples (in different positions and direction) in a radius
+        around the nest. These samples are used in order to build a PCA whitening map, that transforms the visual
+        input from the ommatidia to a white signal thying to maximise its information.
+
+        Parameters
+        ----------
+        sky: Sky, optional
+            the sky instance. Default is None
+        scene: Seville2009, optional
+            the world instance. Default is None
+        nb_samples: int, optional
+            the number of samples to use
+        radius: float, optional
+            the radius around the nest from where the samples will be taken
+
+        Returns
+        -------
+        xyz: list[np.ndarray[float]]
+            the positions of the agent for every sample
+        ori: list[R]
+            the orientations of the agent for every sample
+        """
         xyz = copy(self.xyz)
         ori = copy(self.ori)
 
@@ -707,6 +793,24 @@ class VisualNavigationAgent(Agent):
         return xyzs, oris
 
     def get_pn_responses(self, sky=None, scene=None):
+        """
+        Transforms the current snapshot of the environment into the PN responses.
+
+        - Apply DCT (if applicable)
+        - Apply PCA whitening (if applicable)
+
+        Parameters
+        ----------
+        sky: Sky, optional
+            the sky instance. Default is None
+        scene: Seville2009, optional
+            the world instance. Default is None
+
+        Returns
+        -------
+        r: np.ndarray[float]
+            the responses of the PNs
+        """
         r = np.clip(self._eye(sky=sky, scene=scene).mean(axis=1), 0, 1)
         if self._freq_trans:
             # transform the input to the coefficients using the Discrete Cosine Transform
@@ -719,30 +823,72 @@ class VisualNavigationAgent(Agent):
 
     @property
     def familiarity(self):
+        """
+        The familiarity of the latest snapshot per preferred angle
+        """
         return self._familiarity
 
     @property
     def pref_angles(self):
+        """
+        The preferred angles of the agent, where it will look at when scanning
+        """
         return self._pref_angles
 
     @property
     def nb_scans(self):
+        """
+        The number of scans to be applied
+        """
         return self._pref_angles.shape[0]
 
     @property
     def update(self):
+        """
+        Whether the memory will be updated or not
+        """
         return self._mem.update
 
     @update.setter
     def update(self, v):
+        """
+        Enables (True) or disables (False) the memory updates.
+
+        Parameters
+        ----------
+        v: bool
+            memory updates
+        """
         self._mem.update = v
 
     @property
     def is_calibrated(self):
+        """
+        Indicates if calibration has been completed
+        """
         return self._is_calibrated
 
     @staticmethod
     def get_steering(familiarity, pref_angles, max_steering=None, degrees=True):
+        """
+        Outputs a scalar where sign determines left or right turn.
+
+        Parameters
+        ----------
+        familiarity: np.ndarray[float]
+            the familiarity vector computed by scanning the environment
+        pref_angles: np.ndarray[float]
+            the preference angle associated to the values of the familiarity vector
+        max_steering: float, optional
+            the maximum steering allowed for the agent. Default is 30 degrees
+        degrees: bool, optional
+            whether the max_steering is in degrees or radians. Default is degrees
+
+        Returns
+        -------
+        output: float
+            the angle of steering in radians
+        """
         if max_steering is None:
             max_steering = np.deg2rad(30)
         elif degrees:
