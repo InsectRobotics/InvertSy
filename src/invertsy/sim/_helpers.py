@@ -1,3 +1,4 @@
+from invertsy.__helpers import __root__, RNG, eps, set_rng
 from invertsy.agent import VisualNavigationAgent, PathIntegrationAgent
 
 from invertpy.brain import CelestialCompass

@@ -1,3 +1,7 @@
+"""
+Package that allows computations of the skylight properties.
+"""
+
 __author__ = "Evripidis Gkanias"
 __copyright__ = "Copyright (c) 2021, Insect Robotics Group," \
                 "Institude of Perception, Action and Behaviour," \
@@ -7,30 +11,41 @@ __license__ = "GPLv3+"
 __version__ = "v1.0.0-alpha"
 __maintainer__ = "Evripidis Gkanias"
 
-from ._helpers import eps, add_noise, RNG
+from invertsy.__helpers import eps, __root__
+
+from ._helpers import add_noise, RNG
+from .observer import Observer, get_seville_observer
+from .ephemeris import Sun
 
 from scipy.spatial.transform import Rotation as R
+from datetime import datetime
 
 import numpy as np
 
-# Transformation matrix of turbidity to luminance coefficients
 T_L = np.array([[ 0.1787, -1.4630],
                 [-0.3554,  0.4275],
                 [-0.0227,  5.3251],
                 [ 0.1206, -2.5771],
                 [-0.0670,  0.3703]])
+"""Transformation matrix of turbidity to luminance coefficients"""
 
 
 class Sky(object):
-    """
-    The Sky environment class. This environment class provides skylight cues.
-    """
 
     def __init__(self, theta_s=0., phi_s=0., degrees=False, name="sky"):
         """
+        The Sky environment class. This environment class provides skylight cues.
 
-        :param theta_s: sun elevation (distance from horizon)
-        :param phi_s: sun azimuth (clockwise from North)
+        Parameters
+        ----------
+        theta_s: float, optional
+            sun elevation (distance from horizon). Default is 0
+        phi_s: float, optional
+            sun azimuth (clockwise from North). Default is 0
+        degrees: bool, optional
+            True if the angles are given in degrees, False otherwise. Default is False
+        name: str, optional
+            a name for the sky instance. Default is 'sky'
         """
         super(Sky, self).__init__()
         self.__a, self.__b, self.__c, self.__d, self.__e = 0., 0., 0., 0., 0.
@@ -51,21 +66,31 @@ class Sky(object):
         self.__is_generated = False
         self.__name = name
 
-    def __call__(self, ori: R = None, irgbu=None, noise=0., eta=None, rng=RNG):
+    def __call__(self, ori=None, irgbu=None, noise=0., eta=None, rng=RNG):
         """
-        Call the env instance to generate the env cues.
+        Generates the skylight properties for the given orientations and spectral influences.
 
-        :param theta: array of points' elevation
-        :type theta: np.ndarray
-        :param phi: array of points' azimuth
-        :type phi: np.ndarray
-        :param noise: the noise level (sigma)
-        :type noise: float
-        :param eta: array of noise level in each point of interest
-        :type eta: np.ndarray
-        :param uniform_polariser:
-        :type uniform_polariser: bool
-        :return: Y, P, A
+        Parameters
+        ----------
+        ori: R, optional
+            orientation of the interesting elements. Default is None
+        irgbu: np.ndarray[float], optional
+            the spectral influence of the observer
+        noise: float, optional
+            the noise level (sigma)
+        eta: np.ndarray[float], optional
+            :param eta: array of noise level in each point of interest
+        rng
+            the random generator
+
+        Returns
+        -------
+        Y: np.ndarray[float]
+            the luminance
+        P: np.ndarray[float]
+            the degree of polarisation
+        A: np.ndarray[float]
+            the angle of polarisation
         """
 
         # set default arguments
@@ -136,9 +161,17 @@ class Sky(object):
         Combines the scattering indicatrix and luminance gradation functions to compute the total
         luminance observed at the given env element(s).
 
-        :param chi: angular distance between the observed element and the sun location -- [0, pi]
-        :param z: angular distance between the observed element and the zenith point -- [0, pi/2]
-        :return: the total observed luminance (Cd/m^2) at the given element(s)
+        Parameters
+        ----------
+        chi: np.ndarray[float] | float
+            angular distance between the observed element and the sun location -- [0, pi]
+        z: np.ndarray[float]
+            angular distance between the observed element and the zenith point -- [0, pi/2]
+
+        Returns
+        -------
+        np.ndarray[float]
+            the total observed luminance (Cd/m^2) at the given element(s)
         """
         z = np.array(z)
         i = z < (np.pi / 2)
@@ -153,15 +186,16 @@ class Sky(object):
     @property
     def A(self):
         """
-        A: Darkening or brightening of the horizon
+        Darkening or brightening of the horizon
+
+        Returns
+        -------
+        float
         """
         return self.__a
 
     @A.setter
     def A(self, value):
-        """
-        :param value: Darkening or brightening of the horizon
-        """
         self.__a = value
         self._update_turbidity(self.A, self.B, self.C, self.D, self.E)
         self.__is_generated = False
@@ -169,15 +203,16 @@ class Sky(object):
     @property
     def B(self):
         """
-        B: Luminance gradient near the horizon
+        Luminance gradient near the horizon
+
+        Returns
+        -------
+        float
         """
         return self.__b
 
     @B.setter
     def B(self, value):
-        """
-        :param value: Luminance gradient near the horizon
-        """
         self.__b = value
         self._update_turbidity(self.A, self.B, self.C, self.D, self.E)
         self.__is_generated = False
@@ -185,15 +220,16 @@ class Sky(object):
     @property
     def C(self):
         """
-        C: Relative intensity of the circumsolar region
+        Relative intensity of the circumsolar region
+
+        Returns
+        -------
+        float
         """
         return self.__c
 
     @C.setter
     def C(self, value):
-        """
-        :param value: Relative intensity of the circumsolar region
-        """
         self.__c = value
         self._update_turbidity(self.A, self.B, self.C, self.D, self.E)
         self.__is_generated = False
@@ -201,15 +237,16 @@ class Sky(object):
     @property
     def D(self):
         """
-        D: Width of the circumsolar region
+        Width of the circumsolar region
+
+        Returns
+        -------
+        float
         """
         return self.__d
 
     @D.setter
     def D(self, value):
-        """
-        :param value: Width of the circumsolar region
-        """
         self.__d = value
         self._update_turbidity(self.A, self.B, self.C, self.D, self.E)
         self.__is_generated = False
@@ -217,15 +254,16 @@ class Sky(object):
     @property
     def E(self):
         """
-        E: relative backscattered light
+        Relative backscattered light
+
+        Returns
+        -------
+        float
         """
         return self.__e
 
     @E.setter
     def E(self, value):
-        """
-        :param value: relative backscattered light
-        """
         self.__e = value
         self._update_turbidity(self.A, self.B, self.C, self.D, self.E)
         self.__is_generated = False
@@ -233,29 +271,38 @@ class Sky(object):
     @property
     def c1(self):
         """
-        :return: 1st coefficient of the maximum degree of polarisation
+        1st coefficient of the maximum degree of polarisation
+
+        Returns
+        -------
+        float
         """
         return self.__c1
 
     @property
     def c2(self):
         """
-        :return: 2nd coefficient of the maximum degree of polarisation
+        2nd coefficient of the maximum degree of polarisation
+
+        Returns
+        -------
+        float
         """
         return self.__c2
 
     @property
     def tau_L(self):
         """
-        :return: turbidity
+        The atmospheric turbidity
+
+        Returns
+        -------
+        float
         """
         return self.__tau_L
 
     @tau_L.setter
     def tau_L(self, value):
-        """
-        :param value: turbidity
-        """
         assert value >= 1., "Turbidity must be greater or eaqual to 1."
         self.__is_generated = self.__tau_L == value and self.__is_generated
         self._update_luminance_coefficients(value)
@@ -263,7 +310,11 @@ class Sky(object):
     @property
     def Y_z(self):
         """
-        :return: the zenith luminance (K cd/m^2)
+        The zenith luminance (K cd/m^2)
+
+        Returns
+        -------
+        float
         """
         chi = (4. / 9. - self.tau_L / 120.) * (np.pi - 2 * (np.pi/2 - self.theta_s))
         return (4.0453 * self.tau_L - 4.9710) * np.tan(chi) - 0.2155 * self.tau_L + 2.4192
@@ -271,14 +322,22 @@ class Sky(object):
     @property
     def M_p(self):
         """
-        :return: maximum degree of polarisation
+        Maximum degree of polarisation
+
+        Returns
+        -------
+        float
         """
         return np.exp(-(self.tau_L - self.c1) / (self.c2 + eps))
 
     @property
     def Y(self):
         """
-        :return: luminance of the env (K cd/m^2)
+        The luminance of the sky (K cd/m^2)
+
+        Returns
+        -------
+        np.ndarray[float]
         """
         assert self.__is_generated, "Sky is not generated yet. In order to generate the env, use the call function."
         return self.__y
@@ -286,7 +345,11 @@ class Sky(object):
     @property
     def DOP(self):
         """
-        :return: the linear degree of polarisation in the env
+        The linear degree of polarisation in the sky
+
+        Returns
+        -------
+        np.ndarray[float]
         """
         assert self.__is_generated, "Sky is not generated yet. In order to generate the env, use the call function."
         return self.__dop
@@ -294,14 +357,25 @@ class Sky(object):
     @property
     def AOP(self):
         """
-        :return: the angle of linear polarisation in the env
+        The angle of linear polarisation in the sky
+
+        Returns
+        -------
+        np.ndarray[float]
         """
         assert self.__is_generated, "Sky is not generated yet. In order to generate the env, use the call function."
         return self.__aop
 
     @property
     def theta(self):
-        assert self.__is_generated, "Sky is not generated yet. In order to generate the env, use the call function."
+        """
+        The elevation of the last used elements.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        assert self.__is_generated, "Sky is not generated yet. In order to generate sky env, use the call function."
         return self.__theta
 
     @theta.setter
@@ -311,7 +385,14 @@ class Sky(object):
 
     @property
     def phi(self):
-        assert self.__is_generated, "Sky is not generated yet. In order to generate the env, use the call function."
+        """
+        The azimuth of the last used elements.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        assert self.__is_generated, "Sky is not generated yet. In order to generate the sky, use the call function."
         return self.__phi
 
     @phi.setter
@@ -321,7 +402,14 @@ class Sky(object):
 
     @property
     def eta(self):
-        assert self.__is_generated, "Sky is not generated yet. In order to generate the env, use the call function."
+        """
+        The percentage of noise induced in each element.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        assert self.__is_generated, "Sky is not generated yet. In order to generate the sky, use the call function."
         return self.__eta
 
     @eta.setter
@@ -330,22 +418,52 @@ class Sky(object):
         self.__is_generated = False
 
     def _update_luminance_coefficients(self, tau_L):
+        """
+        Updates the luminance coefficients given the atmospheric turbidity.
+
+        Parameters
+        ----------
+        tau_L: float
+            the atmospheric turbidity
+        """
         self.__a, self.__b, self.__c, self.__d, self.__e = T_L.dot(np.array([tau_L, 1.]))
         self._update_turbidity(self.A, self.B, self.C, self.D, self.E)
 
     def _update_turbidity(self, a, b, c, d, e):
+        """
+        Updates the atmospheric turbidity given the luminance coefficients.
+
+        Parameters
+        ----------
+        a: float
+            the darkening or brightening of horizon
+        b: float
+            the luminance gradient near the horizon
+        c: float
+            the relative intensity of the circumsolar region
+        d: float
+            the width of the circumsolar region
+        e: float
+            the relative backscattered light
+        """
         T_T = np.linalg.pinv(T_L)
         tau_L, c = T_T.dot(np.array([a, b, c, d, e]))
         self.__tau_L = tau_L / c  # turbidity correction
 
     def copy(self):
+        """
+        Generates a copy of the instance.
+
+        Returns
+        -------
+        Sky
+        """
         sky = Sky()
         sky.tau_L = self.tau_L
         sky.theta_s = self.theta_s
         sky.phi_s = self.phi_s
         sky.__c1 = self.__c1
         sky.__c2 = self.__c2
-        sky.verbose = self.verbose
 
         sky.__theta = self.__theta
         sky.__phi = self.__phi
@@ -358,41 +476,72 @@ class Sky(object):
         return sky
 
     @staticmethod
-    def from_observer(obs=None, date=None, yaw=0., theta_t=0., phi_t=0.):
+    def from_observer(obs=None, date=None, ori=None):
         """
-        Creates env using an Ephem observer (Requires Ephem library)
-        :param obs: the observer (location on Earth)
-        :param date: the date of the observation
-        :param yaw: the heading orientation of the observer
-        :param theta_t: the heading tilt (pitch)
-        :param phi_t: the heading tilt (roll)
-        :return:
+        Creates a sky instance using an observer on Earth.
+
+        Parameters
+        ----------
+        obs: Observer, optional
+            the observer (location on Earth). Default is the Seville observer
+        date: datetime, optional
+            the date of the observation. Default is 21/06/2021 - 10:00 am
+        ori: R, optioanl
+            the heading orientation of the observer. Default is 0.
+
+        Returns
+        -------
+        Sky
         """
-        from ephemeris import Sun
-        from datetime import datetime
-        from observer import get_seville_observer
 
         sun = Sun()
         if obs is None:
             obs = get_seville_observer()
-            obs.date = datetime(2017, 6, 21, 10, 0, 0) if date is None else date
+            obs.date = datetime(2021, 6, 21, 10, 0, 0) if date is None else date
         sun.compute(obs)
+        if ori is not None:
+            yaw, pitch, roll = ori.as_euler('ZYX', degrees=False)
+        else:
+            yaw = 0.
         theta_s, phi_s = np.pi/2 - sun.alt, (sun.az - yaw + np.pi) % (2 * np.pi) - np.pi
 
-        return Sky(theta_s=theta_s, phi_s=phi_s, theta_t=theta_t, phi_t=phi_t)
+        return Sky(theta_s=theta_s, phi_s=phi_s)
 
     @staticmethod
     def from_type(sky_type):
         """
+        Creates a sky model using a type description.
 
-        :param sky_type:
-        :return:
+        - 1: Steep luminance gradation towards zenith, azimuthal uniformity
+        - 2: Overcast, with steep luminance gradation and slight brightening towards the sun
+        - 3: Overcast, moderately graded with azimuthal uniformity
+        - 4: Overcast, moderately graded and slightly brightening towards the sun
+        - 5: Sky uniform luminance
+        - 6: Partly cloudy agent_old, no gradation towards zenith, slight brighening towards the sun
+        - 7: Partly cloudy agent_old, no gradation towards zenith, brighter circumsolar region
+        - 8: Partly cloudy agent_old, no gradation towards zenith, distinct solar corona
+        - 9: Partly cloudy, with the obscured sun
+        - 10: Partly cloudy, with brighter circumsolar region
+        - 11: White-blue agent_old with distinct solar corona
+        - 12: CIE Standard Clear Sky, low illuminance turbidity
+        - 13: CIE Standard Clear Sky, polluted atmosphere
+        - 14: Cloudless turbid agent_old with broad solar corona
+        - 15: White-blue turbid agent_old with broad solar corona
+
+        Parameters
+        ----------
+        sky_type: int
+            a number in range [1-15] identifying the type of the sky
+
+        Returns
+        -------
+        Sky
         """
         import os
         import yaml
 
-        dir = os.path.dirname(os.path.realpath(__file__))
-        with open(dir + "/standard-parameters.yaml", 'r') as f:
+        sp = os.path.join(__root__, 'data', 'standard-parameters.yaml')
+        with open(sp, 'r') as f:
             try:
                 sp = yaml.load(f)
             except yaml.YAMLError as exc:
@@ -417,6 +566,21 @@ class Sky(object):
 
 
 def spectrum_influence(v, irgbu):
+    """
+    Decomposes the luminance into 5 distinct spectral channels based on the sensitivity provided.
+
+    Parameters
+    ----------
+    v: np.ndarray[float]
+        received luminance (white light)
+    irgbu: np.ndarray[float]
+        array of sensitivities for each channel (IR, R, G, B, UV)
+
+    Returns
+    -------
+    np.ndarray[float]
+        the luminance received in each channel
+    """
     wl = np.array([1200, 715, 535, 475, 350], dtype='float32')
     v = v[..., np.newaxis]
     l1 = 10.0 * irgbu * np.power(wl / 1000., 8) * np.square(v) / float(v.size)
@@ -435,6 +599,14 @@ def spectrum_influence(v, irgbu):
 
 
 def visualise_luminance(sky):
+    """
+    Plots the sky luminance.
+
+    Parameters
+    ----------
+    sky: Sky
+        the sky model
+    """
     import matplotlib.pyplot as plt
 
     plt.figure("Luminance", figsize=(4.5, 4.5))
@@ -456,6 +628,14 @@ def visualise_luminance(sky):
 
 
 def visualise_degree_of_polarisation(sky):
+    """
+    Plots the degree of polarisation in the sky.
+
+    Parameters
+    ----------
+    sky: Sky
+        the sky model
+    """
     import matplotlib.pyplot as plt
 
     plt.figure("degree-of-polarisation", figsize=(4.5, 4.5))
@@ -478,6 +658,14 @@ def visualise_degree_of_polarisation(sky):
 
 
 def visualise_angle_of_polarisation(sky):
+    """
+    Plots the angle of polarisation in the sky.
+
+    Parameters
+    ----------
+    sky: Sky
+        the sky model
+    """
     import matplotlib.pyplot as plt
 
     plt.figure("angle-of-polarisation", figsize=(4.5, 4.5))

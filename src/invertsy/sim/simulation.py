@@ -11,8 +11,8 @@ __license__ = "GPLv3+"
 __version__ = "v1.0.0-alpha"
 __maintainer__ = "Evripidis Gkanias"
 
+from invertsy.__helpers import __data__
 from invertsy.env import Sky, Seville2009
-from invertsy.env.seville2009 import __root__
 from invertsy.agent import VisualNavigationAgent, PathIntegrationAgent
 
 from invertpy.sense import CompoundEye
@@ -25,7 +25,7 @@ from time import time
 
 import os
 
-__stat_dir__ = os.path.abspath(os.path.join(__root__, "data", "animation", "stats"))
+__stat_dir__ = os.path.abspath(os.path.join(__data__, "animation", "stats"))
 
 
 class Simulation(object):

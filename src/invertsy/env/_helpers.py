@@ -1,6 +1,10 @@
-from invertsy.__helpers import *
+from invertsy.__helpers import __root__, RNG
 
 import numpy as np
+
+import os
+
+__data__ = os.path.join(__root__, "data")
 
 
 def add_noise(v=None, noise=0., shape=None, fill_value=0, rng=RNG):
