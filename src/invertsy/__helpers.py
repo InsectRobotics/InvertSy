@@ -11,7 +11,7 @@ eps = np.finfo(float).eps
 """
 The smallest non-zero positive.
 """
-__root__ = os.path.realpath(os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+__root__ = os.path.realpath(os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", ".."))
 """
 The root directory
 """

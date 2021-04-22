@@ -7,11 +7,11 @@ definitely can (e.g. polarised light in the sky). This package also contains som
 examples of how to use the [InvertPy](https://github.com/InsectRobotics/InvertPy) package.
 
 
-## Agent
+### invertsy.agent
 
-## Env
+### invertsy.env
 
-## Sim
+### inversy.sim
 
 ## Environment
 
