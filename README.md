@@ -9,9 +9,25 @@ examples of how to use the [InvertPy](https://github.com/InsectRobotics/InvertPy
 
 ### invertsy.agent
 
+Python package that allows the development of agents that observe their environment with
+their sensors, process this information using their brain components and act-back in their
+environment. This is useful for closed-loop experiments as the actions of the agents can
+also change their environment and therefore affect their observations. 
+
 ### invertsy.env
 
+Python package that implements the environments where the agents can get their observations
+from. These are models of the sky, 3D object (e.g. vegetation), odour gradients, etc, that
+affect what the agents observe using their sensors. These environments are in abstract form
+and are rendered using the sensors of the agents, designed for invertebrate observations,
+which allows for more invertebrate-like stimulation.
+
 ### inversy.sim
+
+Python package implementing a variety of simulations and animations related to tasks that
+invertebrates are put through. These simulations collect logs of the data produced during
+the task and also allow for visualisation of the resulting behaviour by matplotlib
+animations.
 
 ## Environment
 
@@ -29,10 +45,10 @@ the code, navigate to the main directory of the project, install the dependencie
 the package itself. Here is an example code that installs the package:
 
 ```commandline
-mkdit ~/src
+mkdir ~/src
 cd ~/src
 git clone https://github.com/InsectRobotics/InvertSy.git
-cd InvertPy
+cd InvertSy
 pip install -r requirements.txt
 pip install .
 ```
