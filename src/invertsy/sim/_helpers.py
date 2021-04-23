@@ -87,17 +87,23 @@ def create_map_axis(world=None, nest=None, feeder=None, subplot=111, ax=None):
 
 def create_eye_axis(eye, cmap="Greys_r", subplot=111, ax=None):
     """
+    Draws a map of the positions of the ommatidia coloured using their photo-receptor responses.
 
     Parameters
     ----------
     eye: CompoundEye
+        the eye to take the ommatidia positions from
     cmap: str, optional
+        the colour map of the responses. Default is 'Greys_r'
     subplot: int, tuple
+        the subplot ID. Default is 111
     ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
 
     Returns
     -------
     matplotlib.collections.PathCollection
+        the ommatidia as a path collection
     """
     if ax is None:
         ax = plt.subplot(subplot)
@@ -116,20 +122,43 @@ def create_eye_axis(eye, cmap="Greys_r", subplot=111, ax=None):
     return omm
 
 
-def create_mem_axis(agent: VisualNavigationAgent, cmap="Greys", subplot=111, ax=None):
+def create_mem_axis(agent, cmap="Greys", subplot=111, ax=None):
+    """
+    Draws the responses of the PNs, KCs and the familiarity current value in neuron-like arrays.
+
+    Parameters
+    ----------
+    agent: VisualNavigationAgent
+        The agent to get the data from
+    cmap: str, optional
+        the colour map of the responses. Default is 'Greys'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    pn: matplotlib.collections.PathCollection
+        collection of the PN responses
+    kc: matplotlib.collections.PathCollection
+        collection of the KC responses
+    fam: matplotlib.collections.PathCollection
+        collection of the familiarity value per scan
+    """
     ax = get_axis(ax, subplot)
 
     ax.set_yticks([])
     ax.set_xticks([])
-    ax.set_ylim([0, 5])
-    ax.set_xlim([0, 13])
+    ax.set_ylim(0, 5)
+    ax.set_xlim(0, 13)
     ax.set_aspect('equal', 'box')
     ax.spines['right'].set_visible(False)
     ax.spines['top'].set_visible(False)
     ax.spines['bottom'].set_visible(False)
     ax.spines['left'].set_visible(False)
 
-    mem = agent.brain[0]  # type: MushrooBody
+    mem = agent.brain[0]  # type: MushroomBody
 
     size = 400.
     ax.text(.1, 4.8, "PN", fontsize=10)
@@ -151,28 +180,99 @@ def create_mem_axis(agent: VisualNavigationAgent, cmap="Greys", subplot=111, ax=
     return pn, kc, fam
 
 
-def create_pn_history(agent: VisualNavigationAgent, nb_frames: int, sep: float = None, cmap="Greys",
-                      subplot=111, ax=None):
+def create_pn_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=None):
+    """
+    Draws the PN history of responses as an image, where each pixel is a neuron in time and its colour reflects the
+    response rate of the neuron.
+
+    Parameters
+    ----------
+    agent: VisualNavigationAgent
+        the agent to get the data and properties from
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'Greys'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the PN history responses
+    """
     nb_pn = agent.brain[0].nb_cs
     return create_image_history(nb_pn, nb_frames, sep=sep, title="PN",  cmap=cmap, subplot=subplot, ax=ax)
 
 
-def create_kc_history(agent: VisualNavigationAgent, nb_frames: int, sep: float = None, cmap="Greys",
-                      subplot=111, ax=None):
+def create_kc_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=None):
+    """
+    Draws the KC history of responses as an image, where each pixel is a neuron in time and its colour reflects the
+    response rate of the neuron.
+
+    Parameters
+    ----------
+    agent: VisualNavigationAgent
+        the agent to get the data and properties from
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'Greys'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the KC history responses
+    """
     nb_kc = agent.brain[0].nb_kc
     return create_image_history(nb_kc, nb_frames, sep=sep, title="KC",  cmap=cmap, subplot=subplot, ax=ax)
 
 
-def create_familiarity_response_history(agent: VisualNavigationAgent, nb_frames: int, sep: float = None, cmap="Greys",
-                                        subplot=111, ax=None):
+def create_familiarity_response_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=None):
+    """
+    Draws the familiarity history for every scan as an image, where each pixel is a scan in time and its colour reflects
+    the familiarity in this scan. Also the lowest value is marked using a red line.
+
+    Parameters
+    ----------
+    agent: VisualNavigationAgent
+        the agent to get the data and properties from
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'Greys'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the familiarity history
+    matplotlib.lines.Line2D
+        the line showing the lowest familiarity value
+    """
     nb_scans = agent.nb_scans
 
     ax = get_axis(ax, subplot)
 
     ax.set_yticks([])
     ax.set_xticks([])
-    ax.set_ylim([0, nb_scans-1])
-    ax.set_xlim([0, nb_frames-1])
+    ax.set_ylim(0, nb_scans-1)
+    ax.set_xlim(0, nb_frames-1)
     ax.set_yticks([0, nb_scans//2, nb_scans-1])
     ax.set_yticklabels([int(agent.pref_angles[0]), int(agent.pref_angles[nb_scans//2]), int(agent.pref_angles[-1])])
     ax.set_aspect('auto')
@@ -194,17 +294,79 @@ def create_familiarity_response_history(agent: VisualNavigationAgent, nb_frames:
     return fam, fam_line
 
 
-def create_familiarity_history(nb_frames: int, sep: float = None, subplot=111, ax=None):
+def create_familiarity_history(nb_frames, sep=None, subplot=111, ax=None):
+    """
+    Draws a line of the lowest familiarity per iteration.
+
+    Parameters
+    ----------
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.lines.Line2D
+        the line of the lowest familiarity per iteration
+    """
     return create_single_line_history(nb_frames, sep=sep, title="familiarity (%)", ylim=20, subplot=subplot, ax=ax)
 
 
-def create_capacity_history(nb_frames: int, sep: float = None, subplot=111, ax=None):
+def create_capacity_history(nb_frames, sep=None, subplot=111, ax=None):
+    """
+    Draws a line of the available capacity per iteration.
+
+    Parameters
+    ----------
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.lines.Line2D
+        the line of the available capacity per iteration.
+    """
     return create_single_line_history(nb_frames, sep=sep, title="capacity (%)", ylim=100, subplot=subplot, ax=ax)
 
 
-def create_dra_axis(sensor: CelestialCompass, cmap="coolwarm", centre=None, scale=1., draw_axis=True,
-                    subplot=111, ax=None):
-    omm_x, omm_y, omm_z = sensor.omm_xyz.T
+def create_dra_axis(sensor, cmap="coolwarm", centre=None, scale=1., draw_axis=True, subplot=111, ax=None):
+    """
+    Draws the DRA and the responses of its ommatidia.
+
+    Parameters
+    ----------
+    sensor: CelestialCompass
+        the compass sensor to get the data and parameters from
+    centre: list[float], optional
+        the centre of the DRA map. Default is [.5, .5]
+    scale: float, optional
+        a factor that scales the position of the ommatidia on the figure. Default is 1
+    draw_axis: bool, optional
+        if True, it draws the axis for the DRA, otherwise it draws on the existing axis. Default is True
+    cmap: str, optional
+        the colour map of the responses. Default is 'coolwarm'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.collections.PathCollection
+        the ommatidia of the DRA as a path collection
+    """
+    omm_x, omm_y, omm_z = sensor._loc_ori.apply(np.array([1, 0, 0])).T
 
     if ax is None:
         ax = plt.subplot(subplot)
@@ -215,8 +377,8 @@ def create_dra_axis(sensor: CelestialCompass, cmap="coolwarm", centre=None, scal
     if draw_axis:
         ax.set_yticks([])
         ax.set_xticks([])
-        ax.set_ylim([0, 1])
-        ax.set_xlim([0, 1])
+        ax.set_ylim(0, 1)
+        ax.set_xlim(0, 1)
         ax.set_aspect('equal', 'box')
         ax.spines['right'].set_visible(False)
         ax.spines['top'].set_visible(False)
@@ -231,44 +393,189 @@ def create_dra_axis(sensor: CelestialCompass, cmap="coolwarm", centre=None, scal
     return omm
 
 
-def create_tb1_history(agent: PathIntegrationAgent, nb_frames: int, sep: float = None, cmap="coolwarm",
-                       subplot=111, ax=None):
+def create_tb1_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111, ax=None):
+    """
+    Draws the TB1 history of responses as an image, where each pixel is a neuron in time and its colour reflects the
+    response rate of the neuron.
+
+    Parameters
+    ----------
+    agent: PathIntegrationAgent
+        the agent to get the data and properties from
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'coolwarm'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the TB1 history responses
+    """
     nb_tb1 = agent.brain[1].nb_tb1
     return create_image_history(nb_tb1, nb_frames, sep=sep, title="TB1", cmap=cmap, vmin=-1, vmax=1, subplot=subplot, ax=ax)
 
 
-def create_cl1_history(agent: PathIntegrationAgent, nb_frames: int, sep: float = None, cmap="coolwarm",
-                       subplot=111, ax=None):
+def create_cl1_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111, ax=None):
+    """
+    Draws the CL1 history of responses as an image, where each pixel is a neuron in time and its colour reflects the
+    response rate of the neuron.
+
+    Parameters
+    ----------
+    agent: PathIntegrationAgent
+        the agent to get the data and properties from
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'coolwarm'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the CL1 history responses
+    """
     nb_cl1 = agent.brain[1].nb_cl1
     return create_image_history(nb_cl1, nb_frames, sep=sep, title="CL1", cmap=cmap, vmin=-1, vmax=1, subplot=subplot, ax=ax)
 
 
-def create_cpu1_history(agent: PathIntegrationAgent, nb_frames: int, sep: float = None, cmap="coolwarm",
-                        subplot=111, ax=None):
+def create_cpu1_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111, ax=None):
+    """
+    Draws the CPU1 history of responses as an image, where each pixel is a neuron in time and its colour reflects the
+    response rate of the neuron.
+
+    Parameters
+    ----------
+    agent: PathIntegrationAgent
+        the agent to get the data and properties from
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'coolwarm'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the CPU1 history responses
+    """
     nb_cpu1 = agent.brain[1].nb_cpu1
     return create_image_history(nb_cpu1, nb_frames, sep=sep, title="CPU1", cmap=cmap, vmin=-1, vmax=1, subplot=subplot, ax=ax)
 
 
-def create_cpu4_history(agent: PathIntegrationAgent, nb_frames: int, sep: float = None, cmap="coolwarm",
-                        subplot=111, ax=None):
+def create_cpu4_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111, ax=None):
+    """
+    Draws the CPU4 history of responses as an image, where each pixel is a neuron in time and its colour reflects the
+    response rate of the neuron.
+
+    Parameters
+    ----------
+    agent: PathIntegrationAgent
+        the agent to get the data and properties from
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'coolwarm'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the CPU4 history responses
+    """
     nb_cpu4 = agent.brain[1].nb_cpu4
     return create_image_history(nb_cpu4, nb_frames, sep=sep, title="CPU4", cmap=cmap, vmin=-1, vmax=1, subplot=subplot, ax=ax)
 
 
-def create_cpu4_mem_history(agent: PathIntegrationAgent, nb_frames: int, sep: float = None, cmap="coolwarm",
-                            subplot=111, ax=None):
+def create_cpu4_mem_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111, ax=None):
+    """
+    Draws the CPU4 history of memories as an image, where each pixel is a neuron in time and its colour reflects the
+    memory of the neuron.
+
+    Parameters
+    ----------
+    agent: PathIntegrationAgent
+        the agent to get the data and properties from
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'coolwarm'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the CPU4 history memories
+    """
     nb_cpu4 = agent.brain[1].nb_cpu4
     return create_image_history(nb_cpu4, nb_frames, sep=sep, title="CPU4 (mem)", cmap=cmap, vmin=-1, vmax=1, subplot=subplot, ax=ax)
 
 
-def create_cx_axis(agent: PathIntegrationAgent, cmap="coolwarm", subplot=111, ax=None):
+def create_cx_axis(agent, cmap="coolwarm", subplot=111, ax=None):
+    """
+    Draws all the neurons and ommaditia of the given agent in a single axis, representing a snapshot of their current
+    values.
+
+    Parameters
+    ----------
+    agent: PathIntegrationAgent
+        the agent to get the data and properties from
+    cmap: str, optional
+        the colour map of the responses. Default is 'coolwarm'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    omm: matplotlib.collections.PathCollection
+        the ommatidia of the DRA as a path collection
+    tb1: matplotlib.collections.PathCollection
+        the TB1 responses as a path collection
+    cl1: matplotlib.collections.PathCollection
+        the CL1 responses as a path collection
+    cpu1: matplotlib.collections.PathCollection
+        the CPU1 responses as a path collection
+    cpu4: matplotlib.collections.PathCollection
+        the CPU4 responses as a path collection
+    cpu4mem: matplotlib.collections.PathCollection
+        the CPU4 memories as a path collection
+    """
     if ax is None:
         ax = plt.subplot(subplot)
 
     ax.set_yticks([])
     ax.set_xticks([])
-    ax.set_ylim([0, 5])
-    ax.set_xlim([0, 5])
+    ax.set_ylim(0, 5)
+    ax.set_xlim(0, 5)
     ax.set_aspect('equal', 'box')
     ax.spines['right'].set_visible(False)
     ax.spines['top'].set_visible(False)
@@ -301,14 +608,40 @@ def create_cx_axis(agent: PathIntegrationAgent, cmap="coolwarm", subplot=111, ax
     return omm, tb1, cl1, cpu1, cpu4, cpu4mem
 
 
-def create_image_history(nb_values: int, nb_frames: int, sep: float = None, title: str = None, cmap="Greys",
-                         subplot=111, vmin=0, vmax=1, ax=None):
+def create_image_history(nb_values, nb_frames, sep=None, title=None, cmap="Greys", subplot=111, vmin=0, vmax=1,
+                         ax=None):
+    """
+    Draws the history of responses as an image, where each pixel is a neuron in time and its colour reflects the
+    response rate of the neuron.
+
+    Parameters
+    ----------
+    nb_values: int
+    nb_frames: int
+        the total number of frames for the animation
+    title: str, optional
+    vmin: float, optional
+    vmax: float, optional
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'Greys'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the history responses
+    """
     ax = get_axis(ax, subplot)
 
     ax.set_yticks([])
     ax.set_xticks([])
-    ax.set_ylim([0, nb_values-1])
-    ax.set_xlim([0, nb_frames-1])
+    ax.set_ylim(0, nb_values-1)
+    ax.set_xlim(0, nb_frames-1)
     ax.set_aspect('auto')
     ax.spines['right'].set_visible(False)
     ax.spines['top'].set_visible(False)
@@ -326,16 +659,62 @@ def create_image_history(nb_values: int, nb_frames: int, sep: float = None, titl
     return im
 
 
-def create_single_line_history(nb_frames: int, sep: float = None, title: str = None, ylim: float = 1., subplot=111, ax=None):
+def create_single_line_history(nb_frames, sep=None, title=None, ylim=1., subplot=111, ax=None):
+    """
+    Draws a single line representing the history of a value.
+
+    Parameters
+    ----------
+    nb_frames: int
+        the total number of frames for the animation
+    title: str, optional
+        draw the title for the plot. Default is None
+    ylim: float, optional
+        the maximum value for the Y axis. Default is 1
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.lines.Line2D
+        the drawn line
+    """
     return create_multi_line_history(nb_frames, 1, sep=sep, title=title, ylim=ylim, subplot=subplot, ax=ax)
 
 
-def create_multi_line_history(nb_frames: int, nb_lines: int, sep: float = None, title: str = None, ylim: float = 1.,
-                              subplot=111, ax=None):
+def create_multi_line_history(nb_frames, nb_lines, sep=None, title=None, ylim=1., subplot=111, ax=None):
+    """
+    Draws multiple lines representing the history of many values.
+
+    Parameters
+    ----------
+    nb_frames: int
+        the total number of frames for the animation
+    nb_lines: int
+    title: str, optional
+        draw the title for the plot. Default is None
+    ylim: float, optional
+        the maximum value for the Y axis. Default is 1
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.lines.Line2D
+        the drawn lines
+    """
     ax = get_axis(ax, subplot)
 
-    ax.set_ylim([0, ylim])
-    ax.set_xlim([0, nb_frames])
+    ax.set_ylim(0, ylim)
+    ax.set_xlim(0, nb_frames)
     ax.tick_params(axis='both', labelsize=8)
     ax.set_aspect('auto', 'box')
     ax.spines['right'].set_visible(False)
@@ -353,6 +732,20 @@ def create_multi_line_history(nb_frames: int, nb_lines: int, sep: float = None, 
 
 
 def get_axis(ax=None, subplot=111):
+    """
+    If the axis is None it creates a new axis in the 'subplot' slot, otherwise it returns the given axis.
+
+    Parameters
+    ----------
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    plt.Axes
+    """
     if ax is None:
         if isinstance(subplot, int):
             ax = plt.subplot(subplot)
