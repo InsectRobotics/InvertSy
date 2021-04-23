@@ -227,13 +227,17 @@ class Animation(object):
 
 class RouteAnimation(Animation):
 
-    def __init__(self, sim: RouteSimulation, cmap="Greens_r", *args, **kwargs):
+    def __init__(self, sim, cmap="Greens_r", *args, **kwargs):
         """
+        Animation of the route simulation. It visualised the current view of the agent, and its current and previous
+        positions on the map along with the vegetation of the world.
 
         Parameters
         ----------
         sim: RouteSimulation
-        cmap: str
+            the route simulation instance
+        cmap: str, optional
+            the colour map to show the intensity of the ommatidia photo-receptors' responses. Default it 'Greens_r'
         """
         super().__init__(sim, *args, **kwargs)
 
@@ -246,7 +250,15 @@ class RouteAnimation(Animation):
 
         omm.set_array(sim.responses)
 
-    def _animate(self, i: int):
+    def _animate(self, i):
+        """
+        Runs the given simulation iteration and updates the values of the elements in the figure.
+
+        Parameters
+        ----------
+        i: int
+            the iteration ID of the current step
+        """
         self.sim.step(i)
 
         self.omm.set_array(self.sim.responses)
@@ -259,25 +271,67 @@ class RouteAnimation(Animation):
 
     @property
     def omm(self):
+        """
+        The collection of ommatidia in the figure.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
         return self._lines[0]
 
     @property
     def line(self):
+        """
+        The line representing the path of the agent in the figure.
+
+        Returns
+        -------
+        matplotlib.lines.Line2D
+        """
         return self._lines[1]
 
     @property
     def pos(self):
+        """
+        The current position of agent in the figure.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
         return self._lines[2]
 
     @property
-    def sim(self) -> RouteSimulation:
+    def sim(self):
+        """
+        The simulation instance that drives the agent to follow the given route.
+
+        Returns
+        -------
+        RouteSimulation
+        """
         return self._sim
 
 
 class VisualNavigationAnimation(Animation):
 
-    def __init__(self, sim: VisualNavigationSimulation, cmap="Greens_r", show_history=True, show_weights=False,
-                 *args, **kwargs):
+    def __init__(self, sim, cmap="Greens_r", show_history=True, show_weights=False, *args, **kwargs):
+        """
+        Animation for the visual navigation simulation. It visualised the current view of the agent, its current and
+        previous positions on the map along with the vegetation, and the statistics according to the parameters.
+
+        Parameters
+        ----------
+        sim: VisualNavigationSimulation
+            the visual navigation simulation instance
+        cmap: str, optional
+            the colour map to be used for the responses from the ommatidia. Default is 'Greens_r'
+        show_history: bool, optional
+            if True, the whole history of the neurons is visualised instead of just the current values. Default is True
+        show_weights: bool, optional
+            if True, the KC-MBON synaptic weights are visualised instead of the the KC responses. Default is False
+        """
         super().__init__(sim, *args, **kwargs)
 
         if show_history:
@@ -328,7 +382,15 @@ class VisualNavigationAnimation(Animation):
         self._show_history = show_history
         self._show_weights = show_weights
 
-    def _animate(self, i: int):
+    def _animate(self, i):
+        """
+        Runs the current iteration of the simulation and updates the data for the figure.
+
+        Parameters
+        ----------
+        i: int
+            the current iteration
+        """
         if i == 0:
             xyzs = self.sim.reset()
             if xyzs is not None:
@@ -394,47 +456,124 @@ class VisualNavigationAnimation(Animation):
         return time
 
     @property
-    def sim(self) -> VisualNavigationSimulation:
+    def sim(self):
+        """
+        The simulation that runs on the background
+
+        Returns
+        -------
+        VisualNavigationSimulation
+        """
         return self._sim
 
     @property
     def omm(self):
+        """
+        The collection of ommatidia in the figure.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
         return self._lines[0]
 
     @property
     def line_c(self):
+        """
+        The line representing the ongoing path of the agent in the figure.
+
+        Returns
+        -------
+        matplotlib.lines.Line2D
+        """
         return self._lines[1]
 
     @property
     def line_b(self):
+        """
+        The line representing the finished path of the agent in the figure.
+
+        Returns
+        -------
+        matplotlib.lines.Line2D
+        """
         return self._lines[2]
 
     @property
     def pos(self):
+        """
+        The current position of agent in the figure.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
         return self._lines[3]
 
     @property
     def cal(self):
+        """
+        The positions the figure used for calibration in.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
         return self._lines[4]
 
     @property
     def poi(self):
+        """
+        The positions in the figure where the agent was brought back to the route.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
         return self._lines[5]
 
     @property
     def pn(self):
+        """
+        The history of the PN response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
         return self._lines[6]
 
     @property
     def kc(self):
+        """
+        The history of the KC response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
         return self._lines[7]
 
     @property
     def fam(self):
+        """
+        The history of familiarity in the figure.
+
+        Returns
+        -------
+        matplotlib.lines.Line2D
+        """
         return self._lines[8]
 
     @property
     def dist(self):
+        """
+        The history of the distance from the goal (nest) in the figure.
+
+        Returns
+        -------
+        matplotlib.lines.Line2D
+        """
         if len(self._lines) > 9:
             return self._lines[9]
         else:
@@ -442,6 +581,13 @@ class VisualNavigationAnimation(Animation):
 
     @property
     def capacity(self):
+        """
+        The history of the memory capacity in the figure.
+
+        Returns
+        -------
+        matplotlib.lines.Line2D
+        """
         if len(self._lines) > 10:
             return self._lines[10]
         else:
@@ -449,6 +595,13 @@ class VisualNavigationAnimation(Animation):
 
     @property
     def fam_all(self):
+        """
+        The history of familiarity in the figure for all the scanning directions.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
         if len(self._lines) > 11:
             return self._lines[11]
         else:
@@ -456,6 +609,13 @@ class VisualNavigationAnimation(Animation):
 
     @property
     def fam_line(self):
+        """
+        The history of the most familiar direction in the figure.
+
+        Returns
+        -------
+        matplotlib.lines.Line2D
+        """
         if len(self._lines) > 12:
             return self._lines[12]
         else:
@@ -465,6 +625,20 @@ class VisualNavigationAnimation(Animation):
 class PathIntegrationAnimation(Animation):
 
     def __init__(self, sim: PathIntegrationSimulation, show_history=True, cmap="coolwarm", *args, **kwargs):
+        """
+        Animation for the path integration simulation. Shows the POL neurons responses in the Dorsal Rim Area, the
+        position and history of positions of the agent on the map (with vegetation if provided) and the responses of
+        the CX neurons (and their history if requested).
+
+        Parameters
+        ----------
+        sim: PathIntegrationSimulation
+            the path integration simulation isnstance
+        show_history: bool, optional
+            if True, it shows the history instead of just the current responses. Default is True
+        cmap: str, optional
+            the colour map for the responses of the POL neurons. Default is 'coolwarm'
+        """
         kwargs.setdefault('fps', 100)
         super().__init__(sim, *args, **kwargs)
 
@@ -509,6 +683,14 @@ class PathIntegrationAnimation(Animation):
         self._show_history = show_history
 
     def _animate(self, i: int):
+        """
+        Runs the current iteration of the simulation and updates the data from the figure.
+
+        Parameters
+        ----------
+        i: int
+            the current iteration number
+        """
         if i == 0:
             self.line_b.set_data([], [])
             self.sim.reset()
@@ -554,41 +736,111 @@ class PathIntegrationAnimation(Animation):
         return time
 
     @property
-    def sim(self) -> PathIntegrationSimulation:
+    def sim(self):
+        """
+        The path integration simulation instance.
+
+        Returns
+        -------
+        PathIntegrationSimulation
+        """
         return self._sim
 
     @property
     def omm(self):
+        """
+        The collection of the DRA ommatidia in the figure.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
         return self._lines[0]
 
     @property
     def tb1(self):
+        """
+        The history of the TB1 response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
         return self._lines[1]
 
     @property
     def cl1(self):
+        """
+        The history of the CL1 response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
         return self._lines[2]
 
     @property
     def cpu1(self):
+        """
+        The history of the CPU1 response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
         return self._lines[3]
 
     @property
     def cpu4(self):
+        """
+        The history of the CPU4 response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
         return self._lines[4]
 
     @property
     def cpu4mem(self):
+        """
+        The history of the CPU4 memory in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
         return self._lines[5]
 
     @property
     def line_c(self):
+        """
+        The line representing the ongoing path of the agent in the figure.
+
+        Returns
+        -------
+        matplotlib.lines.Line2D
+        """
         return self._lines[6]
 
     @property
     def line_b(self):
+        """
+        The line representing the finished path of the agent in the figure.
+
+        Returns
+        -------
+        matplotlib.lines.Line2D
+        """
         return self._lines[7]
 
     @property
     def pos(self):
+        """
+        The current position of agent in the figure.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
         return self._lines[8]

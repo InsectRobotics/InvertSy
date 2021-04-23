@@ -1,14 +1,49 @@
-from invertsy.__helpers import __root__, RNG, eps, set_rng
 from invertsy.agent import VisualNavigationAgent, PathIntegrationAgent
 
-from invertpy.brain import CelestialCompass
+from invertpy.brain import CelestialCompass, MushroomBody
 from invertpy.sense import CompoundEye
 
 import matplotlib.pyplot as plt
+import matplotlib.collections
+import matplotlib.lines
+import matplotlib.image
 import numpy as np
 
 
 def create_map_axis(world=None, nest=None, feeder=None, subplot=111, ax=None):
+    """
+    Draws a map with all the vegetation from the world (if given), the nest and feeder positions (if given) and returns
+    the ongoing and previous paths of the agent, the agent's current position, the marker (arror) of the agents facing
+    direction, the calibration points and the points where the agent is taken back on the route after replacing.
+
+    Parameters
+    ----------
+    world: Seville2009, optional
+        the world containing the vegetation. Default is None
+    nest: np.ndarray[float], optional
+        the position of the nest. Default is None
+    feeder: np.ndarray[float], optional
+        the position of the feeder. Default is None
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    line_c: matplotlib.lines.Line2D
+        the ongoing path of the agent
+    line_b: matplotlib.lines.Line2D
+        the previous paths of the agent
+    pos: matplotlib.collections.PathCollection
+        the current position of the agent
+    marker: tuple[np.ndarray[float], np.ndarray[float]]
+        the marker parameters
+    cal: matplotlib.collections.PathCollection
+        the points on the map where the calibration took place
+    poi: matplotlib.collections.PathCollection
+        the points on the map where the agent was put back on the route
+    """
 
     if ax is None:
         ax = plt.subplot(subplot)
@@ -29,8 +64,8 @@ def create_map_axis(world=None, nest=None, feeder=None, subplot=111, ax=None):
         ax.scatter([feeder[1]], [feeder[0]], marker='o', s=50, c='black')
         ax.text(feeder[1] + .2, feeder[0] + .2, "Feeder")
 
-    ax.set_ylim([0, 10])
-    ax.set_xlim([0, 10])
+    ax.set_ylim(0, 10)
+    ax.set_xlim(0, 10)
     ax.set_aspect('equal', 'box')
     ax.tick_params(axis='both', labelsize=8)
 
@@ -50,14 +85,27 @@ def create_map_axis(world=None, nest=None, feeder=None, subplot=111, ax=None):
     return line_c, line_b, pos, (vert, codes), cal, poi
 
 
-def create_eye_axis(eye: CompoundEye, cmap="Greys_r", subplot=111, ax=None):
+def create_eye_axis(eye, cmap="Greys_r", subplot=111, ax=None):
+    """
+
+    Parameters
+    ----------
+    eye: CompoundEye
+    cmap: str, optional
+    subplot: int, tuple
+    ax: plt.Axes, optional
+
+    Returns
+    -------
+    matplotlib.collections.PathCollection
+    """
     if ax is None:
         ax = plt.subplot(subplot)
     ax.set_yticks(np.sin([-np.pi/2, -np.pi/3, -np.pi/6, 0, np.pi/6, np.pi/3, np.pi/2]))
     ax.set_yticklabels([-90, -60, -30, 0, 30, 60, 90])
     ax.set_xticks([-180, -90, 0, 90, 180])
-    ax.set_ylim([-1, 1])
-    ax.set_xlim([-180, 180])
+    ax.set_ylim(-1, 1)
+    ax.set_xlim(-180, 180)
     ax.tick_params(axis='both', labelsize=8)
 
     yaw, pitch, roll = eye.omm_ori.as_euler('ZYX', degrees=True).T
@@ -81,7 +129,7 @@ def create_mem_axis(agent: VisualNavigationAgent, cmap="Greys", subplot=111, ax=
     ax.spines['bottom'].set_visible(False)
     ax.spines['left'].set_visible(False)
 
-    mem = agent.brain[0]
+    mem = agent.brain[0]  # type: MushrooBody
 
     size = 400.
     ax.text(.1, 4.8, "PN", fontsize=10)
