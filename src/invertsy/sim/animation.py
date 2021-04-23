@@ -21,27 +21,67 @@ from matplotlib import animation
 from matplotlib.path import Path
 
 import matplotlib.pyplot as plt
+import matplotlib.cm
 import numpy as np
 import os
 
 __anim_dir__ = os.path.abspath(os.path.join(__root__, "..", "..", "OneDrive", "PhD", "IncentiveCircuit"))
+"""
+Directory where to save the animation videos to 
+"""
 __stat_dir__ = os.path.abspath(os.path.join(__root__, "data", "animation", "stats"))
+"""
+Directory where to save the simulation statistics logs
+"""
 
 
 class Animation(object):
 
     def __init__(self, sim: Simulation, fps=15, width=11, height=5, name=None):
+        """
+        Visualises the simulation and creates videos of it.
+
+        Parameters
+        ----------
+        sim: Simulation
+            the simulation to run
+        fps: float, optional
+            the frames per second of the visualisations. Default is 15 fps
+        width: float, optional
+            the width of the figure (in inches). Default is 11 inches
+        height: float, optional
+            the height of the figure (in inches). Default is 5 inches
+        name: str, optional
+            the name of the animation. Default is the name of the simulation + '-anim'
+        """
+        if name is None:
+            name = self._sim.name + "-anim"
         self._fig = plt.figure(name, figsize=(width, height))
         self._sim = sim
         self._fps = fps
         self._ani = None
-        if name is None:
-            name = self._sim.name + "-anim"
         self._name = name
         self._lines = []
         self._iteration = 0
 
     def __call__(self, save=False, save_type="gif", save_name=None, save_stats=True, show=True):
+        """
+        Creates the animation and runs the simulation. Saves the animation in the given file format (if applicable),
+        saves the logged stats (if applicable) and visualises the animation (if applicable).
+
+        Parameters
+        ----------
+        save: bool, optional
+            if True, it saves the animation in the given format. Default is False
+        save_type: str, optional
+            the type of encoding for the saved animation. Default is 'gif'
+        save_name: str, optional
+            the name of the file where the animation will be saved to. Default is {animation-name}.{save_type}
+        save_stats: bool, optional
+            if True, it saves the logged statistics from the simulation. Default is True
+        show: bool, optional
+            if True, it visualises the animation live. Default is True
+        """
         self.sim.reset()
         self._animate(0)
         self._ani = animation.FuncAnimation(self._fig, self.__animate, init_func=self.__initialise,
@@ -61,16 +101,58 @@ class Animation(object):
                 self._sim.save()
 
     def _initialise(self):
+        """
+        Initialises the animation by running the first step.
+        """
         self._animate(0)
 
-    def _animate(self, i: int):
+    def _animate(self, i):
+        """
+        Animates the given iteration of the simulation.
+
+        Parameters
+        ----------
+        i: int
+            the iteration to animate.
+
+        Returns
+        -------
+        float
+            the time (in seconds) that the iteration needed to run
+
+        Raises
+        ------
+        NotImplementedError
+            this method has to be implemented by the sub-classes
+        """
         raise NotImplementedError()
 
     def __initialise(self):
+        """
+        Initialises the animation and returns the produced lines of the figure.
+
+        Returns
+        -------
+        tuple
+            the figure lines
+        """
         self._initialise()
         return tuple(self._lines)
 
-    def __animate(self, i: int):
+    def __animate(self, i):
+        """
+        Runs the animation of the given iteration and prints a message showing the progress.
+
+        Parameters
+        ----------
+        i: int
+            the iteration to run
+
+        Returns
+        -------
+        tuple
+            the lines of the figure
+        """
         time = self._animate(i)
         if isinstance(time, float):
             print(self.sim.message() + " - time: %.2f sec" % time)
@@ -78,32 +160,81 @@ class Animation(object):
 
     @property
     def fig(self):
+        """
+        The figure where the animation is illustrated.
+
+        Returns
+        -------
+        plt.Figure
+        """
         return self._fig
 
     @property
     def sim(self):
+        """
+        The simulation that runs in the background.
+
+        Returns
+        -------
+        Simulation
+        """
         return self._sim
 
     @property
     def nb_frames(self):
+        """
+        The total number of frames of the animation.
+
+        Returns
+        -------
+        int
+        """
         return self._sim.nb_frames
 
     @property
     def fps(self):
+        """
+        The frames per second of the animation.
+
+        Returns
+        -------
+        float
+        """
         return self._fps
 
     @property
     def ani(self):
+        """
+        The matplotlib animation instance.
+
+        Returns
+        -------
+        animation.Animation
+        """
         return self._ani
 
     @property
     def name(self):
+        """
+        The name of the animation.
+
+        Returns
+        -------
+        str
+        """
         return self._name
 
 
 class RouteAnimation(Animation):
 
     def __init__(self, sim: RouteSimulation, cmap="Greens_r", *args, **kwargs):
+        """
+
+        Parameters
+        ----------
+        sim: RouteSimulation
+        cmap: str
+        """
         super().__init__(sim, *args, **kwargs)
 
         omm = create_eye_axis(sim.eye, cmap=cmap, subplot=221)
