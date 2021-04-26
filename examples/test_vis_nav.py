@@ -15,8 +15,8 @@ def main(*args):
     print("Ant#: %d, Route#: %d, steps#: %d" % (ant_no, rt_no, rt.shape[0]), end='')
 
     save, show = True, False
-    nb_scans = 121
-    nb_ommatidia = 4000
+    nb_scans = 11
+    nb_ommatidia = 100
     replace = True
     calibrate = True
     mem = PerfectMemory(nb_ommatidia)

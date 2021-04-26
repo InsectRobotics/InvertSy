@@ -17,8 +17,7 @@ from invertsy.env import Sky, Seville2009
 from invertpy.sense import PolarisationSensor, CompoundEye, Sensor
 from invertpy.brain import MushroomBody, WillshawNetwork, CentralComplex, PolarisationCompass, Component
 from invertpy.brain.compass import decode_sph
-from invertpy.brain.synapses import whitening_synapses, whitening, dct_synapses
-from invertpy.brain.activation import softmax
+from invertpy.brain.preprocessing import Whitening, DiscreteCosineTransform
 
 from scipy.spatial.transform import Rotation as R
 from copy import copy
@@ -660,27 +659,12 @@ class VisualNavigationAgent(Agent):
         The familiarity of each preferred angle
         """
 
-        self._w_white = None
+        self._preprocessing = [Whitening(nb_input=eye.nb_ommatidia, dtype=eye.dtype)]
         """
-        Whitening synaptic weights.
+        List of the preprocessing components
         """
-        self._m_white = None
-        """
-        Whitening mean.
-        """
-        self._is_calibrated = False
-        """
-        Indicates if the calibration process has been completed.
-        """
-
-        self._w_dct = None
-        """
-        The Discrete Cosine Transform synaptic weights.
-        """
-        self._freq_trans = freq_trans
-        """
-        Indicates whether the input to the mushroom body will be in the frequency domain or not.
-        """
+        if freq_trans:
+            self._preprocessing.insert(0, DiscreteCosineTransform(nb_input=eye.nb_ommatidia, dtype=eye.dtype))
 
         self.reset()
 
@@ -689,12 +673,8 @@ class VisualNavigationAgent(Agent):
 
         self._familiarity = np.zeros_like(self._pref_angles)
 
-        self._w_white = None
-        self._m_white = None
-        self._is_calibrated = False
-
-        if self._freq_trans:
-            self._w_dct = dct_synapses(self._eye.nb_ommatidia, dtype=self._eye.dtype)
+        for process in self._preprocessing:
+            process.reset()
 
     def _sense(self, sky=None, scene=None, **kwargs):
         """
@@ -782,12 +762,11 @@ class VisualNavigationAgent(Agent):
             oris.append(copy(self.ori))
             print("Calibration: %d/%d - x: %.2f, y: %.2f, z: %.2f, yaw: %d" % (
                 i + 1, nb_samples, self.x, self.y, self.z, self.yaw_deg))
-        self._w_white, self._m_white = whitening_synapses(samples, dtype=self.dtype, bias=True)
+        self._preprocessing[-1].reset(samples)
 
         self.xyz = xyz
         self.ori = ori
 
-        self._is_calibrated = True
         print("Calibration: DONE!")
 
         return xyzs, oris
@@ -812,14 +791,9 @@ class VisualNavigationAgent(Agent):
             the responses of the PNs
         """
         r = np.clip(self._eye(sky=sky, scene=scene).mean(axis=1), 0, 1)
-        if self._freq_trans:
-            # transform the input to the coefficients using the Discrete Cosine Transform
-            r = r @ self._w_dct
-        if self._w_white is not None and self._m_white is not None:
-            r_white = whitening(r, self._w_white, self._m_white)
-            return softmax((r_white - r_white.min()) / (r_white.max() - r_white.min() + eps), tau=.2, axis=0)
-        else:
-            return r
+        for process in self._preprocessing:
+            r = process(r)
+        return r
 
     @property
     def familiarity(self):
@@ -866,7 +840,7 @@ class VisualNavigationAgent(Agent):
         """
         Indicates if calibration has been completed
         """
-        return self._is_calibrated
+        return self._preprocessing[-1].calibrated
 
     @staticmethod
     def get_steering(familiarity, pref_angles, max_steering=None, degrees=True):

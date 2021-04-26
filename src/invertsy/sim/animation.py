@@ -37,7 +37,7 @@ Directory where to save the simulation statistics logs
 
 class Animation(object):
 
-    def __init__(self, sim: Simulation, fps=15, width=11, height=5, name=None):
+    def __init__(self, sim, fps=15, width=11, height=5, name=None):
         """
         Visualises the simulation and creates videos of it.
 
@@ -55,7 +55,7 @@ class Animation(object):
             the name of the animation. Default is the name of the simulation + '-anim'
         """
         if name is None:
-            name = self._sim.name + "-anim"
+            name = sim.name + "-anim"
         self._fig = plt.figure(name, figsize=(width, height))
         self._sim = sim
         self._fps = fps
