@@ -34,7 +34,7 @@ if __name__ == '__main__':
 
             data = np.load(os.path.join(__data__, filename))
 
-            if replace:
+            if replace and 'replace' in data:
                 df['model'].append(model)
                 df['pca'].append(pca)
                 df['scans'].append(nb_scans)
@@ -52,7 +52,7 @@ if __name__ == '__main__':
 
     for model in np.unique(df['model']):
         i = (df['model'] == model) & (df['scans'] == 121) & df['pca']
-        plt.plot(df['ommatidia'][i], df['replaces'][i], label=model)
+        plt.plot(df['ommatidia'][i], df['replaces'][i], '.-', label=model)
 
     plt.legend()
     plt.xticks(np.sort(np.unique(df['ommatidia'])))
@@ -67,7 +67,7 @@ if __name__ == '__main__':
 
     for model in np.unique(df['model']):
         i = (df['model'] == model) & (df['ommatidia'] == 5000) & df['pca']
-        plt.plot(df['scans'][i], df['replaces'][i], label=model)
+        plt.plot(df['scans'][i], df['replaces'][i], '.-', label=model)
 
     plt.legend()
     plt.xticks(np.sort(np.unique(df['scans'])))

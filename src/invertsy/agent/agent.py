@@ -16,6 +16,8 @@ from invertsy.env import Sky, Seville2009
 
 from invertpy.sense import PolarisationSensor, CompoundEye, Sensor
 from invertpy.brain import MushroomBody, WillshawNetwork, CentralComplex, PolarisationCompass, Component
+from invertpy.brain.mushroombody import IncentiveCircuit
+from invertpy.brain.activation import winner_takes_all, relu
 from invertpy.brain.compass import decode_sph
 from invertpy.brain.preprocessing import Whitening, DiscreteCosineTransform
 
@@ -643,6 +645,12 @@ class VisualNavigationAgent(Agent):
             # #KC = 40 * #PN
             memory = WillshawNetwork(nb_cs=eye.nb_ommatidia, nb_kc=eye.nb_ommatidia * 40, sparseness=0.01,
                                      eligibility_trace=.1)
+        if isinstance(memory, IncentiveCircuit):
+            memory.f_cs = lambda x: np.asarray(x > np.sort(x)[int(memory.nb_cs * .7)], dtype=self.dtype)
+            memory.f_kc = lambda x: np.asarray(winner_takes_all(x, percentage=memory.sparseness), dtype=self.dtype)
+            memory.f_mbon = lambda x: relu(x * memory.sparseness, cmax=2)
+            memory.b_m = np.array([0, 0, 0, 0, 0, 0])
+            memory.b_d = np.array([-.0, -.0, -.0, -.0, -.0, -.0])
 
         self.add_sensor(eye)
         self.add_brain_component(memory)
@@ -700,7 +708,15 @@ class VisualNavigationAgent(Agent):
 
         if self.update:
             r = self.get_pn_responses(sky=sky, scene=scene)
-            self._familiarity[front] = self._mem(cs=r, us=np.ones(1, dtype=self.dtype))
+            r_mbon = self._mem(cs=r, us=np.ones(1, dtype=self.dtype))
+
+            print(("%s: %.2f, " * 6) % (
+                self._mem.mbon_names[0], r_mbon[0], self._mem.mbon_names[1], r_mbon[1],
+                self._mem.mbon_names[2], r_mbon[2], self._mem.mbon_names[3], r_mbon[3],
+                self._mem.mbon_names[4], r_mbon[4], self._mem.mbon_names[5], r_mbon[5]
+            ), end=" ")
+            self._familiarity[front] = self.get_familiarity(r_mbon)
+            print("fam: %.4f" % self._familiarity[front])
             if self._mem.nb_kc > 0:
                 self._familiarity[front] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
         else:
@@ -709,9 +725,10 @@ class VisualNavigationAgent(Agent):
             for i, angle in enumerate(self._pref_angles):
                 self.ori = ori * R.from_euler('Z', angle, degrees=True)
                 r = self.get_pn_responses(sky=sky, scene=scene)
-                self._familiarity[i] = self._mem(cs=r)
+                self._familiarity[i] = self.get_familiarity(self._mem(cs=r))
                 if self._mem.nb_kc > 0:
                     self._familiarity[i] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
+            print(*["%.4f" % f for f in self._familiarity])
             self.ori = ori
 
         return self._familiarity
@@ -880,3 +897,22 @@ class VisualNavigationAgent(Agent):
         if degrees:
             steer = np.rad2deg(steer)
         return steer
+
+    def get_familiarity(self, r_mbon):
+        """
+        Computes the familiarity using the MBON responses.
+
+        Parameters
+        ----------
+        r_mbon: np.ndarray[float]
+            MBON responses
+
+        Returns
+        -------
+        float
+            the familiarity
+        """
+        if isinstance(self._mem, IncentiveCircuit):
+            return .5 + np.mean(r_mbon[[0, 2, 4]] - r_mbon[[1, 3, 5]])
+        else:
+            return r_mbon
