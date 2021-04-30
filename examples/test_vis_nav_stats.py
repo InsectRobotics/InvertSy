@@ -21,9 +21,10 @@ if __name__ == '__main__':
 
     for _, _, filenames in os.walk(__data__):
         for filename in filenames:
-            match = re.match(r"vn-([a-z]+)(-pca)?-scan([0-9]+)-ant([0-9]+)-route([0-9]+)(-replace)?-omm([0-9]+).npz",
+            match = re.match(r"vn-([a-z]+\-?[A-Z]?)(-pca)?-scan([0-9]+)-ant([0-9]+)-route([0-9]+)(-replace)?-omm([0-9]+).npz",
                              filename)
-
+            if match is None:
+                continue
             model = match.group(1)
             pca = match.group(2) is not None
             nb_scans = int(match.group(3))
@@ -58,7 +59,7 @@ if __name__ == '__main__':
     plt.xticks(np.sort(np.unique(df['ommatidia'])))
     plt.xlabel('number of ommatidia')
     plt.ylabel('number of replaces')
-    plt.ylim([0, 25])
+    plt.ylim([0, 100])
 
     plt.subplot(122)
     i = np.argsort(df['scans'])
@@ -73,7 +74,7 @@ if __name__ == '__main__':
     plt.xticks(np.sort(np.unique(df['scans'])))
     plt.xlabel('number of scans')
     plt.ylabel('number of replaces')
-    plt.ylim([0, 25])
+    plt.ylim([0, 60])
 
     plt.tight_layout()
     plt.show()
