@@ -20,8 +20,8 @@ def main(*args):
     for ant_no, rt_no, rt in zip(routes['ant_no'], routes['route_no'], routes['path']):
         print("Ant#: %d, Route#: %d, steps#: %d" % (ant_no, rt_no, rt.shape[0]), end='')
 
-        mem = PerfectMemory(nb_ommatidia)
-        # mem = WillshawNetwork(nb_cs=nb_ommatidia, nb_kc=nb_ommatidia * 40, sparseness=0.01, eligibility_trace=.1)
+        # mem = PerfectMemory(nb_ommatidia)
+        mem = WillshawNetwork(nb_cs=nb_ommatidia, nb_kc=nb_ommatidia * 40, sparseness=0.01, eligibility_trace=.1)
         agent_name = "vn-%s%s-scan%d-ant%d-route%d%s" % (
             mem.__class__.__name__.lower(),
             "-pca" if calibrate else "",

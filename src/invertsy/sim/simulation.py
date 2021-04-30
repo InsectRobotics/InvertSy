@@ -464,12 +464,14 @@ class VisualNavigationSimulation(Simulation):
         i: int
             the iteration ID to run
         """
+        if i == self.route.shape[0]:
+            self.init_inbound()
+
         if i < self._route.shape[0]:  # outbound path
             x, y, z, yaw = self._route[i]
             self._agent(sky=self._sky, scene=self._world, act=False, callback=self.update_stats)
             self._agent.xyz = [x, y, z]
             self._agent.ori = R.from_euler('Z', yaw, degrees=True)
-
         else:  # inbound path
             act = not (len(self._stats["L"]) > 0 and self._stats["L"][-1] <= 0.01)
             self._agent(sky=self._sky, scene=self._world, act=act, callback=self.update_stats)
@@ -742,6 +744,8 @@ class PathIntegrationSimulation(Simulation):
             self._agent.xyz = [x, y, z]
             self._agent.ori = R.from_euler('Z', yaw, degrees=True)
             act = False
+        elif i == self.route.shape[0]:
+            self.init_inbound()
         self._agent(sky=self._sky, act=act, callback=self.update_stats)
 
     def update_stats(self, a):
