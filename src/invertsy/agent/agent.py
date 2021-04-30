@@ -614,7 +614,8 @@ class PathIntegrationAgent(Agent):
 
 class VisualNavigationAgent(Agent):
 
-    def __init__(self, eye=None, memory=None, saturation=1.5, nb_scans=7, freq_trans=True, *args, **kwargs):
+    def __init__(self, eye=None, memory=None, saturation=1.5, nb_scans=7, freq_trans=True,
+                 mb_mixture=None, *args, **kwargs):
         """
         Agent specialised in the visual navigation task. It contains the CompoundEye as a sensor and the mushroom body
         as the brain component.
@@ -634,6 +635,9 @@ class VisualNavigationAgent(Agent):
             the number of scans during the route following task. Default is 7
         freq_trans: bool, optional
             whether to transform the visual input into the frequency domain by using the DCT method. Default is False
+        mb_mixture: str, optional
+            which types of MBONs to use for the familiarity computation. S: susceptible, R: restrained, M: LTM. Default
+            is None: mixture of all of them.
         """
         super().__init__(*args, **kwargs)
 
@@ -648,9 +652,11 @@ class VisualNavigationAgent(Agent):
         if isinstance(memory, IncentiveCircuit):
             memory.f_cs = lambda x: np.asarray(x > np.sort(x)[int(memory.nb_cs * .7)], dtype=self.dtype)
             memory.f_kc = lambda x: np.asarray(winner_takes_all(x, percentage=memory.sparseness), dtype=self.dtype)
-            memory.f_mbon = lambda x: relu(x * memory.sparseness, cmax=2)
+            memory.f_mbon = lambda x: relu(x / float(memory.nb_kc * memory.sparseness), cmax=2)
             memory.b_m = np.array([0, 0, 0, 0, 0, 0])
             memory.b_d = np.array([-.0, -.0, -.0, -.0, -.0, -.0])
+            memory.mbon_names = np.array(memory.mbon_names)[[1, 0, 3, 2, 5, 4]]
+            memory.dan_names = np.array(memory.dan_names)[[1, 0, 3, 2, 5, 4]]
 
         self.add_sensor(eye)
         self.add_brain_component(memory)
@@ -673,6 +679,8 @@ class VisualNavigationAgent(Agent):
         """
         if freq_trans:
             self._preprocessing.insert(0, DiscreteCosineTransform(nb_input=eye.nb_ommatidia, dtype=eye.dtype))
+
+        self._mbon_mixture = "SRM" if mb_mixture is None else mb_mixture.upper()
 
         self.reset()
 
@@ -717,6 +725,11 @@ class VisualNavigationAgent(Agent):
             ), end=" ")
             self._familiarity[front] = self.get_familiarity(r_mbon)
             print("fam: %.4f" % self._familiarity[front])
+            print(("%s: %.2f, " * 6) % (
+                self._mem.dan_names[0], self._mem.r_dan[0], self._mem.dan_names[1], self._mem.r_dan[1],
+                self._mem.dan_names[2], self._mem.r_dan[2], self._mem.dan_names[3], self._mem.r_dan[3],
+                self._mem.dan_names[4], self._mem.r_dan[4], self._mem.dan_names[5], self._mem.r_dan[5]
+            ))
             if self._mem.nb_kc > 0:
                 self._familiarity[front] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
         else:
@@ -913,6 +926,13 @@ class VisualNavigationAgent(Agent):
             the familiarity
         """
         if isinstance(self._mem, IncentiveCircuit):
-            return .5 + np.mean(r_mbon[[0, 2, 4]] - r_mbon[[1, 3, 5]])
+            fams = []
+            if 'S' in self._mbon_mixture:
+                fams.append(1 - (r_mbon[0] - r_mbon[1]))
+            if 'R' in self._mbon_mixture:
+                fams.append(1 - (r_mbon[2] - r_mbon[3]))
+            if 'M' in self._mbon_mixture:
+                fams.append(1 - (r_mbon[4] - r_mbon[5]))
+            return np.mean(fams)
         else:
             return r_mbon

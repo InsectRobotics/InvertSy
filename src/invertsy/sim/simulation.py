@@ -505,7 +505,7 @@ class VisualNavigationSimulation(Simulation):
         self._stats["DAN"].append(self.mem.r_dan.copy())
         self._stats["path"].append([self.agent.x, self.agent.y, self.agent.z, self.agent.yaw])
         self._stats["L"].append(np.linalg.norm(self.agent.xyz - self._route[-1, :3]))
-        self._stats["capacity"].append(self.mem.w_k2m.sum() / float(self.mem.w_k2m.size))
+        self._stats["capacity"].append(np.clip(self.mem.w_k2m, 0, 1).mean())
         self._stats["familiarity"].append(self.familiarity)
         c = self._stats["C"][-1] if len(self._stats["C"]) > 0 else 0.
         if len(self._stats["path"]) > 1:
@@ -610,7 +610,7 @@ class VisualNavigationSimulation(Simulation):
         -------
         float
         """
-        return self.mem.w_k2m.sum() / float(self.mem.w_k2m.size)
+        return np.clip(self.mem.w_k2m, 0, 1).mean()
 
     @property
     def d_nest(self):

@@ -397,7 +397,6 @@ class VisualNavigationAnimation(Animation):
                 self.cal.set_offsets(np.array(xyzs)[:, [1, 0]])
         elif i == self.sim.route.shape[0]:
             self.line_b.set_data(np.array(self.sim.stats["path"])[..., 1], np.array(self.sim.stats["path"])[..., 0])
-            self.sim.init_inbound()
 
         time = self.sim.step(i)
 
