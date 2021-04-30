@@ -718,18 +718,19 @@ class VisualNavigationAgent(Agent):
             r = self.get_pn_responses(sky=sky, scene=scene)
             r_mbon = self._mem(cs=r, us=np.ones(1, dtype=self.dtype))
 
-            print(("%s: %.2f, " * 6) % (
-                self._mem.mbon_names[0], r_mbon[0], self._mem.mbon_names[1], r_mbon[1],
-                self._mem.mbon_names[2], r_mbon[2], self._mem.mbon_names[3], r_mbon[3],
-                self._mem.mbon_names[4], r_mbon[4], self._mem.mbon_names[5], r_mbon[5]
-            ), end=" ")
             self._familiarity[front] = self.get_familiarity(r_mbon)
-            print("fam: %.4f" % self._familiarity[front])
-            print(("%s: %.2f, " * 6) % (
-                self._mem.dan_names[0], self._mem.r_dan[0], self._mem.dan_names[1], self._mem.r_dan[1],
-                self._mem.dan_names[2], self._mem.r_dan[2], self._mem.dan_names[3], self._mem.r_dan[3],
-                self._mem.dan_names[4], self._mem.r_dan[4], self._mem.dan_names[5], self._mem.r_dan[5]
-            ))
+            if isinstance(self._mem, IncentiveCircuit):
+                print(("%s: %.2f, " * 6) % (
+                    self._mem.mbon_names[0], r_mbon[0], self._mem.mbon_names[1], r_mbon[1],
+                    self._mem.mbon_names[2], r_mbon[2], self._mem.mbon_names[3], r_mbon[3],
+                    self._mem.mbon_names[4], r_mbon[4], self._mem.mbon_names[5], r_mbon[5]
+                ), end=" ")
+                print("fam: %.4f" % self._familiarity[front])
+                print(("%s: %.2f, " * 6) % (
+                    self._mem.dan_names[0], self._mem.r_dan[0], self._mem.dan_names[1], self._mem.r_dan[1],
+                    self._mem.dan_names[2], self._mem.r_dan[2], self._mem.dan_names[3], self._mem.r_dan[3],
+                    self._mem.dan_names[4], self._mem.r_dan[4], self._mem.dan_names[5], self._mem.r_dan[5]
+                ))
             if self._mem.nb_kc > 0:
                 self._familiarity[front] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
         else:
@@ -741,7 +742,8 @@ class VisualNavigationAgent(Agent):
                 self._familiarity[i] = self.get_familiarity(self._mem(cs=r))
                 if self._mem.nb_kc > 0:
                     self._familiarity[i] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
-            print(*["%.4f" % f for f in self._familiarity])
+            if isinstance(self._mem, IncentiveCircuit):
+                print(*["%.4f" % f for f in self._familiarity])
             self.ori = ori
 
         return self._familiarity
