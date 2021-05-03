@@ -464,6 +464,9 @@ class VisualNavigationSimulation(Simulation):
         i: int
             the iteration ID to run
         """
+        if i == self._route.shape[0]:  # initialise route following
+            self.init_inbound()
+
         if i < self._route.shape[0]:  # outbound path
             x, y, z, yaw = self._route[i]
             self._agent(sky=self._sky, scene=self._world, act=False, callback=self.update_stats)

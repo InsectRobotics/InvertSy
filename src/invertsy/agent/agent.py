@@ -687,6 +687,10 @@ class VisualNavigationAgent(Agent):
     def reset(self):
         super().reset()
 
+        if isinstance(self._mem, IncentiveCircuit):
+            self._mem.b_m = np.array([0, 0, 0, 0, 0, 0])
+            self._mem.b_d = np.array([-.0, -.0, -.0, -.0, -.0, -.0])
+
         self._familiarity = np.zeros_like(self._pref_angles)
 
         for process in self._preprocessing:
@@ -727,9 +731,9 @@ class VisualNavigationAgent(Agent):
                 ), end=" ")
                 print("fam: %.4f" % self._familiarity[front])
                 print(("%s: %.2f, " * 6) % (
-                    self._mem.dan_names[0], self._mem.r_dan[0], self._mem.dan_names[1], self._mem.r_dan[1],
-                    self._mem.dan_names[2], self._mem.r_dan[2], self._mem.dan_names[3], self._mem.r_dan[3],
-                    self._mem.dan_names[4], self._mem.r_dan[4], self._mem.dan_names[5], self._mem.r_dan[5]
+                    self._mem.dan_names[0], self._mem.r_dan[0, 0], self._mem.dan_names[1], self._mem.r_dan[0, 1],
+                    self._mem.dan_names[2], self._mem.r_dan[0, 2], self._mem.dan_names[3], self._mem.r_dan[0, 3],
+                    self._mem.dan_names[4], self._mem.r_dan[0, 4], self._mem.dan_names[5], self._mem.r_dan[0, 5]
                 ))
             if self._mem.nb_kc > 0:
                 self._familiarity[front] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
@@ -740,7 +744,7 @@ class VisualNavigationAgent(Agent):
                 self.ori = ori * R.from_euler('Z', angle, degrees=True)
                 r = self.get_pn_responses(sky=sky, scene=scene)
                 self._familiarity[i] = self.get_familiarity(self._mem(cs=r))
-                if self._mem.nb_kc > 0:
+                if self._mem.nb_kc > 0 and not isinstance(self._mem, IncentiveCircuit):
                     self._familiarity[i] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
             if isinstance(self._mem, IncentiveCircuit):
                 print(*["%.4f" % f for f in self._familiarity])

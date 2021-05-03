@@ -35,6 +35,9 @@ if __name__ == '__main__':
 
             data = np.load(os.path.join(__data__, filename))
 
+            if route_no > 1:
+                print([key for key in data.keys()])
+
             if replace and 'replace' in data:
                 df['model'].append(model)
                 df['pca'].append(pca)
@@ -53,6 +56,7 @@ if __name__ == '__main__':
 
     for model in np.unique(df['model']):
         i = (df['model'] == model) & (df['scans'] == 121) & df['pca']
+        print(df['ommatidia'][i])
         plt.plot(df['ommatidia'][i], df['replaces'][i], '.-', label=model)
 
     plt.legend()
@@ -68,6 +72,7 @@ if __name__ == '__main__':
 
     for model in np.unique(df['model']):
         i = (df['model'] == model) & (df['ommatidia'] == 5000) & df['pca']
+        print(i)
         plt.plot(df['scans'][i], df['replaces'][i], '.-', label=model)
 
     plt.legend()
