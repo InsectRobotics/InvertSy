@@ -735,20 +735,52 @@ class VisualNavigationAgent(Agent):
                     self._mem.dan_names[2], self._mem.r_dan[0, 2], self._mem.dan_names[3], self._mem.r_dan[0, 3],
                     self._mem.dan_names[4], self._mem.r_dan[0, 4], self._mem.dan_names[5], self._mem.r_dan[0, 5]
                 ))
-            if self._mem.nb_kc > 0:
+            if self._mem.nb_kc > 0 and not isinstance(self._mem, IncentiveCircuit):
                 self._familiarity[front] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
         else:
             ori = copy(self.ori)
 
+            r_cs = copy(self._mem.r_cs)
+            r_us = copy(self._mem.r_us)
+            r_kc = copy(self._mem.r_kc)
+            r_apl = copy(self._mem.r_apl)
+            r_dan = copy(self._mem.r_dan)
+            r_mbon = copy(self._mem.r_mbon)
+
+            cs, us, kc, apl, dan, mbon = [], [], [], [], [], []
             for i, angle in enumerate(self._pref_angles):
+                self._mem._cs = copy(r_cs)
+                self._mem._us = copy(r_us)
+                self._mem._kc = copy(r_kc)
+                self._mem._apl = copy(r_apl)
+                self._mem._dan = copy(r_dan)
+                self._mem._mbon = copy(r_mbon)
+
                 self.ori = ori * R.from_euler('Z', angle, degrees=True)
                 r = self.get_pn_responses(sky=sky, scene=scene)
                 self._familiarity[i] = self.get_familiarity(self._mem(cs=r))
                 if self._mem.nb_kc > 0 and not isinstance(self._mem, IncentiveCircuit):
                     self._familiarity[i] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
+
+                cs.append(copy(self._mem.r_cs))
+                us.append(copy(self._mem.r_us))
+                kc.append(copy(self._mem.r_kc))
+                apl.append(copy(self._mem.r_apl))
+                dan.append(copy(self._mem.r_dan))
+                mbon.append(copy(self._mem.r_mbon))
+
             if isinstance(self._mem, IncentiveCircuit):
                 print(*["%.4f" % f for f in self._familiarity])
             self.ori = ori
+
+            i = self._familiarity.argmax()
+
+            self._mem._cs = cs[i]
+            self._mem._us = us[i]
+            self._mem._kc = kc[i]
+            self._mem._apl = apl[i]
+            self._mem._dan = dan[i]
+            self._mem._mbon = mbon[i]
 
         return self._familiarity
 
@@ -879,7 +911,7 @@ class VisualNavigationAgent(Agent):
         return self._preprocessing[-1].calibrated
 
     @staticmethod
-    def get_steering(familiarity, pref_angles, max_steering=None, degrees=True):
+    def get_steering(familiarity, pref_angles, max_steering=None, degrees=True, reverse=False):
         """
         Outputs a scalar where sign determines left or right turn.
 
@@ -893,6 +925,8 @@ class VisualNavigationAgent(Agent):
             the maximum steering allowed for the agent. Default is 30 degrees
         degrees: bool, optional
             whether the max_steering is in degrees or radians. Default is degrees
+        reverse: bool, optional
+            whether the highest (False) or the lowest (True) familiarity drives the steering. Default is True
 
         Returns
         -------
@@ -905,7 +939,9 @@ class VisualNavigationAgent(Agent):
             max_steering = np.deg2rad(max_steering)
         if degrees:
             pref_angles = np.deg2rad(pref_angles)
-        r = familiarity.max() - familiarity
+        r = familiarity - familiarity.min()
+        if reverse:
+            r = r.max() - r
         r = r / (r.sum() + eps)
         pref_angles_c = r * np.exp(1j * pref_angles)
 
@@ -933,12 +969,9 @@ class VisualNavigationAgent(Agent):
         """
         if isinstance(self._mem, IncentiveCircuit):
             fams = []
-            if 'S' in self._mbon_mixture:
-                fams.append(1 - (r_mbon[0] - r_mbon[1]))
-            if 'R' in self._mbon_mixture:
-                fams.append(1 - (r_mbon[2] - r_mbon[3]))
-            if 'M' in self._mbon_mixture:
-                fams.append(1 - (r_mbon[4] - r_mbon[5]))
+            for i, pair in enumerate(['S', 'R', 'M']):
+                if pair in self._mbon_mixture:
+                    fams.append(.5 + (r_mbon[i * 2] - r_mbon[i * 2 + 1]) / 4)
             return np.mean(fams)
         else:
-            return r_mbon
+            return 1. - r_mbon

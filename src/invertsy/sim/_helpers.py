@@ -283,7 +283,7 @@ def create_familiarity_response_history(agent, nb_frames, sep=None, cmap="Greys"
     ax.set_ylabel("familiarity", fontsize=8)
     ax.tick_params(axis='both', labelsize=8)
 
-    fam = ax.imshow(np.zeros((nb_scans, nb_frames), dtype='float32'), cmap=cmap, vmin=0, vmax=.2,
+    fam = ax.imshow(np.zeros((nb_scans, nb_frames), dtype='float32'), cmap=cmap, vmin=0, vmax=1,
                     interpolation="none", aspect="auto")
 
     fam_line, = ax.plot([], [], 'red', lw=.5, alpha=.5)
@@ -314,7 +314,7 @@ def create_familiarity_history(nb_frames, sep=None, subplot=111, ax=None):
     matplotlib.lines.Line2D
         the line of the lowest familiarity per iteration
     """
-    return create_single_line_history(nb_frames, sep=sep, title="familiarity (%)", ylim=20, subplot=subplot, ax=ax)
+    return create_single_line_history(nb_frames, sep=sep, title="familiarity (%)", ylim=100, subplot=subplot, ax=ax)
 
 
 def create_capacity_history(nb_frames, sep=None, subplot=111, ax=None):

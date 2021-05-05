@@ -33,10 +33,11 @@ if __name__ == '__main__':
             replace = match.group(6) is not None
             nb_omm = int(match.group(7))
 
-            data = np.load(os.path.join(__data__, filename))
-
-            if route_no > 1:
-                print([key for key in data.keys()])
+            try:
+                data = np.load(os.path.join(__data__, filename))
+            except Exception:
+                print(filename)
+                continue
 
             if replace and 'replace' in data:
                 df['model'].append(model)
@@ -56,8 +57,7 @@ if __name__ == '__main__':
 
     for model in np.unique(df['model']):
         i = (df['model'] == model) & (df['scans'] == 121) & df['pca']
-        print(df['ommatidia'][i])
-        plt.plot(df['ommatidia'][i], df['replaces'][i], '.-', label=model)
+        plt.plot(df['ommatidia'][i], df['replaces'][i], '.', label=model)
 
     plt.legend()
     plt.xticks(np.sort(np.unique(df['ommatidia'])))
@@ -72,8 +72,7 @@ if __name__ == '__main__':
 
     for model in np.unique(df['model']):
         i = (df['model'] == model) & (df['ommatidia'] == 5000) & df['pca']
-        print(i)
-        plt.plot(df['scans'][i], df['replaces'][i], '.-', label=model)
+        plt.plot(df['scans'][i], df['replaces'][i], '.', label=model)
 
     plt.legend()
     plt.xticks(np.sort(np.unique(df['scans'])))

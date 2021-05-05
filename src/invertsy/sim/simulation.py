@@ -11,6 +11,7 @@ __license__ = "GPLv3+"
 __version__ = "v1.0.0-alpha"
 __maintainer__ = "Evripidis Gkanias"
 
+from invertpy.brain.mushroombody import IncentiveCircuit
 from invertsy.__helpers import __data__
 from invertsy.env import Sky, Seville2009
 from invertsy.agent import VisualNavigationAgent, PathIntegrationAgent
@@ -595,14 +596,14 @@ class VisualNavigationSimulation(Simulation):
     @property
     def familiarity(self):
         """
-        The minimum familiarity observed.
+        The maximum familiarity observed.
 
         Returns
         -------
         float
         """
         fam_array = self._agent.familiarity
-        return fam_array[len(fam_array) // 2] if self._iteration < self._route.shape[0] else fam_array.min()
+        return fam_array[len(fam_array) // 2] if self._iteration < self._route.shape[0] else fam_array.max()
 
     @property
     def capacity(self):
