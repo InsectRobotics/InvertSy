@@ -15,8 +15,9 @@ if __name__ == '__main__':
         'scans': [],
         'ant': [],
         'route': [],
+        'route_length': [],
         'replaces': [],
-        'ommatidia': []
+        'ommatidia': [],
     }
 
     for _, _, filenames in os.walk(__data__):
@@ -47,6 +48,7 @@ if __name__ == '__main__':
                 df['route'].append(route_no)
                 df['ommatidia'].append(nb_omm)
                 df['replaces'].append(data['replace'].sum())
+                df['route_length'].append(len(data['outbound']))
 
     plt.figure('visual-navigation-stats', figsize=(10, 4))
 
@@ -55,30 +57,44 @@ if __name__ == '__main__':
     for key in df:
         df[key] = np.array(df[key])[i]
 
-    for model in np.unique(df['model']):
+    for j, model in enumerate(np.unique(df['model'])):
         i = (df['model'] == model) & (df['scans'] == 121) & df['pca']
-        plt.plot(df['ommatidia'][i], df['replaces'][i], '.', label=model)
+        omm = np.sort(np.unique(df['ommatidia']))
+        rep = 100 * df['replaces'][i] / df['route_length'][i]
+        rep_25 = [np.nanquantile(rep[df['ommatidia'][i] == o], q=0.25) for o in omm]
+        rep_50 = [np.nanmedian(rep[df['ommatidia'][i] == o]) for o in omm]
+        rep_75 = [np.nanquantile(rep[df['ommatidia'][i] == o], q=0.75) for o in omm]
+        plt.fill_between(omm, rep_25, rep_75, 'C%d' % j, alpha=.2)
+        plt.plot(omm, rep_50, 'C%d' % j, linestyle='-', label=model)
+        plt.plot(df['ommatidia'][i], rep, 'C%d' % j, linestyle='', marker='.')
 
     plt.legend()
     plt.xticks(np.sort(np.unique(df['ommatidia'])))
     plt.xlabel('number of ommatidia')
-    plt.ylabel('number of replaces')
-    plt.ylim([0, 100])
+    plt.ylabel('percentage of replaces (%)')
+    plt.ylim([0, 5])
 
     plt.subplot(122)
     i = np.argsort(df['scans'])
     for key in df:
         df[key] = np.array(df[key])[i]
 
-    for model in np.unique(df['model']):
+    for j, model in enumerate(np.unique(df['model'])):
         i = (df['model'] == model) & (df['ommatidia'] == 5000) & df['pca']
-        plt.plot(df['scans'][i], df['replaces'][i], '.', label=model)
+        sca = np.sort(np.unique(df['scans']))
+        rep = 100 * df['replaces'][i] / df['route_length'][i]
+        rep_25 = [np.nanquantile(rep[df['scans'][i] == o], q=0.25) for o in sca]
+        rep_50 = [np.nanmedian(rep[df['scans'][i] == o]) for o in sca]
+        rep_75 = [np.nanquantile(rep[df['scans'][i] == o], q=0.75) for o in sca]
+        plt.fill_between(sca, rep_25, rep_75, 'C%d' % j, alpha=.2)
+        plt.plot(sca, rep_50, 'C%d' % j, linestyle='-', label=model)
+        plt.plot(df['scans'][i], rep, 'C%d' % j, linestyle='', marker='.')
 
     plt.legend()
     plt.xticks(np.sort(np.unique(df['scans'])))
     plt.xlabel('number of scans')
     plt.ylabel('number of replaces')
-    plt.ylim([0, 60])
+    plt.ylim([0, 10])
 
     plt.tight_layout()
     plt.show()

@@ -54,13 +54,12 @@ class Animation(object):
         name: str, optional
             the name of the animation. Default is the name of the simulation + '-anim'
         """
-        if name is None:
-            name = sim.name + "-anim"
+        if name is not None:
+            sim.set_name(name)
         self._fig = plt.figure(name, figsize=(width, height))
         self._sim = sim
         self._fps = fps
         self._ani = None
-        self._name = name
         self._lines = []
         self._iteration = 0
 
@@ -89,7 +88,7 @@ class Animation(object):
         try:
             if save:
                 if save_name is None:
-                    save_name = "%s.%s" % (self._name, save_type.lower())
+                    save_name = "%s.%s" % (self.name, save_type.lower())
                 self.ani.save(os.path.join(__anim_dir__, save_name), fps=self._fps)
 
             if show:
@@ -222,7 +221,7 @@ class Animation(object):
         -------
         str
         """
-        return self._name
+        return self.sim.name + "-anim"
 
 
 class RouteAnimation(Animation):

@@ -149,6 +149,16 @@ class Simulation(object):
         """
         return "Simulation %d/%d" % (self._iteration + 1, self._nb_iterations)
 
+    def set_name(self, name):
+        """
+        Changes the name of the simulation.
+
+        Parameters
+        ----------
+        name: str
+        """
+        self._name = name
+
     @property
     def stats(self):
         """
@@ -394,6 +404,8 @@ class VisualNavigationSimulation(Simulation):
 
         self._calibrate = calibrate
         self._free_motion = free_motion
+        self._inbound = True
+        self._outbound = True
 
     def reset(self):
         """
@@ -468,13 +480,13 @@ class VisualNavigationSimulation(Simulation):
         if i == self._route.shape[0]:  # initialise route following
             self.init_inbound()
 
-        if i < self._route.shape[0]:  # outbound path
+        if self.has_outbound and i < self._route.shape[0]:  # outbound path
             x, y, z, yaw = self._route[i]
             self._agent(sky=self._sky, scene=self._world, act=False, callback=self.update_stats)
             self._agent.xyz = [x, y, z]
             self._agent.ori = R.from_euler('Z', yaw, degrees=True)
 
-        else:  # inbound path
+        elif self.has_inbound:  # inbound path
             act = not (len(self._stats["L"]) > 0 and self._stats["L"][-1] <= 0.01)
             self._agent(sky=self._sky, scene=self._world, act=act, callback=self.update_stats)
             if not act:
@@ -649,6 +661,46 @@ class VisualNavigationSimulation(Simulation):
         bool
         """
         return self._free_motion
+
+    @property
+    def has_inbound(self):
+        """
+        Whether the agent will have a route-following phase.
+
+        Returns
+        -------
+        bool
+        """
+        return self._inbound
+
+    @has_inbound.setter
+    def has_inbound(self, v):
+        """
+        Parameters
+        ----------
+        v: bool
+        """
+        self._inbound = v
+
+    @property
+    def has_outbound(self):
+        """
+        Whether the agent will have a learning phase.
+
+        Returns
+        -------
+        bool
+        """
+        return self._outbound
+
+    @has_outbound.setter
+    def has_outbound(self, v):
+        """
+        Parameters
+        ----------
+        v: bool
+        """
+        self._outbound = v
 
 
 class PathIntegrationSimulation(Simulation):
