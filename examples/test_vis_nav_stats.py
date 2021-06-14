@@ -26,6 +26,7 @@ if __name__ == '__main__':
                              filename)
             if match is None:
                 continue
+            print(filename)
             model = match.group(1)
             pca = match.group(2) is not None
             nb_scans = int(match.group(3))
@@ -57,22 +58,27 @@ if __name__ == '__main__':
     for key in df:
         df[key] = np.array(df[key])[i]
 
+    nb_models = len(np.unique(df['model']))
     for j, model in enumerate(np.unique(df['model'])):
         i = (df['model'] == model) & (df['scans'] == 121) & df['pca']
         omm = np.sort(np.unique(df['ommatidia']))
+        omm_range = omm.max() - omm.min()
         rep = 100 * df['replaces'][i] / df['route_length'][i]
-        rep_25 = [np.nanquantile(rep[df['ommatidia'][i] == o], q=0.25) for o in omm]
-        rep_50 = [np.nanmedian(rep[df['ommatidia'][i] == o]) for o in omm]
-        rep_75 = [np.nanquantile(rep[df['ommatidia'][i] == o], q=0.75) for o in omm]
-        plt.fill_between(omm, rep_25, rep_75, 'C%d' % j, alpha=.2)
-        plt.plot(omm, rep_50, 'C%d' % j, linestyle='-', label=model)
-        plt.plot(df['ommatidia'][i], rep, 'C%d' % j, linestyle='', marker='.')
+        rep_25 = np.array([np.nanquantile(rep[df['ommatidia'][i] == o], q=0.25) for o in omm])
+        rep_50 = np.array([np.nanmedian(rep[df['ommatidia'][i] == o]) for o in omm])
+        rep_75 = np.array([np.nanquantile(rep[df['ommatidia'][i] == o], q=0.75) for o in omm])
+        plt.fill_between(omm[~np.isnan(rep_50)], rep_25[~np.isnan(rep_50)], rep_75[~np.isnan(rep_50)],
+                         'C%d' % j, alpha=.2)
+        plt.plot(omm[~np.isnan(rep_50)], rep_50[~np.isnan(rep_50)], 'C%d' % j, linestyle='-', label=model)
+        plt.plot(df['ommatidia'][i] + (j / nb_models - .25) * (omm_range / 25), rep,
+                 'C%d' % j, linestyle='', marker='.')
 
     plt.legend()
     plt.xticks(np.sort(np.unique(df['ommatidia'])))
+    plt.xlim(300, 5200)
     plt.xlabel('number of ommatidia')
     plt.ylabel('percentage of replaces (%)')
-    plt.ylim([0, 5])
+    plt.ylim([0, 10])
 
     plt.subplot(122)
     i = np.argsort(df['scans'])
@@ -82,18 +88,28 @@ if __name__ == '__main__':
     for j, model in enumerate(np.unique(df['model'])):
         i = (df['model'] == model) & (df['ommatidia'] == 5000) & df['pca']
         sca = np.sort(np.unique(df['scans']))
+        sca_range = sca.max() - sca.min()
         rep = 100 * df['replaces'][i] / df['route_length'][i]
-        rep_25 = [np.nanquantile(rep[df['scans'][i] == o], q=0.25) for o in sca]
-        rep_50 = [np.nanmedian(rep[df['scans'][i] == o]) for o in sca]
-        rep_75 = [np.nanquantile(rep[df['scans'][i] == o], q=0.75) for o in sca]
-        plt.fill_between(sca, rep_25, rep_75, 'C%d' % j, alpha=.2)
-        plt.plot(sca, rep_50, 'C%d' % j, linestyle='-', label=model)
-        plt.plot(df['scans'][i], rep, 'C%d' % j, linestyle='', marker='.')
+        # rep_12 = np.array([np.nanquantile(rep[df['scans'][i] == o], q=0.125) for o in sca])
+        rep_25 = np.array([np.nanquantile(rep[df['scans'][i] == o], q=0.25) for o in sca])
+        # rep_37 = np.array([np.nanquantile(rep[df['scans'][i] == o], q=0.375) for o in sca])
+        rep_50 = np.array([np.nanmedian(rep[df['scans'][i] == o]) for o in sca])
+        # rep_63 = np.array([np.nanquantile(rep[df['scans'][i] == o], q=0.625) for o in sca])
+        rep_75 = np.array([np.nanquantile(rep[df['scans'][i] == o], q=0.75) for o in sca])
+        # rep_88 = np.array([np.nanquantile(rep[df['scans'][i] == o], q=0.875) for o in sca])
+        # plt.fill_between(sca, rep_12, rep_88, 'C%d' % j, alpha=.2)
+        plt.fill_between(sca[~np.isnan(rep_50)], rep_25[~np.isnan(rep_50)], rep_75[~np.isnan(rep_50)],
+                         'C%d' % j, alpha=.2)
+        # plt.fill_between(sca, rep_37, rep_63, 'C%d' % j, alpha=.2)
+        plt.plot(sca[~np.isnan(rep_50)], rep_50[~np.isnan(rep_50)], 'C%d' % j, linestyle='-', label=model)
+        plt.plot(df['scans'][i] + (j / nb_models - .25) * (sca_range / 25), rep,
+                 'C%d' % j, linestyle='', marker='.')
 
     plt.legend()
     plt.xticks(np.sort(np.unique(df['scans'])))
     plt.xlabel('number of scans')
     plt.ylabel('number of replaces')
+    plt.xlim(2, 126)
     plt.ylim([0, 10])
 
     plt.tight_layout()
