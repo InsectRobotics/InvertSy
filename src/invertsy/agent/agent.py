@@ -11,7 +11,7 @@ __license__ = "GPLv3+"
 __version__ = "v1.0.0-alpha"
 __maintainer__ = "Evripidis Gkanias"
 
-from ._helpers import eps, RNG
+from ._helpers import eps, RNG, bimodal_reinforcement, exponential_reinforcement
 from invertsy.env import Sky, Seville2009
 
 from invertpy.sense import PolarisationSensor, CompoundEye, Sensor
@@ -19,7 +19,7 @@ from invertpy.brain import MushroomBody, WillshawNetwork, CentralComplex, Polari
 from invertpy.brain.mushroombody import IncentiveCircuit
 from invertpy.brain.activation import winner_takes_all, relu
 from invertpy.brain.compass import decode_sph
-from invertpy.brain.preprocessing import Whitening, DiscreteCosineTransform
+from invertpy.brain.preprocessing import Whitening, DiscreteCosineTransform, MentalRotation
 
 from scipy.spatial.transform import Rotation as R
 from copy import copy
@@ -28,7 +28,7 @@ import numpy as np
 
 
 class Agent(object):
-    def __init__(self, xyz=None, ori=None, speed=0.1, delta_time=1., dtype='float32', name='agent', rng=RNG):
+    def __init__(self, xyz=None, ori=None, speed=0.1, delta_time=1., proc_steps=1, dtype='float32', name='agent', rng=RNG):
         """
         Abstract agent class that holds all the basic methods and attributes of an agent such as:
 
@@ -53,6 +53,8 @@ class Agent(object):
             the agent's internal clock speed. Default is 1 tick/second
         name: str, optional
             the name of the agent. Default is 'agent'
+        proc_steps: int, optional
+            the number of processing steps per sensing step
         dtype: np.dtype, optional
             the type of the agents parameters
         """
@@ -73,6 +75,7 @@ class Agent(object):
         self._dt_default = delta_time  # seconds
         self._dx = speed  # meters / second
 
+        self._proc_steps = np.maximum(proc_steps, 1)
         self.name = name
         self.dtype = dtype
 
@@ -614,8 +617,7 @@ class PathIntegrationAgent(Agent):
 
 class VisualNavigationAgent(Agent):
 
-    def __init__(self, eye=None, memory=None, saturation=1.5, nb_scans=7, freq_trans=True,
-                 mb_mixture=None, *args, **kwargs):
+    def __init__(self, eye=None, memory=None, saturation=1.5, nb_scans=61, freq_trans=False, *args, **kwargs):
         """
         Agent specialised in the visual navigation task. It contains the CompoundEye as a sensor and the mushroom body
         as the brain component.
@@ -635,9 +637,6 @@ class VisualNavigationAgent(Agent):
             the number of scans during the route following task. Default is 7
         freq_trans: bool, optional
             whether to transform the visual input into the frequency domain by using the DCT method. Default is False
-        mb_mixture: str, optional
-            which types of MBONs to use for the familiarity computation. S: susceptible, R: restrained, M: LTM. Default
-            is None: mixture of all of them.
         """
         super().__init__(*args, **kwargs)
 
@@ -649,12 +648,14 @@ class VisualNavigationAgent(Agent):
             # #KC = 40 * #PN
             memory = WillshawNetwork(nb_cs=eye.nb_ommatidia, nb_kc=eye.nb_ommatidia * 40, sparseness=0.01,
                                      eligibility_trace=.1)
+
+        memory.f_cs = lambda x: np.asarray(
+            np.greater(x.T, np.sort(x)[..., int(memory.nb_cs * .7)]).T, dtype=self.dtype)
         if isinstance(memory, IncentiveCircuit):
-            memory.f_cs = lambda x: np.asarray(x > np.sort(x)[int(memory.nb_cs * .7)], dtype=self.dtype)
             memory.f_kc = lambda x: np.asarray(winner_takes_all(x, percentage=memory.sparseness), dtype=self.dtype)
             memory.f_mbon = lambda x: relu(x / float(memory.nb_kc * memory.sparseness), cmax=2)
-            memory.b_m = np.array([0, 0, 0, 0, 0, 0])
-            memory.b_d = np.array([-.0, -.0, -.0, -.0, -.0, -.0])
+            memory.b_m *= 0.
+            memory.b_d *= 0.
             memory.mbon_names = np.array(memory.mbon_names)[[1, 0, 3, 2, 5, 4]]
             memory.dan_names = np.array(memory.dan_names)[[1, 0, 3, 2, 5, 4]]
 
@@ -664,23 +665,30 @@ class VisualNavigationAgent(Agent):
         self._eye = eye  # type: CompoundEye
         self._mem = memory  # type: MushroomBody
 
-        self._pref_angles = np.linspace(-60, 60, nb_scans)
+        self._pref_angles = None
         """
         The preferred angles for scanning
         """
+        if self.nb_mental_rotations > 1:
+            self._pref_angles = (np.linspace(0, 360, self.nb_mental_rotations, endpoint=False) + 180) % 360 - 180
+        else:
+            self._pref_angles = np.roll(np.linspace(-60, 60, nb_scans, endpoint=True), nb_scans // 2)
+        self._nb_scans = nb_scans
+
         self._familiarity = np.zeros_like(self._pref_angles)
         """
         The familiarity of each preferred angle
         """
 
-        self._preprocessing = [Whitening(nb_input=eye.nb_ommatidia, dtype=eye.dtype)]
+        self._preprocessing = [
+            MentalRotation(nb_output=self.nb_mental_rotations, eye=eye),
+            Whitening(nb_input=eye.nb_ommatidia, dtype=eye.dtype)
+        ]
         """
         List of the preprocessing components
         """
         if freq_trans:
-            self._preprocessing.insert(0, DiscreteCosineTransform(nb_input=eye.nb_ommatidia, dtype=eye.dtype))
-
-        self._mbon_mixture = "SRM" if mb_mixture is None else mb_mixture.upper()
+            self._preprocessing.insert(-1, DiscreteCosineTransform(nb_input=eye.nb_ommatidia, dtype=eye.dtype))
 
         self.reset()
 
@@ -715,14 +723,22 @@ class VisualNavigationAgent(Agent):
             how familiar does the agent is with every scan made
         """
 
-        front = self._familiarity.shape[0] // 2
         self._familiarity[:] = 0.
 
         if self.update:
             r = self.get_pn_responses(sky=sky, scene=scene)
-            r_mbon = self._mem(cs=r, us=np.ones(1, dtype=self.dtype))
 
-            self._familiarity[front] = self.get_familiarity(r_mbon)
+            # calculate the US distribution
+            # us = 2. * bimodal_reinforcement(self.nb_mental_rotations, self._mem.nb_us, dtype=self._mem.dtype)
+            us = 2. * exponential_reinforcement(self.nb_mental_rotations, self._mem.nb_us, dtype=self._mem.dtype)
+
+            for proc_step in range(self._proc_steps - 1):
+                self._mem(cs=r, us=us)
+
+            if self.nb_scans > 1:
+                self._familiarity[0] = self.get_familiarity(self._mem(cs=r, us=us))[0]
+            else:
+                self._familiarity = self.get_familiarity(self._mem(cs=r, us=us))
             # if isinstance(self._mem, IncentiveCircuit):
             #     print(("%s: %.2f, " * 6) % (
             #         self._mem.mbon_names[0], r_mbon[0], self._mem.mbon_names[1], r_mbon[1],
@@ -735,50 +751,63 @@ class VisualNavigationAgent(Agent):
             #         self._mem.dan_names[2], self._mem.r_dan[0, 2], self._mem.dan_names[3], self._mem.r_dan[0, 3],
             #         self._mem.dan_names[4], self._mem.r_dan[0, 4], self._mem.dan_names[5], self._mem.r_dan[0, 5]
             #     ))
-            if self._mem.nb_kc > 0 and not isinstance(self._mem, IncentiveCircuit):
-                self._familiarity[front] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
+            # if self._mem.nb_kc > 0 and not isinstance(self._mem, IncentiveCircuit):
+            #     self._familiarity /= (np.sum(self._mem.r_kc[0] > 0) + eps)
         else:
             ori = copy(self.ori)
 
-            r_cs = copy(self._mem.r_cs)
-            r_us = copy(self._mem.r_us)
-            r_kc = copy(self._mem.r_kc)
-            r_apl = copy(self._mem.r_apl)
-            r_dan = copy(self._mem.r_dan)
-            r_mbon = copy(self._mem.r_mbon)
+            if self.nb_scans > 1:
+                r_cs = copy(self._mem.r_cs)
+                r_us = copy(self._mem.r_us)
+                r_kc = copy(self._mem.r_kc)
+                r_apl = copy(self._mem.r_apl)
+                r_dan = copy(self._mem.r_dan)
+                r_mbon = copy(self._mem.r_mbon)
 
-            cs, us, kc, apl, dan, mbon = [], [], [], [], [], []
-            for i, angle in enumerate(self._pref_angles):
-                self._mem._cs = copy(r_cs)
-                self._mem._us = copy(r_us)
-                self._mem._kc = copy(r_kc)
-                self._mem._apl = copy(r_apl)
-                self._mem._dan = copy(r_dan)
-                self._mem._mbon = copy(r_mbon)
+                cs, us, kc, apl, dan, mbon = [], [], [], [], [], []
+                for i, angle in enumerate(self._pref_angles):
+                    self._mem._cs = copy(r_cs)
+                    self._mem._us = copy(r_us)
+                    self._mem._kc = copy(r_kc)
+                    self._mem._apl = copy(r_apl)
+                    self._mem._dan = copy(r_dan)
+                    self._mem._mbon = copy(r_mbon)
 
-                self.ori = ori * R.from_euler('Z', angle, degrees=True)
+                    self.ori = ori * R.from_euler('Z', angle, degrees=True)
+                    r = self.get_pn_responses(sky=sky, scene=scene)
+                    for proc_step in range(self._proc_steps-1):
+                        self._mem(cs=r)
+                    self._familiarity[i] = self.get_familiarity(self._mem(cs=r))[0]
+                    # if self._mem.nb_kc > 0 and not isinstance(self._mem, IncentiveCircuit):
+                    #     self._familiarity[i] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
+
+                    cs.append(copy(self._mem.r_cs))
+                    us.append(copy(self._mem.r_us))
+                    kc.append(copy(self._mem.r_kc))
+                    apl.append(copy(self._mem.r_apl))
+                    dan.append(copy(self._mem.r_dan))
+                    mbon.append(copy(self._mem.r_mbon))
+
+                self.ori = ori
+
+                i = self._familiarity.argmax()
+
+                self._mem._cs = cs[i]
+                self._mem._us = us[i]
+                self._mem._kc = kc[i]
+                self._mem._apl = apl[i]
+                self._mem._dan = dan[i]
+                self._mem._mbon = mbon[i]
+            else:
                 r = self.get_pn_responses(sky=sky, scene=scene)
-                self._familiarity[i] = self.get_familiarity(self._mem(cs=r))
-                if self._mem.nb_kc > 0 and not isinstance(self._mem, IncentiveCircuit):
-                    self._familiarity[i] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
 
-                cs.append(copy(self._mem.r_cs))
-                us.append(copy(self._mem.r_us))
-                kc.append(copy(self._mem.r_kc))
-                apl.append(copy(self._mem.r_apl))
-                dan.append(copy(self._mem.r_dan))
-                mbon.append(copy(self._mem.r_mbon))
+                r_mbon = None
+                for proc_step in range(self._proc_steps):
+                    r_mbon = self._mem(cs=r)
+                self._familiarity[:] = self.get_familiarity(r_mbon)
 
-            self.ori = ori
-
-            i = self._familiarity.argmax()
-
-            self._mem._cs = cs[i]
-            self._mem._us = us[i]
-            self._mem._kc = kc[i]
-            self._mem._apl = apl[i]
-            self._mem._dan = dan[i]
-            self._mem._mbon = mbon[i]
+                # if self._mem.nb_kc > 0 and not isinstance(self._mem, IncentiveCircuit):
+                #     self._familiarity[:] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
 
         return self._familiarity
 
@@ -818,12 +847,16 @@ class VisualNavigationAgent(Agent):
         xyz = copy(self.xyz)
         ori = copy(self.ori)
 
-        samples = np.zeros((nb_samples, self._mem.nb_cs), dtype=self.dtype)
+        nb_out = 1
+        for process in self._preprocessing:
+            if isinstance(process, MentalRotation):
+                nb_out *= process.nb_output
+        samples = np.zeros((nb_samples * nb_out, self._mem.nb_cs), dtype=self.dtype)
         xyzs, oris = [], []
         for i in range(nb_samples):
             self.xyz = xyz + self.rng.uniform(-radius, radius, 3) * np.array([1., 1., 0])
             self.ori = R.from_euler("Z", self.rng.uniform(-180, 180), degrees=True)
-            samples[i] = self.get_pn_responses(sky, scene)
+            samples[i*nb_out:(i+1)*nb_out] = self.get_pn_responses(sky, scene)
             xyzs.append(copy(self.xyz))
             oris.append(copy(self.ori))
             print("Calibration: %d/%d - x: %.2f, y: %.2f, z: %.2f, yaw: %d" % (
@@ -862,6 +895,10 @@ class VisualNavigationAgent(Agent):
         return r
 
     @property
+    def nb_mental_rotations(self):
+        return self._mem.neuron_dims
+
+    @property
     def familiarity(self):
         """
         The familiarity of the latest snapshot per preferred angle
@@ -880,7 +917,7 @@ class VisualNavigationAgent(Agent):
         """
         The number of scans to be applied
         """
-        return self._pref_angles.shape[0]
+        return self._nb_scans
 
     @property
     def update(self):
@@ -909,7 +946,7 @@ class VisualNavigationAgent(Agent):
         return self._preprocessing[-1].calibrated
 
     @staticmethod
-    def get_steering(familiarity, pref_angles, max_steering=None, degrees=True, reverse=False):
+    def get_steering(familiarity, pref_angles, max_steering=None, degrees=True):
         """
         Outputs a scalar where sign determines left or right turn.
 
@@ -923,8 +960,6 @@ class VisualNavigationAgent(Agent):
             the maximum steering allowed for the agent. Default is 30 degrees
         degrees: bool, optional
             whether the max_steering is in degrees or radians. Default is degrees
-        reverse: bool, optional
-            whether the highest (False) or the lowest (True) familiarity drives the steering. Default is True
 
         Returns
         -------
@@ -937,16 +972,23 @@ class VisualNavigationAgent(Agent):
             max_steering = np.deg2rad(max_steering)
         if degrees:
             pref_angles = np.deg2rad(pref_angles)
-        r = familiarity - familiarity.min()
-        if reverse:
-            r = r.max() - r
-        r = r / (r.sum() + eps)
+        # r = familiarity - familiarity.min()
+        # r = np.power(1e-02, np.absolute(1 - familiarity))
+        r = familiarity / (familiarity.sum() + eps)
         pref_angles_c = r * np.exp(1j * pref_angles)
 
-        steer = np.clip(np.angle(np.sum(pref_angles_c) / (np.sum(familiarity) + eps)), -max_steering, max_steering)
+        steer_vector = np.sum(pref_angles_c)
+        steer = (np.angle(steer_vector) + np.pi) % (2 * np.pi) - np.pi
+        print("Steering: %.2f" % np.rad2deg(steer), end=", ")
+        # steer less for small vectors
+        steer *= np.absolute(steer_vector) * 2.
+        print("Vector: %.2f" % np.absolute(steer_vector), end=", ")
+
         if np.isnan(steer):
             steer = 0.
-        print("Steering: %d" % np.rad2deg(steer))
+        print("Final steering: %.2f" % np.rad2deg(steer), end=", ")
+        steer = np.clip(steer, -max_steering, max_steering)
+        print("Clipped: %d" % np.rad2deg(steer))
         if degrees:
             steer = np.rad2deg(steer)
         return steer
@@ -965,11 +1007,8 @@ class VisualNavigationAgent(Agent):
         float
             the familiarity
         """
-        if isinstance(self._mem, IncentiveCircuit):
-            fams = []
-            for i, pair in enumerate(['S', 'R', 'M']):
-                if pair in self._mbon_mixture:
-                    fams.append(.5 + (r_mbon[i * 2] - r_mbon[i * 2 + 1]) / 4)
-            return np.mean(fams)
+        if r_mbon.shape[-1] >= 6:
+            fams = r_mbon[..., [1, 3, 5]] - r_mbon[..., [0, 2, 4]]
+            return np.power(1e-01, np.clip(.5 + np.mean(fams, axis=-1) / 2., 0., 1.))
         else:
-            return 1. - r_mbon
+            return np.power(1e-01, r_mbon.flatten())

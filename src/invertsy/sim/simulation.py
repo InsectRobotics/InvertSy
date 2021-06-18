@@ -329,7 +329,7 @@ class RouteSimulation(Simulation):
 
 class VisualNavigationSimulation(Simulation):
 
-    def __init__(self, route, agent=None, sky=None, world=None, nb_ommatidia=None, nb_scans=7,
+    def __init__(self, route, agent=None, sky=None, world=None, nb_ommatidia=None, nb_scans=121,
                  calibrate=False, frequency=False, free_motion=True, **kwargs):
         """
         Runs the route following task for an autonomous agent, by using entirely its vision. First it forces the agent
@@ -521,7 +521,9 @@ class VisualNavigationSimulation(Simulation):
         self._stats["DAN"].append(self.mem.r_dan.copy())
         self._stats["path"].append([self.agent.x, self.agent.y, self.agent.z, self.agent.yaw])
         self._stats["L"].append(np.linalg.norm(self.agent.xyz - self._route[-1, :3]))
-        self._stats["capacity"].append(np.clip(self.mem.w_k2m, 0, 1).mean())
+        # the number of KCs not associated with any valence
+        cap_per_kc = 1 - np.max(np.absolute(self.mem.w_k2m - self.mem.w_rest), axis=1)
+        self._stats["capacity"].append(np.clip(cap_per_kc, 0, 1).mean())
         self._stats["familiarity"].append(self.familiarity)
         c = self._stats["C"][-1] if len(self._stats["C"]) > 0 else 0.
         if len(self._stats["path"]) > 1:
@@ -544,11 +546,12 @@ class VisualNavigationSimulation(Simulation):
         d_nest = self.d_nest
         d_trav = (self._stats["C"][-1] if len(self._stats["C"]) > 0
                   else (self._stats["C_out"][-1] if "C_out" in self._stats else 0.))
+        replaces = np.sum(self._stats["replace"]) if "replace" in self._stats else 0
         return (super().message() +
                 " - x: %.2f, y: %.2f, z: %.2f, Φ: %.0f"
                 " - PN (change): %.2f%%, KC (change): %.2f%%, familiarity: %.2f%%,"
-                " capacity: %.2f%%, L: %.2fm, C: %.2fm") % (
-            x, y, z, phi, pn_diff * 100., kc_diff * 100., fam * 100., capacity * 100., d_nest, d_trav)
+                " capacity: %.2f%%, L: %.2fm, C: %.2fm, #replaces: %d") % (
+            x, y, z, phi, pn_diff * 100., kc_diff * 100., fam * 100., capacity * 100., d_nest, d_trav, replaces)
 
     @property
     def agent(self):
@@ -615,7 +618,7 @@ class VisualNavigationSimulation(Simulation):
         float
         """
         fam_array = self._agent.familiarity
-        return fam_array[len(fam_array) // 2] if self._iteration < self._route.shape[0] else fam_array.max()
+        return fam_array[0] if self._iteration < self._route.shape[0] else fam_array.max()
 
     @property
     def capacity(self):

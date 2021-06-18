@@ -25,7 +25,7 @@ import matplotlib.cm
 import numpy as np
 import os
 
-__anim_dir__ = os.path.abspath(os.path.join(__root__, "..", "..", "OneDrive", "PhD", "IncentiveCircuit"))
+__anim_dir__ = os.path.abspath(os.path.join(__root__, "..", "..", "OneDrive", "PhD", "antworld-animations"))
 """
 Directory where to save the animation videos to 
 """
@@ -83,7 +83,7 @@ class Animation(object):
         """
         self.sim.reset()
         self._animate(0)
-        self._ani = animation.FuncAnimation(self._fig, self.__animate, init_func=self.__initialise,
+        self._ani = animation.FuncAnimation(self.fig, self.__animate, init_func=self.__initialise,
                                             frames=self.nb_frames, interval=int(1000 / self._fps), blit=True)
         try:
             if save:
@@ -413,13 +413,13 @@ class VisualNavigationAnimation(Animation):
             self.poi.set_offsets(np.vstack([pois, np.array([[y[-1], x[-1]]])]))
         if self._show_history:
             pn = self.pn.get_array()
-            pn[:, i] = self.sim.mem.r_cs[0].T.flatten()
+            pn[:, i] = self.sim.mem.r_cs[0, 0].T.flatten()
             self.pn.set_array(pn)
             kc = self.kc.get_array()
             if self._show_weights:
                 kc[:, i] = self.sim.mem.w_k2m.T.flatten()
             else:
-                kc[:, i] = self.sim.mem.r_kc[0].T.flatten()
+                kc[:, i] = self.sim.mem.r_kc[0, 0].T.flatten()
             self.kc.set_array(kc)
             fam = self.fam.get_data()
             fam[1][i] = self.sim.familiarity * 100
@@ -435,13 +435,14 @@ class VisualNavigationAnimation(Animation):
                 self.capacity.set_data(*cap)
             if self.fam_all is not None:
                 fam_all = self.fam_all.get_array()
-                fam_all[:, i] = self.sim.agent.familiarity
+                fam_all[:, i] = np.roll(self.sim.agent.familiarity, len(self.sim.agent.pref_angles) // 2)
                 self.fam_all.set_array(fam_all)
                 if self.fam_line is not None:
                     sep = self.sim.route.shape[0]
                     if self.sim.frame > sep:
-                        self.fam_line.set_data(np.arange(sep, self.sim.frame),
-                                               np.nanargmin(fam_all[:, sep:self.sim.frame], axis=0))
+                        self.fam_line.set_data(np.arange(sep, self.sim.frame), np.nanargmin(
+                            np.roll(fam_all[:, sep:self.sim.frame], len(self.sim.agent.pref_angles) // 2, axis=0),
+                            axis=0))
 
         else:
             self.pn.set_array(self.sim.mem.r_cs[0].T.flatten())

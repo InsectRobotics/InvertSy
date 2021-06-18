@@ -266,6 +266,8 @@ def create_familiarity_response_history(agent, nb_frames, sep=None, cmap="Greys"
         the line showing the lowest familiarity value
     """
     nb_scans = agent.nb_scans
+    if nb_scans <= 1:
+        nb_scans = agent.nb_mental_rotations
 
     ax = get_axis(ax, subplot)
 
@@ -274,7 +276,8 @@ def create_familiarity_response_history(agent, nb_frames, sep=None, cmap="Greys"
     ax.set_ylim(0, nb_scans-1)
     ax.set_xlim(0, nb_frames-1)
     ax.set_yticks([0, nb_scans//2, nb_scans-1])
-    ax.set_yticklabels([int(agent.pref_angles[0]), int(agent.pref_angles[nb_scans//2]), int(agent.pref_angles[-1])])
+    angles = np.roll(agent.pref_angles, len(agent.pref_angles) // 2)
+    ax.set_yticklabels([angles[0], angles[len(angles) // 2], angles[-1]])
     ax.set_aspect('auto')
     ax.spines['right'].set_visible(False)
     ax.spines['top'].set_visible(False)
@@ -283,7 +286,9 @@ def create_familiarity_response_history(agent, nb_frames, sep=None, cmap="Greys"
     ax.set_ylabel("familiarity", fontsize=8)
     ax.tick_params(axis='both', labelsize=8)
 
-    fam = ax.imshow(np.zeros((nb_scans, nb_frames), dtype='float32'), cmap=cmap, vmin=0, vmax=1,
+    fam = ax.imshow(np.zeros((nb_scans, nb_frames), dtype='float32'), cmap=cmap,
+                    vmin=0, vmax=1,
+                    # vmin=0.40, vmax=0.60,
                     interpolation="none", aspect="auto")
 
     fam_line, = ax.plot([], [], 'red', lw=.5, alpha=.5)
