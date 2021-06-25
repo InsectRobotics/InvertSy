@@ -15,6 +15,7 @@ from invertpy.brain.mushroombody import IncentiveCircuit
 from invertsy.__helpers import __data__
 from invertsy.env import Sky, Seville2009
 from invertsy.agent import VisualNavigationAgent, PathIntegrationAgent
+from invertsy.agent.agent import LandmarkIntegrationAgent
 
 from invertpy.sense import CompoundEye
 from invertpy.brain import MushroomBody
@@ -963,3 +964,330 @@ class PathIntegrationSimulation(Simulation):
         np.ndarray[float]
         """
         return self._cx.cpu4_mem.T.flatten()
+
+
+class LandmarkIntegrationSimulation(Simulation):
+
+    def __init__(self, route, agent=None, sky=None, world=None, *args, **kwargs):
+        """
+        Runs the landmark integration task.
+        An agent equipped with a compound eye and the central complex is forced to follow a route and then it is asked to
+        return to its initial position.
+
+        Parameters
+        ----------
+        route: np.ndarray[float]
+            N x 4 matrix that holds the 3D position (x, y, z) and 1D orientation (yaw) for each iteration of the route
+        agent: LandmarkIntegrationAgent, optional
+            the agent that will be used for the path integration. Default is a `PathIntegrationAgent(speed=.01)`
+        sky: Sky, optional
+            the sky of the environment. Default is a sky with the sun to the South and 30 degrees above the horizon
+        world: Seville2009, optional
+            the world that creates the scenery disturbing the celestial compass or using the visual surroundings as a
+            a compass. Default is None
+
+        Other Parameters
+        ----------------
+        nb_iterations: int, optional
+            the number of iterations to run the simulation. Default is 2.5 times the number of time-steps of the route
+        name: str, optional
+            the name of the simulation. Default is the name of the world or 'simulation'
+        """
+        name = kwargs.pop('name', None)
+        kwargs.setdefault('nb_iterations', int(2.5 * route.shape[0]))
+        super().__init__(*args, **kwargs)
+        self._route = route
+
+        if agent is None:
+            agent = LandmarkIntegrationAgent(speed=.01)
+        self._agent = agent
+
+        if sky is None:
+            sky = Sky(30, 180, degrees=True)
+        self._sky = sky
+        self._world = world
+
+        if name is None and world is not None:
+            self._name = world.name
+
+        self._eye = agent.sensors[0]
+        self._compass, self._mb, self._cx = agent.brain
+
+    def reset(self):
+        """
+        Resets the agent anf the logged statistics.
+        """
+        self._stats["omm"] = []
+        self._stats["POL"] = []
+        self._stats["SOL"] = []
+        self._stats["E-PG"] = []
+        self._stats["P-EG"] = []
+        self._stats["P-EN"] = []
+        self._stats["PFL3"] = []
+        self._stats["FsBN"] = []
+        self._stats["Noduli"] = []
+        self._stats["DNa2"] = []
+        self._stats["KC"] = []
+        self._stats["MBON"] = []
+        self._stats["PN"] = []
+        self._stats["path"] = []
+        self._stats["L"] = []
+        self._stats["C"] = []
+
+        self.agent.reset()
+
+    def init_inbound(self):
+        """
+        Sets up the inbound phase.
+        Changes the labels of the logged stats to their outbound equivalent and resets them for the new phase to come.
+        """
+        # create a separate line
+        self._stats["outbound"] = self._stats["path"]
+        self._stats["L_out"] = self._stats["L"]
+        self._stats["C_out"] = self._stats["C"]
+        self._stats["path"] = []
+        self._stats["L"] = []
+        self._stats["C"] = []
+
+    def _step(self, i):
+        """
+        Runs one iteration of the simulation. If the iteration is less than the maximum number of iterations in the
+        route it forces the agent to follow the route, otherwise it lets the agent decide its actions.
+
+        Parameters
+        ----------
+        i: int
+            the iteration ID
+        """
+        self._iteration = i
+
+        act = True
+        if i < self._route.shape[0]:  # outbound
+            x, y, z, yaw = self._route[i]
+            self._agent.xyz = [x, y, z]
+            self._agent.ori = R.from_euler('Z', yaw, degrees=True)
+            act = False
+        elif i == self.route.shape[0]:
+            self.init_inbound()
+        self._agent(sky=self._sky, scene=self._world, act=act, callback=self.update_stats)
+
+    def update_stats(self, a):
+        """
+        Updates the logged statistics of the agent.
+
+        Parameters
+        ----------
+        a: LandmarkIntegrationAgent
+        """
+
+        assert a == self.agent, "The input agent should be the same as the one used in the simulation!"
+
+        eye = a.sensors[0]
+        compass, mb, cx = a.brain
+        self._stats["omm"].append(eye.responses.copy())
+        self._stats["POL"].append(compass.r_pol.copy())
+        self._stats["SOL"].append(compass.r_sol.copy())
+        self._stats["PN"].append(mb.r_pn.copy())
+        self._stats["KC"].append(mb.r_kc.copy())
+        self._stats["MBON"].append(mb.r_mbon.copy())
+        self._stats["E-PG"].append(cx.r_epg.copy())
+        self._stats["P-EG"].append(cx.r_peg.copy())
+        self._stats["P-EN"].append(cx.r_pen.copy())
+        self._stats["PFL3"].append(cx.r_pfl3.copy())
+        self._stats["FsBN"].append(cx.r_fbn.copy())
+        self._stats["Noduli"].append(cx.r_nod.copy())
+        self._stats["DNa2"].append(cx.r_dna2.copy())
+        self._stats["path"].append([a.x, a.y, a.z, a.yaw])
+        self._stats["L"].append(np.linalg.norm(a.xyz - self._route[-1, :3]))
+        c = self._stats["C"][-1] if len(self._stats["C"]) > 0 else 0.
+        if len(self._stats["path"]) > 1:
+            step = np.linalg.norm(np.array(self._stats["path"][-1])[:3] - np.array(self._stats["path"][-2])[:3])
+        else:
+            step = 0.
+        self._stats["C"].append(c + step)
+
+    def message(self):
+        x, y, z = self._agent.xyz
+        phi = self._agent.yaw_deg
+        d_nest = self.d_nest
+        d_trav = (self._stats["C"][-1] if len(self._stats["C"]) > 0
+                  else (self._stats["C_out"][-1] if "C_out" in self._stats else 0.))
+        return (super().message() + " - x: %.2f, y: %.2f, z: %.2f, Φ: %.0f - L: %.2fm, C: %.2fm") % (
+            x, y, z, phi, d_nest, d_trav)
+
+    @property
+    def agent(self):
+        """
+        The agent of the simulation.
+
+        Returns
+        -------
+        LandmarkIntegrationAgent
+        """
+        return self._agent
+
+    @property
+    def route(self):
+        """
+        N x 4 array representing the route that the agent follows before returning to its initial position.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._route
+
+    @property
+    def sky(self):
+        """
+        The sky model of the environment.
+
+        Returns
+        -------
+        Sky
+        """
+        return self._sky
+
+    @property
+    def world(self):
+        """
+        The vegetation of the environment.
+
+        Returns
+        -------
+        Seville2009
+        """
+        return self._world
+
+    @property
+    def d_nest(self):
+        """
+        The distance between the agent and the nest.
+
+        Returns
+        -------
+        float
+        """
+        return (self._stats["L"][-1] if len(self._stats["L"]) > 0
+                else np.linalg.norm(self._route[-1, :3] - self._route[0, :3]))
+
+    @property
+    def r_pol(self):
+        """
+        The POL responses of the compass model of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._compass.r_pol.T.flatten()
+
+    @property
+    def r_epg(self):
+        """
+        The E-PG responses of the central complex of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._cx.r_epg.T.flatten()
+
+    @property
+    def r_peg(self):
+        """
+        The P-EG responses of the central complex of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._cx.r_peg.T.flatten()
+
+    @property
+    def r_pen(self):
+        """
+        The P-EN responses of the central complex of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._cx.r_pen.T.flatten()
+
+    @property
+    def r_pfl3(self):
+        """
+        The PFL3 responses of the central complex of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._cx.r_pfl3.T.flatten()
+
+    @property
+    def r_fbn(self):
+        """
+        The FsBN responses of the central complex of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._cx.r_fbn.T.flatten()
+
+    @property
+    def r_nod(self):
+        """
+        The Noduli responses of the central complex of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._cx.r_nod.T.flatten()
+
+    @property
+    def r_dna2(self):
+        """
+        The DNa2 responses of the central complex of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._cx.r_dna2.T.flatten()
+
+    @property
+    def r_pn(self):
+        """
+        The PN responses of the mushroom body of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._mb.r_pn.T.flatten()
+
+    @property
+    def r_kc(self):
+        """
+        The KC responses of the mushroom body of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._mb.r_kc.T.flatten()
+
+    @property
+    def r_mbon(self):
+        """
+        The MBON responses of the mushroom body of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._mb.r_mbon.T.flatten()

@@ -14,7 +14,8 @@ __maintainer__ = "Evripidis Gkanias"
 from invertsy.__helpers import __root__
 
 from ._helpers import *
-from .simulation import RouteSimulation, VisualNavigationSimulation, PathIntegrationSimulation, Simulation
+from .simulation import RouteSimulation, VisualNavigationSimulation, PathIntegrationSimulation,\
+    LandmarkIntegrationSimulation, Simulation
 
 from scipy.spatial.transform import Rotation as R
 from matplotlib import animation
@@ -672,7 +673,231 @@ class PathIntegrationAnimation(Animation):
             cpu4mem = create_cpu4_mem_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap,
                                               ax=ax_dict["G"])
         else:
-            omm, tb1, cl1, cpu1, cpu4, cpu4mem = create_cx_axis(sim.agent, cmap=cmap, ax=ax_dict["A"])
+            omm, tb1, cl1, cpu1, cpu4, cpu4mem = create_bcx_axis(sim.agent, cmap=cmap, ax=ax_dict["A"])
+
+        plt.tight_layout()
+
+        self._lines.extend([omm, tb1, cl1, cpu1, cpu4, cpu4mem, line_c, line_b, pos])
+
+        omm.set_array(sim.r_pol)
+        self._show_history = show_history
+
+    def _animate(self, i: int):
+        """
+        Runs the current iteration of the simulation and updates the data from the figure.
+
+        Parameters
+        ----------
+        i: int
+            the current iteration number
+        """
+        if i == 0:
+            self.line_b.set_data([], [])
+            self.sim.reset()
+        elif i == self.sim.route.shape[0]:
+            self.line_b.set_data(np.array(self.sim.stats["path"])[..., 1], np.array(self.sim.stats["path"])[..., 0])
+            self.sim.init_inbound()
+
+        time = self.sim.step(i)
+
+        self.omm.set_array(self.sim.r_pol)
+
+        if self._show_history:
+            tb1 = np.zeros((self.sim.r_tb1.shape[0], self.nb_frames), dtype=float)
+            tb1[:, :i+1] = np.array(self.sim.stats["TB1"]).T
+            self.tb1.set_array(tb1)
+            cl1 = np.zeros((self.sim.r_cl1.shape[0], self.nb_frames), dtype=float)
+            cl1[:, :i+1] = np.array(self.sim.stats["CL1"]).T
+            self.cl1.set_array(cl1)
+            cpu1 = np.zeros((self.sim.r_cpu1.shape[0], self.nb_frames), dtype=float)
+            cpu1[:, :i+1] = np.array(self.sim.stats["CPU1"]).T
+            self.cpu1.set_array(cpu1)
+            cpu4 = np.zeros((self.sim.r_cpu4.shape[0], self.nb_frames), dtype=float)
+            cpu4[:, :i+1] = np.array(self.sim.stats["CPU4"]).T
+            self.cpu4.set_array(cpu4)
+            cpu4mem = np.zeros((self.sim.cpu4_mem.shape[0], self.nb_frames), dtype=float)
+            cpu4mem[:, :i+1] = np.array(self.sim.stats["CPU4mem"]).T
+            self.cpu4mem.set_array(cpu4mem)
+        else:
+            self.tb1.set_array(self.sim.r_tb1)
+            self.cl1.set_array(self.sim.r_cl1)
+            self.cpu1.set_array(self.sim.r_cpu1)
+            self.cpu4.set_array(self.sim.r_cpu4)
+            self.cpu4mem.set_array(self.sim.cpu4_mem)
+
+        x, y = np.array(self.sim.stats["path"])[..., :2].T
+        self.line_c.set_data(y, x)
+        self.pos.set_offsets(np.array([y[-1], x[-1]]))
+
+        vert, codes = self._marker
+        vertices = R.from_euler('Z', -self.sim.agent.ori.as_euler('ZYX', degrees=True)[0], degrees=True).apply(vert)
+        self.pos.set_paths((Path(vertices[:, :2], codes),))
+
+        return time
+
+    @property
+    def sim(self):
+        """
+        The path integration simulation instance.
+
+        Returns
+        -------
+        PathIntegrationSimulation
+        """
+        return self._sim
+
+    @property
+    def omm(self):
+        """
+        The collection of the DRA ommatidia in the figure.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
+        return self._lines[0]
+
+    @property
+    def tb1(self):
+        """
+        The history of the TB1 response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[1]
+
+    @property
+    def cl1(self):
+        """
+        The history of the CL1 response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[2]
+
+    @property
+    def cpu1(self):
+        """
+        The history of the CPU1 response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[3]
+
+    @property
+    def cpu4(self):
+        """
+        The history of the CPU4 response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[4]
+
+    @property
+    def cpu4mem(self):
+        """
+        The history of the CPU4 memory in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[5]
+
+    @property
+    def line_c(self):
+        """
+        The line representing the ongoing path of the agent in the figure.
+
+        Returns
+        -------
+        matplotlib.lines.Line2D
+        """
+        return self._lines[6]
+
+    @property
+    def line_b(self):
+        """
+        The line representing the finished path of the agent in the figure.
+
+        Returns
+        -------
+        matplotlib.lines.Line2D
+        """
+        return self._lines[7]
+
+    @property
+    def pos(self):
+        """
+        The current position of agent in the figure.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
+        return self._lines[8]
+
+
+class LandmarkIntegrationAnimation(Animation):
+
+    def __init__(self, sim, show_history=True, cmap="coolwarm", *args, **kwargs):
+        """
+        Animation for the landmark integration simulation. Shows the ommatidia responses in the compound eye, the
+        position and history of positions of the agent on the map (with vegetation if provided) and the responses of
+        the CX neurons (and their history if requested).
+
+        Parameters
+        ----------
+        sim: LandmarkIntegrationSimulation
+            the path integration simulation isnstance
+        show_history: bool, optional
+            if True, it shows the history instead of just the current responses. Default is True
+        cmap: str, optional
+            the colour map for the responses of the POL neurons. Default is 'coolwarm'
+        """
+        kwargs.setdefault('fps', 100)
+        super().__init__(sim, *args, **kwargs)
+
+        if show_history:
+            ax_dict = self.fig.subplot_mosaic(
+                """
+                ACCCBBBB
+                DDDDBBBB
+                EEEEBBBB
+                FFFFBBBB
+                GGGGBBBB
+                """
+            )
+        else:
+            ax_dict = self.fig.subplot_mosaic(
+                """
+                AB
+                AB
+                AB
+                """
+            )
+
+        line_c, line_b, pos, self._marker = create_map_axis(world=sim.world, ax=ax_dict["B"],
+                                                            nest=sim.route[0, :2], feeder=sim.route[-1, :2])[:4]
+
+        if show_history:
+            omm = create_dra_axis(sim.agent.sensors[0], cmap=cmap, ax=ax_dict["A"])
+            tb1 = create_tb1_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap, ax=ax_dict["C"])
+            cl1 = create_cl1_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap, ax=ax_dict["D"])
+            cpu1 = create_cpu1_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap, ax=ax_dict["E"])
+            cpu4 = create_cpu4_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap, ax=ax_dict["F"])
+            cpu4mem = create_cpu4_mem_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap,
+                                              ax=ax_dict["G"])
+        else:
+            omm, tb1, cl1, cpu1, cpu4, cpu4mem = create_bcx_axis(sim.agent, cmap=cmap, ax=ax_dict["A"])
 
         plt.tight_layout()
 

@@ -25,10 +25,10 @@ def sinusoidal_reinforcement(nb_rotations, nb_reinforcements, dtype=float):
     return us
 
 
-def exponential_reinforcement(nb_rotations, nb_reinforcements, m=.05, dtype=float):
+def exponential_reinforcement(nb_rotations, nb_reinforcements, m=5, dtype=float):
     us = np.zeros((nb_rotations, nb_reinforcements), dtype=dtype)
     for rein in range(nb_reinforcements):
-        us[:, rein] = np.power(m, np.absolute((2 * np.pi * rein / nb_reinforcements -
-                                               np.linspace(0, 2 * np.pi, nb_rotations, endpoint=False) + np.pi)
-                                              % (2 * np.pi) - np.pi))
+        us[:, rein] = np.exp(m * np.absolute((2 * np.pi * rein / nb_reinforcements -
+                                              np.linspace(0, 2 * np.pi, nb_rotations, endpoint=False) + np.pi)
+                                             % (2 * np.pi) - np.pi))
     return us

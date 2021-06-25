@@ -14,18 +14,23 @@ def main(*args):
     replace = True
     calibrate = True
 
-    nb_scans = 121
-    nb_ommatidia = 5000
+    nb_scans = 1
+    nb_ommatidia = 1000
+    nb_mental_rotations = 16
 
     for ant_no, rt_no, rt in zip(routes['ant_no'], routes['route_no'], routes['path']):
         print("Ant#: %d, Route#: %d, steps#: %d" % (ant_no, rt_no, rt.shape[0]), end='')
 
-        # mem = PerfectMemory(nb_ommatidia)
-        mem = WillshawNetwork(nb_cs=nb_ommatidia, nb_kc=nb_ommatidia * 40, sparseness=0.01, eligibility_trace=.1)
-        agent_name = "vn-%s%s-scan%d-ant%d-route%d%s" % (
+        mem = PerfectMemory(nb_ommatidia, dims=nb_mental_rotations)
+        # mem = WillshawNetwork(nb_cs=nb_ommatidia, nb_kc=nb_ommatidia * 40, sparseness=0.01, eligibility_trace=.1,
+        #                       dims=nb_mental_rotations)
+        agent_name = "vn%s-%s%s%s-ant%d-route%d%s%s" % (
+            "mr" if nb_mental_rotations > 1 else "",
             mem.__class__.__name__.lower(),
             "-pca" if calibrate else "",
-            nb_scans, ant_no, rt_no,
+            "-scan%d" % nb_scans if nb_scans > 1 else "",
+            ant_no, rt_no,
+            "-mr%d" % nb_mental_rotations if nb_mental_rotations > 1 else "",
             "-replace" if replace else "")
         agent_name += ("-omm%d" % nb_ommatidia) if nb_ommatidia is not None else ""
         print(" - Agent: %s" % agent_name)

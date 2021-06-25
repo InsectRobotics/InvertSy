@@ -15,7 +15,8 @@ from ._helpers import eps, RNG, bimodal_reinforcement, exponential_reinforcement
 from invertsy.env import Sky, Seville2009
 
 from invertpy.sense import PolarisationSensor, CompoundEye, Sensor
-from invertpy.brain import MushroomBody, WillshawNetwork, CentralComplex, PolarisationCompass, Component
+from invertpy.brain import MushroomBody, WillshawNetwork, PolarisationCompass, Component
+from invertpy.brain.centralcomplex import FlyCentralComplex, BeeCentralComplex
 from invertpy.brain.mushroombody import IncentiveCircuit
 from invertpy.brain.activation import winner_takes_all, relu
 from invertpy.brain.compass import decode_sph
@@ -537,7 +538,7 @@ class PathIntegrationAgent(Agent):
 
         pol_sensor = PolarisationSensor(nb_input=60, field_of_view=56, degrees=True)
         pol_brain = PolarisationCompass(nb_pol=60, loc_ori=copy(pol_sensor.omm_ori), nb_sol=8, integrated=True)
-        cx = CentralComplex(nb_tb1=8)
+        cx = BeeCentralComplex(nb_tb1=8)
 
         self.add_sensor(pol_sensor, local=True)
         self.add_brain_component(pol_brain)
@@ -599,7 +600,7 @@ class PathIntegrationAgent(Agent):
 
         Parameters
         ----------
-        cx: CentralComplex
+        cx: BeeCentralComplex
             the central complex instance of the agent
 
         Returns
@@ -729,8 +730,8 @@ class VisualNavigationAgent(Agent):
             r = self.get_pn_responses(sky=sky, scene=scene)
 
             # calculate the US distribution
-            # us = 2. * bimodal_reinforcement(self.nb_mental_rotations, self._mem.nb_us, dtype=self._mem.dtype)
-            us = 2. * exponential_reinforcement(self.nb_mental_rotations, self._mem.nb_us, dtype=self._mem.dtype)
+            us = 2. * bimodal_reinforcement(self.nb_mental_rotations, self._mem.nb_us, dtype=self._mem.dtype)
+            # us = 2. * exponential_reinforcement(self.nb_mental_rotations, self._mem.nb_us, dtype=self._mem.dtype)
 
             for proc_step in range(self._proc_steps - 1):
                 self._mem(cs=r, us=us)
@@ -974,14 +975,15 @@ class VisualNavigationAgent(Agent):
             pref_angles = np.deg2rad(pref_angles)
         # r = familiarity - familiarity.min()
         # r = np.power(1e-02, np.absolute(1 - familiarity))
-        r = familiarity / (familiarity.sum() + eps)
+        # r = familiarity / (familiarity.sum() + eps)
+        r = familiarity
         pref_angles_c = r * np.exp(1j * pref_angles)
 
         steer_vector = np.sum(pref_angles_c)
         steer = (np.angle(steer_vector) + np.pi) % (2 * np.pi) - np.pi
         print("Steering: %.2f" % np.rad2deg(steer), end=", ")
         # steer less for small vectors
-        steer *= np.absolute(steer_vector) * 2.
+        steer *= np.clip(np.absolute(steer_vector) * 2., eps, 1.)
         print("Vector: %.2f" % np.absolute(steer_vector), end=", ")
 
         if np.isnan(steer):
@@ -1012,3 +1014,104 @@ class VisualNavigationAgent(Agent):
             return np.power(1e-01, np.clip(.5 + np.mean(fams, axis=-1) / 2., 0., 1.))
         else:
             return np.power(1e-01, r_mbon.flatten())
+
+
+class LandmarkIntegrationAgent(Agent):
+
+    def __init__(self, *args, **kwargs):
+        """
+        Agent specialised in the path integration task affected by visual landmarks. It contains a compound eye with a
+        Dorsal Rim Area as a sensor, and the polarised light compass, the central complex and the mushroom body as brain
+        components.
+        """
+        super().__init__(*args, **kwargs)
+
+        nb_omm = 1000
+        nb_pol = 100
+
+        omm_rho = (np.deg2rad(5) * np.asarray(np.arange(nb_omm) < nb_pol, dtype=float) +
+                   np.deg2rad(15) * np.asarray(np.arange(nb_omm) >= nb_pol, dtype=float))
+        omm_pol = np.asarray(np.arange(nb_omm) < nb_pol, dtype=float)
+
+        eye = CompoundEye(nb_input=nb_omm, omm_rho=omm_rho, omm_pol_op=omm_pol)
+        self.add_sensor(eye, local=True)
+
+        pol_compass = PolarisationCompass(nb_pol=nb_pol, loc_ori=copy(eye.omm_ori[:100]), nb_sol=8, integrated=True)
+        mb = WillshawNetwork(nb_cs=nb_omm-nb_pol)
+        cx = FlyCentralComplex(nb_tb1=8)
+
+        self.add_brain_component(pol_compass)
+        self.add_brain_component(mb)
+        self.add_brain_component(cx)
+
+        self._eye = eye
+        self._compass = pol_compass
+        self._mb = mb
+        self._cx = cx
+
+        self._default_flow = self._dx * np.ones(2) / np.sqrt(2)
+
+    def _sense(self, sky=None, scene=None, flow=None, **kwargs):
+        """
+        Using its compound eyes with POL sensitivity it senses the radiation from the sky which is interrupted by the
+        given scene, and the optic flow for self motion calculation.
+
+        Parameters
+        ----------
+        sky: Sky, optional
+            the sky instance. Default is None
+        scene: Seville2009, optional
+            the world instance. Default is None
+        flow: np.ndarray[float], optional
+            the optic flow. Default is the preset optic flow
+
+        Returns
+        -------
+        out: np.ndarray[float]
+            the output of the central complex
+        """
+        if sky is None and scene is None:
+            r = 0.
+        else:
+            r = self._eye(sky=sky, scene=scene)
+
+        if flow is None:
+            flow = self._default_flow
+            # if scene is None:
+            #     flow = self._default_flow
+            # else:
+            #     flow = optic_flow(world, self._dx)
+
+        r_tcl = self._compass(r_pol=r[..., :self._compass.nb_pol], ori=self._eye.ori)
+        _, phi = decode_sph(r_tcl)
+        r_mbon = self._mb(cs=r[..., self._compass.nb_pol:])
+        self._cx(compass=r_tcl, nod=self._cx.r_dna2 * flow, reinforcement=1 - r_mbon)
+        return np.clip((self._cx.r_dna2[1] - self._cx.r_dna2[0]) * 10 + self.rng.randn(), -2.5, 2.5)
+
+    def _act(self):
+        """
+        Uses the output of the central complex to compute the next movement and moves the agent to its new position.
+        """
+        steer = self.get_steering(self._cx)
+        self.rotate(R.from_euler('Z', steer, degrees=False))
+        self.move_forward()
+
+    @staticmethod
+    def get_steering(cx):
+        """
+        Outputs a scalar where sign determines left or right turn.
+
+        Parameters
+        ----------
+        cx: FlyCentralComplex
+            the central complex instance of the agent
+
+        Returns
+        -------
+        output: float | np.ndarray[float]
+            the angle of steering in radians
+        """
+
+        dna2 = cx.r_dna2
+        steer = np.clip((dna2[1] - dna2[0]) * 10 + cx.rng.randn(), -2.5, 2.5)
+        return np.deg2rad(steer)
