@@ -55,14 +55,17 @@ class Animation(object):
         name: str, optional
             the name of the animation. Default is the name of the simulation + '-anim'
         """
-        if name is not None:
-            sim.set_name(name)
-        self._fig = plt.figure(name, figsize=(width, height))
         self._sim = sim
         self._fps = fps
         self._ani = None
         self._lines = []
         self._iteration = 0
+
+        if name is None:
+            name = self.name
+        else:
+            sim.set_name(name)
+        self._fig = plt.figure(name, figsize=(width, height))
 
     def __call__(self, save=False, save_type="gif", save_name=None, save_stats=True, show=True):
         """
@@ -82,7 +85,7 @@ class Animation(object):
         show: bool, optional
             if True, it visualises the animation live. Default is True
         """
-        self.sim.reset()
+        # self.sim.reset()
         self._animate(0)
         self._ani = animation.FuncAnimation(self.fig, self.__animate, init_func=self.__initialise,
                                             frames=self.nb_frames, interval=int(1000 / self._fps), blit=True)
@@ -90,7 +93,9 @@ class Animation(object):
             if save:
                 if save_name is None:
                     save_name = "%s.%s" % (self.name, save_type.lower())
-                self.ani.save(os.path.join(__anim_dir__, save_name), fps=self._fps)
+                save_path = os.path.join(__anim_dir__, save_name)
+                print("\nSaving animation in: '%s'" % save_path)
+                self.ani.save(save_path, fps=self._fps)
 
             if show:
                 plt.show()
@@ -341,7 +346,7 @@ class VisualNavigationAnimation(Animation):
                 AABB
                 CFBB
                 DGBB
-                EHBB
+                DHBB
                 """
             )
         else:
@@ -364,14 +369,15 @@ class VisualNavigationAnimation(Animation):
                                    cmap="Greys", ax=ax_dict["C"])
             kc = create_kc_history(sim.agent, self.nb_frames, sep=sim.route.shape[0],
                                    cmap="Greys", ax=ax_dict["D"])
-            fam_all, fam_line = create_familiarity_response_history(
-                sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["E"])
+            # fam_all, fam_line = create_familiarity_response_history(
+            #     sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["E"])
             dist = create_single_line_history(
                 self.nb_frames, sep=sim.route.shape[0], title="d_nest (m)", ylim=8, ax=ax_dict["F"])
             cap = create_capacity_history(self.nb_frames, sep=sim.route.shape[0], ax=ax_dict["G"])
             fam = create_familiarity_history(self.nb_frames, sep=sim.route.shape[0], ax=ax_dict["H"])
 
-            self._lines.extend([pn, kc, fam, dist, cap, fam_all, fam_line])
+            self._lines.extend([pn, kc, fam, dist, cap])
+            # self._lines.extend([pn, kc, fam, dist, cap, fam_all, fam_line])
         else:
             pn, kc, fam = create_mem_axis(sim.agent, cmap="Greys", ax=ax_dict["C"])
 
@@ -434,16 +440,16 @@ class VisualNavigationAnimation(Animation):
                 cap = self.capacity.get_data()
                 cap[1][i] = self.sim.capacity * 100.
                 self.capacity.set_data(*cap)
-            if self.fam_all is not None:
-                fam_all = self.fam_all.get_array()
-                fam_all[:, i] = np.roll(self.sim.agent.familiarity, len(self.sim.agent.pref_angles) // 2)
-                self.fam_all.set_array(fam_all)
-                if self.fam_line is not None:
-                    sep = self.sim.route.shape[0]
-                    if self.sim.frame > sep:
-                        self.fam_line.set_data(np.arange(sep, self.sim.frame), np.nanargmin(
-                            np.roll(fam_all[:, sep:self.sim.frame], len(self.sim.agent.pref_angles) // 2, axis=0),
-                            axis=0))
+            # if self.fam_all is not None:
+            #     fam_all = self.fam_all.get_array()
+            #     fam_all[:, i] = np.roll(self.sim.agent.familiarity, len(self.sim.agent.pref_angles) // 2)
+            #     self.fam_all.set_array(fam_all)
+            #     if self.fam_line is not None:
+            #         sep = self.sim.route.shape[0]
+            #         if self.sim.frame > sep:
+            #             self.fam_line.set_data(np.arange(sep, self.sim.frame), np.nanargmin(
+            #                 np.roll(fam_all[:, sep:self.sim.frame], len(self.sim.agent.pref_angles) // 2, axis=0),
+            #                 axis=0))
 
         else:
             self.pn.set_array(self.sim.mem.r_cs[0].T.flatten())
@@ -848,63 +854,52 @@ class PathIntegrationAnimation(Animation):
 
 class LandmarkIntegrationAnimation(Animation):
 
-    def __init__(self, sim, show_history=True, cmap="coolwarm", *args, **kwargs):
+    def __init__(self, sim, cmap="coolwarm", *args, **kwargs):
         """
         Animation for the landmark integration simulation. Shows the ommatidia responses in the compound eye, the
         position and history of positions of the agent on the map (with vegetation if provided) and the responses of
-        the CX neurons (and their history if requested).
+        the CX and MB neurons (and their history if requested).
 
         Parameters
         ----------
         sim: LandmarkIntegrationSimulation
             the path integration simulation isnstance
-        show_history: bool, optional
-            if True, it shows the history instead of just the current responses. Default is True
         cmap: str, optional
             the colour map for the responses of the POL neurons. Default is 'coolwarm'
         """
         kwargs.setdefault('fps', 100)
         super().__init__(sim, *args, **kwargs)
 
-        if show_history:
-            ax_dict = self.fig.subplot_mosaic(
-                """
-                ACCCBBBB
-                DDDDBBBB
-                EEEEBBBB
-                FFFFBBBB
-                GGGGBBBB
-                """
-            )
-        else:
-            ax_dict = self.fig.subplot_mosaic(
-                """
-                AB
-                AB
-                AB
-                """
-            )
+        ax_dict = self.fig.subplot_mosaic(
+            """
+            AAAAAABBBBBB
+            AAAAAABBBBBB
+            AAAAAABBBBBB
+            CCDDEEBBBBBB
+            FFGGHHBBBBBB
+            IIJJKKBBBBBB
+            """
+        )
 
-        line_c, line_b, pos, self._marker = create_map_axis(world=sim.world, ax=ax_dict["B"],
-                                                            nest=sim.route[0, :2], feeder=sim.route[-1, :2])[:4]
+        line_c, line_b, pos, self._marker, cal, poi = create_map_axis(
+            world=sim.world, ax=ax_dict["B"], nest=sim.route[0, :2], feeder=sim.route[-1, :2])[:6]
 
-        if show_history:
-            omm = create_dra_axis(sim.agent.sensors[0], cmap=cmap, ax=ax_dict["A"])
-            tb1 = create_tb1_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap, ax=ax_dict["C"])
-            cl1 = create_cl1_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap, ax=ax_dict["D"])
-            cpu1 = create_cpu1_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap, ax=ax_dict["E"])
-            cpu4 = create_cpu4_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap, ax=ax_dict["F"])
-            cpu4mem = create_cpu4_mem_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap,
-                                              ax=ax_dict["G"])
-        else:
-            omm, tb1, cl1, cpu1, cpu4, cpu4mem = create_bcx_axis(sim.agent, cmap=cmap, ax=ax_dict["A"])
+        omm = create_eye_axis(sim.agent.sensors[0], cmap="Greens_r", ax=ax_dict["A"])
+        cmp = create_cmp_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["C"])
+        pfl = create_pfl_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["F"])
+        fbn = create_fbn_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["I"])
+        epg = create_epg_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["D"])
+        peg = create_peg_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["G"])
+        pen = create_pen_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["J"])
+        pn = create_pn_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["E"])
+        kc = create_kc_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["H"])
+        fam = create_familiarity_history(self.nb_frames, sep=sim.route.shape[0], ax=ax_dict["K"])
 
         plt.tight_layout()
 
-        self._lines.extend([omm, tb1, cl1, cpu1, cpu4, cpu4mem, line_c, line_b, pos])
+        self._lines.extend([line_c, line_b, pos, cal, poi, omm, cmp, pfl, fbn, epg, peg, pen, pn, kc, fam])
 
         omm.set_array(sim.r_pol)
-        self._show_history = show_history
 
     def _animate(self, i: int):
         """
@@ -915,42 +910,68 @@ class LandmarkIntegrationAnimation(Animation):
         i: int
             the current iteration number
         """
+
         if i == 0:
-            self.line_b.set_data([], [])
-            self.sim.reset()
+            xyzs = self.sim.reset()
+            if xyzs is not None:
+                self.cal.set_offsets(np.array(xyzs)[:, [1, 0]])
         elif i == self.sim.route.shape[0]:
             self.line_b.set_data(np.array(self.sim.stats["path"])[..., 1], np.array(self.sim.stats["path"])[..., 0])
-            self.sim.init_inbound()
 
         time = self.sim.step(i)
 
-        self.omm.set_array(self.sim.r_pol)
-
-        if self._show_history:
-            tb1 = np.zeros((self.sim.r_tb1.shape[0], self.nb_frames), dtype=float)
-            tb1[:, :i+1] = np.array(self.sim.stats["TB1"]).T
-            self.tb1.set_array(tb1)
-            cl1 = np.zeros((self.sim.r_cl1.shape[0], self.nb_frames), dtype=float)
-            cl1[:, :i+1] = np.array(self.sim.stats["CL1"]).T
-            self.cl1.set_array(cl1)
-            cpu1 = np.zeros((self.sim.r_cpu1.shape[0], self.nb_frames), dtype=float)
-            cpu1[:, :i+1] = np.array(self.sim.stats["CPU1"]).T
-            self.cpu1.set_array(cpu1)
-            cpu4 = np.zeros((self.sim.r_cpu4.shape[0], self.nb_frames), dtype=float)
-            cpu4[:, :i+1] = np.array(self.sim.stats["CPU4"]).T
-            self.cpu4.set_array(cpu4)
-            cpu4mem = np.zeros((self.sim.cpu4_mem.shape[0], self.nb_frames), dtype=float)
-            cpu4mem[:, :i+1] = np.array(self.sim.stats["CPU4mem"]).T
-            self.cpu4mem.set_array(cpu4mem)
-        else:
-            self.tb1.set_array(self.sim.r_tb1)
-            self.cl1.set_array(self.sim.r_cl1)
-            self.cpu1.set_array(self.sim.r_cpu1)
-            self.cpu4.set_array(self.sim.r_cpu4)
-            self.cpu4mem.set_array(self.sim.cpu4_mem)
-
+        r = self.sim.stats["ommatidia"][-1].mean(axis=1)
         x, y = np.array(self.sim.stats["path"])[..., :2].T
+        spec = self.sim.eye._c_sensitive[:, 1:-1].copy()
+        # spec[:, [0, -1]] += self.sim.eye._c_sensitive[:, 0].copy()[:, np.newaxis]
+        # spec[:, [0, -1]] += self.sim.eye._c_sensitive[:, -1].copy()[:, np.newaxis]
+        colours = np.hstack([spec, 1 - r.T.flatten()[..., np.newaxis]])
+
+        # self.omm.set_array(r.T.flatten())
+        self.omm.set_facecolor(colours)
         self.line_c.set_data(y, x)
+        self.pos.set_offsets(np.array([y[-1], x[-1]]))
+        vert, codes = self._marker
+        vertices = R.from_euler('Z', -self.sim.agent.ori.as_euler('ZYX', degrees=True)[0], degrees=True).apply(vert)
+        self.pos.set_paths((Path(vertices[:, :2], codes),))
+
+        if "replace" in self.sim.stats and self.sim.stats["replace"][-1]:
+            pois = self.poi.get_offsets()
+            self.poi.set_offsets(np.vstack([pois, np.array([[y[-1], x[-1]]])]))
+
+        cmp = np.zeros((self.sim.cx.r_cmp.shape[0], self.nb_frames), dtype=float)
+        cmp[:, :i+1] = np.array(self.sim.stats["CMP"]).T
+        self.cmp.set_array(cmp)
+        epg = np.zeros((self.sim.r_epg.shape[0], self.nb_frames), dtype=float)
+        epg[:, :i+1] = np.array(self.sim.stats["E-PG"]).T
+        self.epg.set_array(epg)
+        peg = np.zeros((self.sim.r_peg.shape[0], self.nb_frames), dtype=float)
+        peg[:, :i+1] = np.array(self.sim.stats["P-EG"]).T
+        self.peg.set_array(peg)
+        pen = np.zeros((self.sim.r_pen.shape[0], self.nb_frames), dtype=float)
+        pen[:, :i+1] = np.array(self.sim.stats["P-EN"]).T
+        self.pen.set_array(pen)
+        pfl = np.zeros((self.sim.r_pfl3.shape[0], self.nb_frames), dtype=float)
+        pfl[:, :i+1] = np.array(self.sim.stats["PFL3"]).T
+        self.pfl3.set_array(pfl)
+        fbn = np.zeros((self.sim.r_fbn.shape[0], self.nb_frames), dtype=float)
+        fbn[:, :i+1] = np.array(self.sim.stats["FsBN"]).T
+        self.fbn.set_array(fbn)
+
+        pn = self.pn.get_array()
+        pn[:, i] = self.sim.mb.r_cs[0, 0].T.flatten()
+        self.pn.set_array(pn)
+        kc = self.kc.get_array()
+        kc[:, i] = self.sim.mb.r_kc[0, 0].T.flatten()
+        self.kc.set_array(kc)
+        fam = self.fam.get_data()
+        fam[1][i] = self.sim.familiarity * 100
+        self.fam.set_data(*fam)
+
+        kc = np.zeros((self.sim.r_kc.shape[0], self.nb_frames), dtype=float)
+        kc[:, :i+1] = np.array(self.sim.stats["KC"]).T
+        self.kc.set_array(kc)
+
         self.pos.set_offsets(np.array([y[-1], x[-1]]))
 
         vert, codes = self._marker
@@ -966,75 +987,9 @@ class LandmarkIntegrationAnimation(Animation):
 
         Returns
         -------
-        PathIntegrationSimulation
+        LandmarkIntegrationSimulation
         """
         return self._sim
-
-    @property
-    def omm(self):
-        """
-        The collection of the DRA ommatidia in the figure.
-
-        Returns
-        -------
-        matplotlib.collections.PathCollection
-        """
-        return self._lines[0]
-
-    @property
-    def tb1(self):
-        """
-        The history of the TB1 response in the figure.
-
-        Returns
-        -------
-        matplotlib.image.AxesImage
-        """
-        return self._lines[1]
-
-    @property
-    def cl1(self):
-        """
-        The history of the CL1 response in the figure.
-
-        Returns
-        -------
-        matplotlib.image.AxesImage
-        """
-        return self._lines[2]
-
-    @property
-    def cpu1(self):
-        """
-        The history of the CPU1 response in the figure.
-
-        Returns
-        -------
-        matplotlib.image.AxesImage
-        """
-        return self._lines[3]
-
-    @property
-    def cpu4(self):
-        """
-        The history of the CPU4 response in the figure.
-
-        Returns
-        -------
-        matplotlib.image.AxesImage
-        """
-        return self._lines[4]
-
-    @property
-    def cpu4mem(self):
-        """
-        The history of the CPU4 memory in the figure.
-
-        Returns
-        -------
-        matplotlib.image.AxesImage
-        """
-        return self._lines[5]
 
     @property
     def line_c(self):
@@ -1045,7 +1000,7 @@ class LandmarkIntegrationAnimation(Animation):
         -------
         matplotlib.lines.Line2D
         """
-        return self._lines[6]
+        return self._lines[0]
 
     @property
     def line_b(self):
@@ -1056,7 +1011,7 @@ class LandmarkIntegrationAnimation(Animation):
         -------
         matplotlib.lines.Line2D
         """
-        return self._lines[7]
+        return self._lines[1]
 
     @property
     def pos(self):
@@ -1067,4 +1022,136 @@ class LandmarkIntegrationAnimation(Animation):
         -------
         matplotlib.collections.PathCollection
         """
+        return self._lines[2]
+
+    @property
+    def cal(self):
+        """
+        The positions the figure used for calibration in.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
+        return self._lines[3]
+
+    @property
+    def poi(self):
+        """
+        The positions in the figure where the agent was brought back to the route.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
+        return self._lines[4]
+
+    @property
+    def omm(self):
+        """
+        The collection of the ommatidia in the figure.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
+        return self._lines[5]
+
+    @property
+    def cmp(self):
+        """
+        The history of the compass neurons in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[6]
+
+    @property
+    def pfl3(self):
+        """
+        The history of the PFL3 response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[7]
+
+    @property
+    def fbn(self):
+        """
+        The history of the FsBN memory in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
         return self._lines[8]
+
+    @property
+    def epg(self):
+        """
+        The history of the E-PG response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[9]
+
+    @property
+    def peg(self):
+        """
+        The history of the P-EG response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[10]
+
+    @property
+    def pen(self):
+        """
+        The history of the P-EN response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[11]
+
+    @property
+    def pn(self):
+        """
+        The history of the PN response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[12]
+
+    @property
+    def kc(self):
+        """
+        The history of the KC neurons in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[13]
+
+    @property
+    def fam(self):
+        """
+        The history of familiarity in the figure.
+
+        Returns
+        -------
+        matplotlib.lines.Line2D
+        """
+        return self._lines[14]

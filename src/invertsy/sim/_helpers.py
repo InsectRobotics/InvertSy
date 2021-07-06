@@ -54,7 +54,7 @@ def create_map_axis(world=None, nest=None, feeder=None, subplot=111, ax=None):
         for polygon, colour in zip(world.polygons, world.colours):
             x = polygon[[0, 1, 2, 0], 0]
             y = polygon[[0, 1, 2, 0], 1]
-            ax.plot(y, x, c=colour)
+            ax.fill_between(y, x[0], x, facecolor=colour, edgecolor=colour, alpha=.7, lw=.5)
 
     if nest is not None:
         ax.scatter([nest[1]], [nest[0]], marker='o', s=50, c='black')
@@ -187,7 +187,7 @@ def create_pn_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=
 
     Parameters
     ----------
-    agent: VisualNavigationAgent
+    agent: VisualNavigationAgent | LandmarkIntegrationAgent
         the agent to get the data and properties from
     nb_frames: int
         the total number of frames for the animation
@@ -205,7 +205,7 @@ def create_pn_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=
     matplotlib.image.AxesImage
         the image of the PN history responses
     """
-    nb_pn = agent.brain[0].nb_cs
+    nb_pn = agent.brain[int(isinstance(agent, LandmarkIntegrationAgent))].nb_cs
     return create_image_history(nb_pn, nb_frames, sep=sep, title="PN",  cmap=cmap, subplot=subplot, ax=ax)
 
 
@@ -216,7 +216,7 @@ def create_kc_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=
 
     Parameters
     ----------
-    agent: VisualNavigationAgent
+    agent: VisualNavigationAgent | LandmarkIntegrationAgent
         the agent to get the data and properties from
     nb_frames: int
         the total number of frames for the animation
@@ -234,7 +234,7 @@ def create_kc_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=
     matplotlib.image.AxesImage
         the image of the KC history responses
     """
-    nb_kc = agent.brain[0].nb_kc
+    nb_kc = agent.brain[int(isinstance(agent, LandmarkIntegrationAgent))].nb_kc
     return create_image_history(nb_kc, nb_frames, sep=sep, title="KC",  cmap=cmap, subplot=subplot, ax=ax)
 
 
@@ -396,6 +396,36 @@ def create_dra_axis(sensor, cmap="coolwarm", centre=None, scale=1., draw_axis=Tr
                      c=np.zeros(omm_y.shape[0], dtype='float32'), cmap=cmap, vmin=-.5, vmax=.5)
 
     return omm
+
+
+def create_cmp_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=None):
+    """
+    Draws the compass history of responses as an image, where each pixel is a neuron in time and its colour reflects the
+    response rate of the neuron.
+
+    Parameters
+    ----------
+    agent: LandmarkIntegrationAgent
+        the agent to get the data and properties from
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'coolwarm'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the TB1 history responses
+    """
+    nb_cmp = agent.brain[2].nb_cmp
+    return create_image_history(nb_cmp, nb_frames, sep=sep, title="CMP", cmap=cmap, vmin=0, vmax=1, subplot=subplot,
+                                ax=ax)
 
 
 def create_tb1_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111, ax=None):
@@ -573,7 +603,7 @@ def create_compass_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=
                                 subplot=subplot, ax=ax)
 
 
-def create_epg_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111, ax=None):
+def create_epg_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=None):
     """
     Draws the E-PG history of responses as an image, where each pixel is a neuron in time and its colour reflects the
     response rate of the neuron.
@@ -598,12 +628,12 @@ def create_epg_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111,
     matplotlib.image.AxesImage
         the image of the E-PG history responses
     """
-    nb_epg = agent.brain[1].nb_epg
-    return create_image_history(nb_epg, nb_frames, sep=sep, title="E-PG", cmap=cmap, vmin=-1, vmax=1,
+    nb_epg = agent.brain[2].nb_epg
+    return create_image_history(nb_epg, nb_frames, sep=sep, title="E-PG", cmap=cmap, vmin=0, vmax=1,
                                 subplot=subplot, ax=ax)
 
 
-def create_peg_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111, ax=None):
+def create_peg_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=None):
     """
     Draws the P-EG history of responses as an image, where each pixel is a neuron in time and its colour reflects the
     response rate of the neuron.
@@ -628,12 +658,12 @@ def create_peg_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111,
     matplotlib.image.AxesImage
         the image of the P-EG history responses
     """
-    nb_peg = agent.brain[1].nb_peg
-    return create_image_history(nb_peg, nb_frames, sep=sep, title="P-EG", cmap=cmap, vmin=-1, vmax=1,
+    nb_peg = agent.brain[2].nb_peg
+    return create_image_history(nb_peg, nb_frames, sep=sep, title="P-EG", cmap=cmap, vmin=0, vmax=1,
                                 subplot=subplot, ax=ax)
 
 
-def create_pen_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111, ax=None):
+def create_pen_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=None):
     """
     Draws the P-EN history of responses as an image, where each pixel is a neuron in time and its colour reflects the
     response rate of the neuron.
@@ -658,12 +688,12 @@ def create_pen_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111,
     matplotlib.image.AxesImage
         the image of the P-EN history responses
     """
-    nb_pen = agent.brain[1].nb_pen
-    return create_image_history(nb_pen, nb_frames, sep=sep, title="P-EN", cmap=cmap, vmin=-1, vmax=1,
+    nb_pen = agent.brain[2].nb_pen
+    return create_image_history(nb_pen, nb_frames, sep=sep, title="P-EN", cmap=cmap, vmin=0, vmax=1,
                                 subplot=subplot, ax=ax)
 
 
-def create_pfl_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111, ax=None):
+def create_pfl_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=None):
     """
     Draws the PFL3 history of responses as an image, where each pixel is a neuron in time and its colour reflects the
     response rate of the neuron.
@@ -688,12 +718,12 @@ def create_pfl_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111,
     matplotlib.image.AxesImage
         the image of the PFL3 history responses
     """
-    nb_pfl = agent.brain[1].nb_pfl3
-    return create_image_history(nb_pfl, nb_frames, sep=sep, title="PFL3", cmap=cmap, vmin=-1, vmax=1,
+    nb_pfl = agent.brain[2].nb_pfl3
+    return create_image_history(nb_pfl, nb_frames, sep=sep, title="PFL3", cmap=cmap, vmin=0, vmax=1,
                                 subplot=subplot, ax=ax)
 
 
-def create_fbn_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111, ax=None):
+def create_fbn_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=None):
     """
     Draws the FsBN history of responses as an image, where each pixel is a neuron in time and its colour reflects the
     response rate of the neuron.
@@ -718,14 +748,14 @@ def create_fbn_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111,
     matplotlib.image.AxesImage
         the image of the FsBN history responses
     """
-    nb_fbn = agent.brain[1].nb_fbn
-    return create_image_history(nb_fbn, nb_frames, sep=sep, title="FsBN", cmap=cmap, vmin=-1, vmax=1,
+    nb_fbn = agent.brain[2].nb_fbn
+    return create_image_history(nb_fbn, nb_frames, sep=sep, title="FsBN", cmap=cmap, vmin=0, vmax=1,
                                 subplot=subplot, ax=ax)
 
 
 def create_bcx_axis(agent, cmap="coolwarm", subplot=111, ax=None):
     """
-    Draws all the neurons and ommaditia of the given agent in a single axis, representing a snapshot of their current
+    Draws all the neurons and ommatidia of the given agent in a single axis, representing a snapshot of their current
     values.
 
     Parameters

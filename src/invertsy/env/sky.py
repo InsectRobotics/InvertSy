@@ -583,6 +583,8 @@ def spectrum_influence(v, irgbu):
     """
     wl = np.array([1200, 715, 535, 475, 350], dtype='float32')
     v = v[..., np.newaxis]
+    irgbu = np.vstack([irgbu] + [irgbu for _ in range(v.shape[0] // irgbu.shape[0] - 1)])
+
     l1 = 10.0 * irgbu * np.power(wl / 1000., 8) * np.square(v) / float(v.size)
     l2 = 0.001 * irgbu * np.power(1000. / wl, 8) * np.nansum(np.square(v)) / float(v.size)
 

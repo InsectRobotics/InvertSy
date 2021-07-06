@@ -12,13 +12,14 @@ __version__ = "v1.0.0-alpha"
 __maintainer__ = "Evripidis Gkanias"
 
 from invertpy.brain.mushroombody import IncentiveCircuit
-from invertsy.__helpers import __data__
+from invertsy.__helpers import __data__, eps
 from invertsy.env import Sky, Seville2009
 from invertsy.agent import VisualNavigationAgent, PathIntegrationAgent
 from invertsy.agent.agent import LandmarkIntegrationAgent
 
 from invertpy.sense import CompoundEye
 from invertpy.brain import MushroomBody
+from invertpy.brain.compass import photoreceptor2pooling
 
 from scipy.spatial.transform import Rotation as R
 
@@ -115,7 +116,9 @@ class Simulation(object):
             filename = self._name
         else:
             filename = filename.replace('.npz', '')
-        np.savez_compressed(os.path.join(__stat_dir__, "%s.npz" % filename), **self._stats)
+        save_path = os.path.join(__stat_dir__, "%s.npz" % filename)
+        np.savez_compressed(save_path, **self._stats)
+        print("\nSaved stats in: '%s'" % save_path)
 
     def __call__(self, save=False):
         """
@@ -403,6 +406,7 @@ class VisualNavigationSimulation(Simulation):
             "C": [],  # distance towards the nest that the agent has covered
         }
 
+        self._steering_tol = 2e-01
         self._calibrate = calibrate
         self._free_motion = free_motion
         self._inbound = True
@@ -483,13 +487,16 @@ class VisualNavigationSimulation(Simulation):
 
         if self.has_outbound and i < self._route.shape[0]:  # outbound path
             x, y, z, yaw = self._route[i]
-            self._agent(sky=self._sky, scene=self._world, act=False, callback=self.update_stats)
+            steering = yaw - self._agent.ori.as_euler("ZYX", degrees=True)[0]
+            if np.absolute(steering) < self._steering_tol:
+                steering = 0.
+            self._agent(sky=self._sky, scene=self._world, steering=steering, act=False, callback=self.update_stats)
             self._agent.xyz = [x, y, z]
             self._agent.ori = R.from_euler('Z', yaw, degrees=True)
 
         elif self.has_inbound:  # inbound path
             act = not (len(self._stats["L"]) > 0 and self._stats["L"][-1] <= 0.01)
-            self._agent(sky=self._sky, scene=self._world, act=act, callback=self.update_stats)
+            self._agent(sky=self._sky, scene=self._world, steering=0., act=act, callback=self.update_stats)
             if not act:
                 self._agent.rotate(R.from_euler('Z', 1, degrees=True))
             if not self._free_motion and "replace" in self._stats:
@@ -968,7 +975,8 @@ class PathIntegrationSimulation(Simulation):
 
 class LandmarkIntegrationSimulation(Simulation):
 
-    def __init__(self, route, agent=None, sky=None, world=None, *args, **kwargs):
+    def __init__(self, route, agent=None, sky=None, world=None, calibrate=True, is_replacing=True,
+                 path_integration=False, visual_navigation=True, *args, **kwargs):
         """
         Runs the landmark integration task.
         An agent equipped with a compound eye and the central complex is forced to follow a route and then it is asked to
@@ -993,8 +1001,8 @@ class LandmarkIntegrationSimulation(Simulation):
         name: str, optional
             the name of the simulation. Default is the name of the world or 'simulation'
         """
-        name = kwargs.pop('name', None)
-        kwargs.setdefault('nb_iterations', int(2.5 * route.shape[0]))
+        name = kwargs.get('name', None)
+        kwargs.setdefault('nb_iterations', int(2.1 * route.shape[0]))
         super().__init__(*args, **kwargs)
         self._route = route
 
@@ -1008,18 +1016,27 @@ class LandmarkIntegrationSimulation(Simulation):
         self._world = world
 
         if name is None and world is not None:
-            self._name = world.name
+            self.set_name(world.name)
 
         self._eye = agent.sensors[0]
         self._compass, self._mb, self._cx = agent.brain
+
+        self._calibrate = calibrate
+        self._is_replacing = is_replacing
+        self._inbound = True
+        self._outbound = True
+
+        self._path_integration = path_integration
+        self._visual_navigation = visual_navigation
 
     def reset(self):
         """
         Resets the agent anf the logged statistics.
         """
-        self._stats["omm"] = []
+        self._stats["ommatidia"] = []
         self._stats["POL"] = []
         self._stats["SOL"] = []
+        self._stats["CMP"] = []
         self._stats["E-PG"] = []
         self._stats["P-EG"] = []
         self._stats["P-EN"] = []
@@ -1033,14 +1050,35 @@ class LandmarkIntegrationSimulation(Simulation):
         self._stats["path"] = []
         self._stats["L"] = []
         self._stats["C"] = []
+        self._stats["capacity"] = []
+        self._stats["familiarity"] = []
 
-        self.agent.reset()
+        self._iteration = 0
+        xyzs = None
+
+        if self._calibrate and not self._agent.is_calibrated:
+            self._agent.xyz = self._route[-1, :3]
+            self._agent.ori = R.from_euler('Z', self._route[-1, 3], degrees=True)
+            self._agent.update = False
+            xyzs, _ = self._agent.calibrate(self._sky, self._world, nb_samples=32, radius=2.)
+
+        self._agent.xyz = self._route[0, :3]
+        self._agent.ori = R.from_euler('Z', self._route[0, 3], degrees=True)
+        self._agent.update = True
+
+        return xyzs
 
     def init_inbound(self):
         """
         Sets up the inbound phase.
         Changes the labels of the logged stats to their outbound equivalent and resets them for the new phase to come.
         """
+
+        if not self.does_path_integration:
+            self._agent.xyz = self._route[0, :3]
+            self._agent.ori = R.from_euler('Z', self._route[0, 3], degrees=True)
+            self._agent.update = False
+
         # create a separate line
         self._stats["outbound"] = self._stats["path"]
         self._stats["L_out"] = self._stats["L"]
@@ -1048,6 +1086,14 @@ class LandmarkIntegrationSimulation(Simulation):
         self._stats["path"] = []
         self._stats["L"] = []
         self._stats["C"] = []
+
+        # mushroom body
+        self._stats["capacity_out"] = self._stats["capacity"]
+        self._stats["familiarity_out"] = self._stats["familiarity"]
+        self._stats["capacity"] = []
+        self._stats["familiarity"] = []
+        if not self.does_path_integration:
+            self._stats["replace"] = []
 
     def _step(self, i):
         """
@@ -1061,15 +1107,42 @@ class LandmarkIntegrationSimulation(Simulation):
         """
         self._iteration = i
 
+        if self.has_inbound and i == self.route.shape[0]:
+            self.init_inbound()
+
         act = True
-        if i < self._route.shape[0]:  # outbound
+        if self.has_outbound and i < self._route.shape[0]:  # outbound
             x, y, z, yaw = self._route[i]
             self._agent.xyz = [x, y, z]
             self._agent.ori = R.from_euler('Z', yaw, degrees=True)
             act = False
-        elif i == self.route.shape[0]:
-            self.init_inbound()
-        self._agent(sky=self._sky, scene=self._world, act=act, callback=self.update_stats)
+        elif self.has_inbound and not self.does_path_integration:
+            act = not (len(self._stats["L"]) > 0 and self._stats["L"][-1] <= 0.01)
+
+        tol = np.deg2rad(1e-01)
+        nod = np.array([0., 0.], dtype=self.agent.dtype)
+        if len(self.stats["path"]) > 1:
+            curr = self.agent.yaw
+            prev = self.stats["path"][-2][-1]
+            if (curr - prev + np.pi) % (2 * np.pi) - np.pi < -tol:
+                nod = np.array([1., 0.], dtype=self.agent.dtype)
+            elif (curr - prev + np.pi) % (2 * np.pi) - np.pi > tol:
+                nod = np.array([0., 1.], dtype=self.agent.dtype)
+            print(len(self.stats["path"]), "Noduli", nod, (curr - prev + np.pi) % (2 * np.pi) - np.pi, act)
+        self._agent(sky=self._sky, scene=self._world, flow=nod, act=act, callback=self.update_stats)
+
+        if not self.does_path_integration and not act:
+            self._agent.rotate(R.from_euler('Z', 1, degrees=True))
+        elif self._is_replacing and "replace" in self._stats:
+            d_route = np.linalg.norm(self._route[:, :3] - self._agent.xyz, axis=1)
+            point = np.argmin(d_route)
+            if d_route[point] > 0.1:  # move for more than 10cm away from the route
+                self._agent.xyz = self._route[point, :3]
+                self._agent.ori = R.from_euler('Z', self._route[point, 3], degrees=True)
+                self._stats["replace"].append(True)
+                print(" ~ REPLACE ~")
+            else:
+                self._stats["replace"].append(False)
 
     def update_stats(self, a):
         """
@@ -1082,14 +1155,15 @@ class LandmarkIntegrationSimulation(Simulation):
 
         assert a == self.agent, "The input agent should be the same as the one used in the simulation!"
 
-        eye = a.sensors[0]
+        eye = a.sensors[0]  # type: CompoundEye
         compass, mb, cx = a.brain
-        self._stats["omm"].append(eye.responses.copy())
+        self._stats["ommatidia"].append(eye.responses.copy())
         self._stats["POL"].append(compass.r_pol.copy())
         self._stats["SOL"].append(compass.r_sol.copy())
-        self._stats["PN"].append(mb.r_pn.copy())
-        self._stats["KC"].append(mb.r_kc.copy())
-        self._stats["MBON"].append(mb.r_mbon.copy())
+        self._stats["CMP"].append(cx.r_cmp.copy())
+        self._stats["PN"].append(mb.r_cs[0].flatten().copy())
+        self._stats["KC"].append(mb.r_kc[0].flatten().copy())
+        self._stats["MBON"].append(mb.r_mbon[0].flatten().copy())
         self._stats["E-PG"].append(cx.r_epg.copy())
         self._stats["P-EG"].append(cx.r_peg.copy())
         self._stats["P-EN"].append(cx.r_pen.copy())
@@ -1097,6 +1171,12 @@ class LandmarkIntegrationSimulation(Simulation):
         self._stats["FsBN"].append(cx.r_fbn.copy())
         self._stats["Noduli"].append(cx.r_nod.copy())
         self._stats["DNa2"].append(cx.r_dna2.copy())
+
+        # the number of KCs not associated with any valence
+        cap_per_kc = 1 - np.max(np.absolute(self._mb.w_k2m - self._mb.w_rest), axis=1)
+        self._stats["capacity"].append(np.clip(cap_per_kc, 0, 1).mean())
+        self._stats["familiarity"].append(self.familiarity)
+
         self._stats["path"].append([a.x, a.y, a.z, a.yaw])
         self._stats["L"].append(np.linalg.norm(a.xyz - self._route[-1, :3]))
         c = self._stats["C"][-1] if len(self._stats["C"]) > 0 else 0.
@@ -1109,11 +1189,25 @@ class LandmarkIntegrationSimulation(Simulation):
     def message(self):
         x, y, z = self._agent.xyz
         phi = self._agent.yaw_deg
+        fam = self.familiarity
+        if self.frame > 1:
+            z_pn = np.maximum((self._stats["PN"][-1] + self._stats["PN"][-2] > 0).sum(), eps)
+            z_kc = np.maximum((self._stats["KC"][-1] + self._stats["KC"][-2] > 0).sum(), eps)
+            pn_diff = np.absolute(self._stats["PN"][-1] - self._stats["PN"][-2]).sum() / z_pn
+            kc_diff = np.absolute(self._stats["KC"][-1] - self._stats["KC"][-2]).sum() / z_kc
+        else:
+            pn_diff = np.absolute(self.mb.r_cs[0]).mean()
+            kc_diff = np.absolute(self.mb.r_kc[0]).mean()
+        capacity = self.capacity
         d_nest = self.d_nest
         d_trav = (self._stats["C"][-1] if len(self._stats["C"]) > 0
                   else (self._stats["C_out"][-1] if "C_out" in self._stats else 0.))
-        return (super().message() + " - x: %.2f, y: %.2f, z: %.2f, Φ: %.0f - L: %.2fm, C: %.2fm") % (
-            x, y, z, phi, d_nest, d_trav)
+        replaces = np.sum(self._stats["replace"]) if "replace" in self._stats else 0
+        return (super().message() +
+                " - x: %.2f, y: %.2f, z: %.2f, Φ: %.0f"
+                " - PN (change): %.2f%%, KC (change): %.2f%%, familiarity: %.2f%%,"
+                " capacity: %.2f%%, L: %.2fm, C: %.2fm, #replaces: %d") % (
+            x, y, z, phi, pn_diff * 100., kc_diff * 100., fam * 100., capacity * 100., d_nest, d_trav, replaces)
 
     @property
     def agent(self):
@@ -1160,6 +1254,121 @@ class LandmarkIntegrationSimulation(Simulation):
         return self._world
 
     @property
+    def eye(self):
+        """
+        The compound eye of the agent.
+
+        Returns
+        -------
+        CompoundEye
+        """
+        return self._eye
+
+    @property
+    def mb(self):
+        """
+        The memory component of the agent.
+
+        Returns
+        -------
+        MushroomBody
+        """
+        return self._mb
+
+    @property
+    def cx(self):
+        """
+        The path integration component of the agent.
+
+        Returns
+        -------
+        FlyCentralComplex
+        """
+        return self._cx
+
+    @property
+    def familiarity(self):
+        """
+        The maximum familiarity observed.
+
+        Returns
+        -------
+        float
+        """
+        fam_array = self._agent.familiarity
+        return fam_array[0] if self._iteration < self._route.shape[0] else fam_array.max()
+
+    @property
+    def capacity(self):
+        """
+        The percentage of unused memory left.
+
+        Returns
+        -------
+        float
+        """
+        return 1. - np.clip(np.absolute(1. - self.mb.w_k2m), 0, 1).sum() / self.mb.nb_kc
+
+    @property
+    def is_replacing(self):
+        """
+        If the agents position is replaced when it moves far away from the original route.
+
+        Returns
+        -------
+        bool
+        """
+        return self._replacing
+
+    @property
+    def has_inbound(self):
+        """
+        Whether the agent will have a route-following phase.
+
+        Returns
+        -------
+        bool
+        """
+        return self._inbound
+
+    @has_inbound.setter
+    def has_inbound(self, v):
+        """
+        Parameters
+        ----------
+        v: bool
+        """
+        self._inbound = v
+
+    @property
+    def has_outbound(self):
+        """
+        Whether the agent will have a learning phase.
+
+        Returns
+        -------
+        bool
+        """
+        return self._outbound
+
+    @has_outbound.setter
+    def has_outbound(self, v):
+        """
+        Parameters
+        ----------
+        v: bool
+        """
+        self._outbound = v
+
+    @property
+    def does_path_integration(self):
+        return self._path_integration
+
+    @property
+    def does_visual_navigation(self):
+        return self._visual_navigation
+
+    @property
     def d_nest(self):
         """
         The distance between the agent and the nest.
@@ -1172,6 +1381,17 @@ class LandmarkIntegrationSimulation(Simulation):
                 else np.linalg.norm(self._route[-1, :3] - self._route[0, :3]))
 
     @property
+    def r_omm(self):
+        """
+        The photoreceptor responses of the compound eye of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return photoreceptor2pooling(self._eye.responses).T.flatten()
+
+    @property
     def r_pol(self):
         """
         The POL responses of the compass model of the agent.
@@ -1181,6 +1401,17 @@ class LandmarkIntegrationSimulation(Simulation):
         np.ndarray[float]
         """
         return self._compass.r_pol.T.flatten()
+
+    @property
+    def r_tcl(self):
+        """
+        The TCL responses of the compass model of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._compass.r_tcl.T.flatten()
 
     @property
     def r_epg(self):
@@ -1279,7 +1510,7 @@ class LandmarkIntegrationSimulation(Simulation):
         -------
         np.ndarray[float]
         """
-        return self._mb.r_kc.T.flatten()
+        return self._mb.r_kc[0].T.flatten()
 
     @property
     def r_mbon(self):
