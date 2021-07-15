@@ -86,7 +86,7 @@ if __name__ == '__main__':
         df[key] = np.array(df[key])[i]
 
     for j, model in enumerate(np.unique(df['model'])):
-        i = (df['model'] == model) & (df['ommatidia'] == 5000) & df['pca']
+        i = (df['model'] == model) & (df['ommatidia'] == 1000) & df['pca']
         sca = np.sort(np.unique(df['scans']))
         sca_range = sca.max() - sca.min()
         rep = 100 * df['replaces'][i] / df['route_length'][i]

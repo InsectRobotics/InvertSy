@@ -432,6 +432,8 @@ class VisualNavigationSimulation(Simulation):
         self._stats["C"] = []  # distance that the agent has covered
         self._stats["capacity"] = []
         self._stats["familiarity"] = []
+        if "replace" in self._stats:
+            self._stats.pop("replace")
 
         self._iteration = 0
         xyzs = None
@@ -488,6 +490,8 @@ class VisualNavigationSimulation(Simulation):
         if self.has_outbound and i < self._route.shape[0]:  # outbound path
             x, y, z, yaw = self._route[i]
             steering = yaw - self._agent.ori.as_euler("ZYX", degrees=True)[0]
+            yaw_nest = (np.rad2deg(np.angle(self._route[-1, 0] + 1j * self._route[-1, 1] - x - 1j * y)) - yaw + 180
+                        ) % 360 - 180
             if np.absolute(steering) < self._steering_tol:
                 steering = 0.
             self._agent(sky=self._sky, scene=self._world, steering=steering, act=False, callback=self.update_stats)
@@ -502,7 +506,7 @@ class VisualNavigationSimulation(Simulation):
             if not self._free_motion and "replace" in self._stats:
                 d_route = np.linalg.norm(self._route[:, :3] - self._agent.xyz, axis=1)
                 point = np.argmin(d_route)
-                if d_route[point] > 0.1:  # move for more than 10cm away from the route
+                if d_route[point] > 0.2:  # move for more than 20cm away from the route
                     self._agent.xyz = self._route[point, :3]
                     self._agent.ori = R.from_euler('Z', self._route[point, 3], degrees=True)
                     self._stats["replace"].append(True)

@@ -17,7 +17,7 @@ from invertsy.env import Sky, Seville2009
 from invertpy.sense import PolarisationSensor, CompoundEye, Sensor
 from invertpy.brain import MushroomBody, WillshawNetwork, PolarisationCompass, Component
 from invertpy.brain.centralcomplex import FlyCentralComplex, BeeCentralComplex
-from invertpy.brain.mushroombody import IncentiveCircuit, IncentiveWheel
+from invertpy.brain.mushroombody import IncentiveCircuit, CrossIncentive
 from invertpy.brain.activation import winner_takes_all, relu
 from invertpy.brain.compass import decode_sph, photoreceptor2pooling
 from invertpy.brain.preprocessing import Whitening, DiscreteCosineTransform, MentalRotation
@@ -651,12 +651,14 @@ class VisualNavigationAgent(Agent):
                                      eligibility_trace=.1)
 
         memory.f_cs = lambda x: np.asarray(
-            np.greater(x.T, np.sort(x)[..., int(memory.nb_cs * .9)]).T, dtype=self.dtype)
+            np.greater(x.T, np.sort(x)[..., int(memory.nb_cs * .8)]).T, dtype=self.dtype)
         memory.f_kc = lambda x: np.asarray(winner_takes_all(x, percentage=memory.sparseness), dtype=self.dtype)
-        memory.f_mbon = lambda x: relu(x / float(memory.nb_kc * memory.sparseness), cmax=2)
+        memory.f_mbon = lambda x: relu(x, cmax=2)
         if isinstance(memory, IncentiveCircuit):
-            memory.mbon_names = np.array(memory.mbon_names)[[1, 0, 3, 2, 5, 4]]
-            memory.dan_names = np.array(memory.dan_names)[[1, 0, 3, 2, 5, 4]]
+            # memory.mbon_names = np.array(memory.mbon_names)[[1, 0, 3, 2, 5, 4]]
+            # memory.dan_names = np.array(memory.dan_names)[[1, 0, 3, 2, 5, 4]]
+            memory.mbon_names = np.array(["s_{L}", "s_{R}", "r_{L}", "r_{R}", "m_{L}", "m_{R}"])
+            memory.dan_names = np.array(["d_{L}", "d_{R}", "c_{L}", "c_{R}", "f_{L}", "f_{R}"])
 
         self.add_sensor(eye)
         self.add_brain_component(memory)
@@ -696,7 +698,6 @@ class VisualNavigationAgent(Agent):
 
         if isinstance(self._mem, IncentiveCircuit):
             self._mem.b_m *= 0.
-            self._mem.b_m[-2:] = -1.
             self._mem.b_d *= 0.
 
         self._familiarity = np.zeros_like(self._pref_angles)
@@ -738,7 +739,7 @@ class VisualNavigationAgent(Agent):
                 us = 2. * bimodal_reinforcement(self.nb_mental_rotations, self._mem.nb_us, dtype=self._mem.dtype)
             # us = 2. * exponential_reinforcement(self.nb_mental_rotations, self._mem.nb_us, dtype=self._mem.dtype)
 
-            print("Steering: %.2f, US: [%.2f  %.2f], " % (steering, us[0], us[1]), end='')
+            # print("Steering: %.2f, US: [%.2f  %.2f], " % (steering, us[0], us[1]), end='')
             for proc_step in range(self._proc_steps - 1):
                 self._mem(cs=r, us=us)
 
@@ -817,7 +818,8 @@ class VisualNavigationAgent(Agent):
                 # if self._mem.nb_kc > 0 and not isinstance(self._mem, IncentiveCircuit):
                 #     self._familiarity[:] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
 
-        print(("MBON: [" + "  ".join(["%.2f"] * self._mem.r_mbon[0].size) + "]") % tuple(self._mem.r_mbon[0].flatten()))
+        # print(("MBON: [" + "  ".join(["%.2f"] * self._mem.r_mbon[0].size) + "]") % tuple(self._mem.r_mbon[0].flatten()),
+        #       ("DAN: [" + "  ".join(["%.2f"] * self._mem.r_dan[0].size) + "]") % tuple(self._mem.r_dan[0].flatten()))
         self.get_steering_from_mbons(self._mem.r_mbon[0], max_steering=10, degrees=True)
 
         return self._familiarity
@@ -827,7 +829,10 @@ class VisualNavigationAgent(Agent):
         Uses the familiarity vector to compute the next movement and moves the agent to its new position.
         """
         # steering = self.get_steering(self.familiarity, self.pref_angles, max_steering=20, degrees=True)
-        steering = self.get_steering_from_mbons(self._mem.r_mbon, max_steering=10, degrees=True)
+        gain = None
+        if isinstance(self._mem, CrossIncentive):
+            gain = 1.
+        steering = self.get_steering_from_mbons(self._mem.r_mbon, gain=gain, max_steering=10, degrees=True)
         self.rotate(R.from_euler('Z', steering, degrees=True))
         self.move_forward()
 
@@ -977,7 +982,7 @@ class VisualNavigationAgent(Agent):
         return self._preprocessing[-1].calibrated
 
     @staticmethod
-    def get_steering_from_mbons(r_mbon, max_steering=None, degrees=True):
+    def get_steering_from_mbons(r_mbon, gain=1., max_steering=None, degrees=True):
         """
         Outputs a scalar where sign determines left or right turn.
 
@@ -1002,19 +1007,27 @@ class VisualNavigationAgent(Agent):
         else:
             angle = np.rad2deg
         if max_steering is None:
-            max_steering = 10.
+            max_steering = 5.
         else:
             max_steering = angle(max_steering)
 
-        steering = (r_mbon[..., 1::2] - r_mbon[..., 0::2]).mean() * max_steering / 2.
-        print("Steering: %.2f" % steering, end=", ")
+        if gain is None:
+            gain = max_steering
+
+        if r_mbon.size < 2:
+            step = 1
+        elif r_mbon.size == 2 or r_mbon.size == 6:
+            step = 2
+        else:
+            step = r_mbon.size // 2
+        steering = (r_mbon[..., 1::step] - r_mbon[..., 0::step]).mean()
 
         if np.isnan(steering):
             steering = 0.
 
-        print("Final steering: %.2f" % steering, end=", ")
-        steering = np.clip(steering, -max_steering, max_steering)
-        print("Clipped: %.2f" % steering)
+        # print("Steering: %.2f" % steering, end=", ")
+        steering = np.clip(gain * steering, -max_steering, max_steering)
+        # print("Clipped: %.2f" % steering)
         if not degrees:
             steering = np.deg2rad(steering)
 
