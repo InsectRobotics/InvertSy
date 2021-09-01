@@ -74,7 +74,7 @@ if __name__ == '__main__':
                  'C%d' % j, linestyle='', marker='.')
 
     plt.legend()
-    plt.xticks(np.sort(np.unique(df['ommatidia'])))
+    plt.xticks([500, 1000, 2000, 3000, 4000, 5000])
     plt.xlim(300, 5200)
     plt.xlabel('number of ommatidia (121 scans)')
     plt.ylabel('mean replacements / meter')
@@ -106,8 +106,8 @@ if __name__ == '__main__':
                  'C%d' % j, linestyle='', marker='.')
 
     plt.legend()
-    plt.xticks(np.sort(np.unique(df['scans'])))
-    plt.xlabel('number of scans (5000 ommatidia)')
+    plt.xticks([7, 31, 61, 91, 121])
+    plt.xlabel('number of scans (1000 ommatidia)')
     plt.ylabel('mean replacements / meter')
     plt.xlim(2, 126)
     plt.ylim([0, 5])
