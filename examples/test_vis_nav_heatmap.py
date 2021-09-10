@@ -15,9 +15,9 @@ def main(*args):
     calibrate = True
     save = True
 
-    nb_scans = 8
-    nb_rows = 50
-    nb_cols = 50
+    nb_scans = 16
+    nb_rows = 100
+    nb_cols = 100
     nb_ommatidia = 2000
 
     print("Heatmap simulation")
