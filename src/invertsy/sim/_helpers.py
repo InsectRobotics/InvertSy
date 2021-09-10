@@ -356,6 +356,46 @@ def create_familiarity_response_history(agent, nb_frames, sep=None, cmap="Greys"
     return fam, fam_line
 
 
+def create_familiarity_map(nb_cols, nb_rows, cmap="RdPu", subplot=111, ax=None):
+    """
+    Draws the familiarity history for every scan as an image, where each pixel is a scan in time and its colour reflects
+    the familiarity in this scan. Also the lowest value is marked using a red line.
+
+    Parameters
+    ----------
+    agent: VisualNavigationAgent
+        the agent to get the data and properties from
+    cmap: str, optional
+        the colour map of the responses. Default is 'Greys'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the familiarity history
+    matplotlib.lines.Line2D
+        the line showing the lowest familiarity value
+    """
+    ax = get_axis(ax, subplot)
+
+    ax.set_yticks([])
+    ax.set_xticks([])
+    ax.set_ylim(0, nb_rows-1)
+    ax.set_xlim(0, nb_cols-1)
+    ax.set_axis_off()
+    ax.set_aspect('auto', 'box')
+    ax.set_ylabel("familiarity", fontsize=8)
+    ax.tick_params(axis='both', labelsize=8)
+
+    fam = ax.imshow(np.zeros((nb_cols, nb_rows), dtype='float32'), cmap=cmap, vmin=0, vmax=1,
+                    interpolation="none", aspect="auto")
+
+    return fam
+
+
 def create_familiarity_history(nb_frames, sep=None, subplot=111, ax=None):
     """
     Draws a line of the lowest familiarity per iteration.
