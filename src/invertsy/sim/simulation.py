@@ -13,7 +13,7 @@ __maintainer__ = "Evripidis Gkanias"
 
 from invertpy.brain.mushroombody import IncentiveCircuit
 from invertsy.__helpers import __data__
-from invertsy.env import Sky, Seville2009
+from invertsy.env import UniformSky, Sky, Seville2009
 from invertsy.agent import VisualNavigationAgent, PathIntegrationAgent
 
 from invertpy.sense import CompoundEye
@@ -228,12 +228,12 @@ class RouteSimulation(Simulation):
         self._route = route
 
         if eye is None:
-            eye = CompoundEye(nb_input=5000, omm_pol_op=0, noise=0., omm_rho=np.deg2rad(10), omm_res=5.,
+            eye = CompoundEye(nb_input=2000, omm_pol_op=0, noise=0., omm_rho=np.deg2rad(10), omm_res=5.,
                               c_sensitive=[0., 0., 1., 0., 0.])
         self._eye = eye
 
         if sky is None:
-            sky = Sky(30, 180, degrees=True)
+            sky = UniformSky(luminance=1.)
         self._sky = sky
 
         if world is None:
@@ -390,7 +390,7 @@ class VisualNavigationSimulation(Simulation):
         self._agent = agent
 
         if sky is None:
-            sky = Sky(30, 180, degrees=True)
+            sky = UniformSky(luminance=10.)
         self._sky = sky
         self._world = world
 

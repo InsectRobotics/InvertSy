@@ -23,9 +23,24 @@ from matplotlib.path import Path
 import matplotlib.pyplot as plt
 import matplotlib.cm
 import numpy as np
+import sys
 import os
 
-__anim_dir__ = os.path.abspath(os.path.join(__root__, "..", "..", "OneDrive", "PhD", "IncentiveCircuit"))
+__default_drive_dir__ = os.path.abspath(os.path.join(__root__, "data", "animation", "vids"))
+if not os.path.isdir(__default_drive_dir__):
+    os.makedirs(__default_drive_dir__)
+if "linux" in sys.platform:
+    __drive_dir__ = os.path.abspath(os.path.join(__root__, "..", "..", "OneDrive"))
+elif "win" in sys.platform:
+    __drive_dir__ = os.path.abspath(os.path.join("C:", "Users", "Odin", "OneDrive - University of Edinburgh"))
+else:
+    __drive_dir__ = __default_drive_dir__
+
+if not os.path.isdir(__drive_dir__):
+    __drive_dir__ = __default_drive_dir__
+
+__anim_dir__ = os.path.join(__drive_dir__, "PhD", "IncentiveCircuit")
+
 """
 Directory where to save the animation videos to 
 """
@@ -89,7 +104,9 @@ class Animation(object):
             if save:
                 if save_name is None:
                     save_name = "%s.%s" % (self.name, save_type.lower())
-                self.ani.save(os.path.join(__anim_dir__, save_name), fps=self._fps)
+                filepath = os.path.join(__anim_dir__, save_name)
+                print("Saving video in '%s'." % filepath)
+                self.ani.save(filepath, fps=self._fps)
 
             if show:
                 plt.show()
@@ -240,8 +257,17 @@ class RouteAnimation(Animation):
         """
         super().__init__(sim, *args, **kwargs)
 
-        omm = create_eye_axis(sim.eye, cmap=cmap, subplot=221)
-        line, _, pos, self._marker = create_map_axis(world=sim.world, subplot=122)[:4]
+        ax_dict = self.fig.subplot_mosaic(
+            """
+            AB
+            AB
+            AB
+            CB
+            """
+        )
+        omm = create_eye_axis(sim.eye, cmap=cmap, ax=ax_dict['A'])
+        line, _, pos, self._marker = create_map_axis(world=sim.world, ax=ax_dict['B'])[:4]
+        create_side_axis(sim.world, ax=ax_dict['C'])
 
         plt.tight_layout()
 

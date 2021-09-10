@@ -85,6 +85,68 @@ def create_map_axis(world=None, nest=None, feeder=None, subplot=111, ax=None):
     return line_c, line_b, pos, (vert, codes), cal, poi
 
 
+def create_side_axis(world=None, subplot=111, ax=None):
+    """
+    Draws a map with all the vegetation from the world (if given), the nest and feeder positions (if given) and returns
+    the ongoing and previous paths of the agent, the agent's current position, the marker (arror) of the agents facing
+    direction, the calibration points and the points where the agent is taken back on the route after replacing.
+
+    Parameters
+    ----------
+    world: Seville2009, optional
+        the world containing the vegetation. Default is None
+    nest: np.ndarray[float], optional
+        the position of the nest. Default is None
+    feeder: np.ndarray[float], optional
+        the position of the feeder. Default is None
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    line_c: matplotlib.lines.Line2D
+        the ongoing path of the agent
+    line_b: matplotlib.lines.Line2D
+        the previous paths of the agent
+    pos: matplotlib.collections.PathCollection
+        the current position of the agent
+    marker: tuple[np.ndarray[float], np.ndarray[float]]
+        the marker parameters
+    cal: matplotlib.collections.PathCollection
+        the points on the map where the calibration took place
+    poi: matplotlib.collections.PathCollection
+        the points on the map where the agent was put back on the route
+    """
+
+    if ax is None:
+        ax = plt.subplot(subplot)
+
+    ymin, ymax = None, None
+    zmin, zmax = None, None
+    if world is not None:
+        for polygon, colour in zip(world.polygons, world.colours):
+            z = polygon[[0, 1, 2, 0], 2]
+            y = polygon[[0, 1, 2, 0], 1]
+            z_min, z_max = np.min(z), np.max(z)
+            y_min, y_max = np.min(y), np.max(y)
+            if zmin is None or z_min < zmin:
+                zmin = z_min
+            if zmax is None or z_max > zmax:
+                zmax = z_max
+            if ymin is None or y_min < ymin:
+                ymin = y_min
+            if ymax is None or y_max > ymax:
+                ymax = y_max
+            ax.plot(y, z, c=colour)
+
+    ax.set_aspect('equal', 'box')
+    ax.set_ylim(min(0, zmin), zmax * 1.1)
+    ax.set_xlim(ymin - .5, ymax + .5)
+    ax.tick_params(axis='both', labelsize=8)
+
+
 def create_eye_axis(eye, cmap="Greys_r", subplot=111, ax=None):
     """
     Draws a map of the positions of the ommatidia coloured using their photo-receptor responses.

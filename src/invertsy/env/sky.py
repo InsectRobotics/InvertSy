@@ -30,40 +30,18 @@ T_L = np.array([[ 0.1787, -1.4630],
 """Transformation matrix of turbidity to luminance coefficients"""
 
 
-class Sky(object):
+class UniformSky(object):
+    def __init__(self, luminance=1., name="uniform-sky"):
+        self.__luminance = luminance
 
-    def __init__(self, theta_s=0., phi_s=0., degrees=False, name="sky"):
-        """
-        The Sky environment class. This environment class provides skylight cues.
-
-        Parameters
-        ----------
-        theta_s: float, optional
-            sun elevation (distance from horizon). Default is 0
-        phi_s: float, optional
-            sun azimuth (clockwise from North). Default is 0
-        degrees: bool, optional
-            True if the angles are given in degrees, False otherwise. Default is False
-        name: str, optional
-            a name for the sky instance. Default is 'sky'
-        """
-        super(Sky, self).__init__()
-        self.__a, self.__b, self.__c, self.__d, self.__e = 0., 0., 0., 0., 0.
-        self.__tau_L = 2.
-        self._update_luminance_coefficients(self.__tau_L)
-        self.__c1 = .6
-        self.__c2 = 4.
-        self.theta_s = np.deg2rad(theta_s) if degrees else theta_s
-        self.phi_s = np.deg2rad(phi_s) if degrees else phi_s
-
-        self.__theta = np.full(1, np.nan)
-        self.__phi = np.full(1, np.nan)
+        self.__y = np.full(1, np.nan)
         self.__aop = np.full(1, np.nan)
         self.__dop = np.full(1, np.nan)
-        self.__y = np.full(1, np.nan)
         self.__eta = np.full(1, False)
+        self.__theta = np.full(1, np.nan)
+        self.__phi = np.full(1, np.nan)
 
-        self.__is_generated = False
+        self._is_generated = False
         self.__name = name
 
     def __call__(self, ori=None, irgbu=None, noise=0., eta=None, rng=RNG):
@@ -94,6 +72,31 @@ class Sky(object):
         """
 
         # set default arguments
+        self._update_coordinates(ori)
+
+        # calculate light properties
+        y = np.full_like(self.__phi, self.__luminance)  # Illumination
+        p = np.full_like(self.__phi, 0.)  # Illumination
+        a = np.full_like(self.__phi, np.nan)  # Illumination
+
+        # create cloud disturbance
+        if eta is None:
+            eta = add_noise(noise=noise, shape=y.shape, rng=rng)
+        y[eta] = 0.
+
+        self.__y = y
+        self.__dop = p
+        self.__aop = a
+        self.__eta = eta
+
+        self._is_generated = True
+
+        if irgbu is not None:
+            y = spectrum_influence(y, irgbu).sum(axis=1)
+
+        return y, p, a
+
+    def _update_coordinates(self, ori=None):
         if ori is not None:
             xyz = np.clip(ori.apply([1, 0, 0]), -1, 1)
             phi = np.arctan2(xyz[..., 1], xyz[..., 0])
@@ -102,12 +105,198 @@ class Sky(object):
             phi = (phi + np.pi) % (2 * np.pi) - np.pi
 
             # save points of interest
-            self.__theta = theta.copy()
-            self.__phi = phi.copy()
+            self.theta = theta.copy()
+            self.phi = phi.copy()
         else:
-            theta = self.__theta
-            phi = self.__phi
-            ori = R.from_euler('ZY', np.vstack([phi, theta]).T, degrees=False)
+            ori = R.from_euler('ZY', np.vstack([self.phi, self.theta]).T, degrees=False)
+
+        return ori
+
+    @property
+    def Y(self):
+        """
+        The luminance of the sky (K cd/m^2)
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        assert self._is_generated, "Sky is not generated yet. In order to generate the env, use the call function."
+        return self.__y
+
+    @property
+    def DOP(self):
+        """
+        The linear degree of polarisation in the sky
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        assert self._is_generated, "Sky is not generated yet. In order to generate the env, use the call function."
+        return self.__dop
+
+    @property
+    def AOP(self):
+        """
+        The angle of linear polarisation in the sky
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        assert self._is_generated, "Sky is not generated yet. In order to generate the env, use the call function."
+        return self.__aop
+
+    @property
+    def theta(self):
+        """
+        The elevation of the last used elements.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        assert self._is_generated, "Sky is not generated yet. In order to generate sky env, use the call function."
+        return self.__theta
+
+    @theta.setter
+    def theta(self, value):
+        self.__theta = value
+        self._is_generated = False
+
+    @property
+    def phi(self):
+        """
+        The azimuth of the last used elements.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        assert self._is_generated, "Sky is not generated yet. In order to generate the sky, use the call function."
+        return self.__phi
+
+    @phi.setter
+    def phi(self, value):
+        self.__phi = value
+        self._is_generated = False
+
+    @property
+    def eta(self):
+        """
+        The percentage of noise induced in each element.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        assert self._is_generated, "Sky is not generated yet. In order to generate the sky, use the call function."
+        return self.__eta
+
+    @eta.setter
+    def eta(self, value):
+        self.__eta = value
+        self._is_generated = False
+
+    @property
+    def _y(self):
+        return self.__y
+
+    @_y.setter
+    def _y(self, value):
+        self.__y = value
+
+    @property
+    def _dop(self):
+        return self.__dop
+
+    @_dop.setter
+    def _dop(self, value):
+        self.__dop = value
+
+    @property
+    def _aop(self):
+        return self.__aop
+
+    @_aop.setter
+    def _aop(self, value):
+        self.__aop = value
+
+    @property
+    def _theta(self):
+        return self.__theta
+
+    @_theta.setter
+    def _theta(self, value):
+        self.__theta = value
+
+    @property
+    def _phi(self):
+        return self.__phi
+
+    @_phi.setter
+    def _phi(self, value):
+        self.__phi = value
+
+
+class Sky(UniformSky):
+
+    def __init__(self, theta_s=0., phi_s=0., degrees=False, name="sky"):
+        """
+        The Sky environment class. This environment class provides skylight cues.
+
+        Parameters
+        ----------
+        theta_s: float, optional
+            sun elevation (distance from horizon). Default is 0
+        phi_s: float, optional
+            sun azimuth (clockwise from North). Default is 0
+        degrees: bool, optional
+            True if the angles are given in degrees, False otherwise. Default is False
+        name: str, optional
+            a name for the sky instance. Default is 'sky'
+        """
+        super(Sky, self).__init__(name=name)
+        self.__a, self.__b, self.__c, self.__d, self.__e = 0., 0., 0., 0., 0.
+        self.__tau_L = 2.
+        self._update_luminance_coefficients(self.__tau_L)
+        self.__c1 = .6
+        self.__c2 = 4.
+        self.theta_s = np.deg2rad(theta_s) if degrees else theta_s
+        self.phi_s = np.deg2rad(phi_s) if degrees else phi_s
+
+    def __call__(self, ori=None, irgbu=None, noise=0., eta=None, rng=RNG):
+        """
+        Generates the skylight properties for the given orientations and spectral influences.
+
+        Parameters
+        ----------
+        ori: R, optional
+            orientation of the interesting elements. Default is None
+        irgbu: np.ndarray[float], optional
+            the spectral influence of the observer
+        noise: float, optional
+            the noise level (sigma)
+        eta: np.ndarray[float], optional
+            :param eta: array of noise level in each point of interest
+        rng
+            the random generator
+
+        Returns
+        -------
+        Y: np.ndarray[float]
+            the luminance
+        P: np.ndarray[float]
+            the degree of polarisation
+        A: np.ndarray[float]
+            the angle of polarisation
+        """
+
+        # set default arguments
+        ori = self._update_coordinates(ori)
+        theta = self._theta
+        phi = self._phi
 
         theta_s, phi_s = self.theta_s, self.phi_s
 
@@ -143,12 +332,12 @@ class Sky(object):
 
         y[gamma < np.pi/60] = 17
 
-        self.__y = y
-        self.__dop = p
-        self.__aop = a
-        self.__eta = eta
+        self._y = y
+        self._dop = p
+        self._aop = a
+        self._eta = eta
 
-        self.__is_generated = True
+        self._is_generated = True
 
         if irgbu is not None:
             y = spectrum_influence(y, irgbu).sum(axis=1)
@@ -198,7 +387,7 @@ class Sky(object):
     def A(self, value):
         self.__a = value
         self._update_turbidity(self.A, self.B, self.C, self.D, self.E)
-        self.__is_generated = False
+        self._is_generated = False
 
     @property
     def B(self):
@@ -215,7 +404,7 @@ class Sky(object):
     def B(self, value):
         self.__b = value
         self._update_turbidity(self.A, self.B, self.C, self.D, self.E)
-        self.__is_generated = False
+        self._is_generated = False
 
     @property
     def C(self):
@@ -232,7 +421,7 @@ class Sky(object):
     def C(self, value):
         self.__c = value
         self._update_turbidity(self.A, self.B, self.C, self.D, self.E)
-        self.__is_generated = False
+        self._is_generated = False
 
     @property
     def D(self):
@@ -249,7 +438,7 @@ class Sky(object):
     def D(self, value):
         self.__d = value
         self._update_turbidity(self.A, self.B, self.C, self.D, self.E)
-        self.__is_generated = False
+        self._is_generated = False
 
     @property
     def E(self):
@@ -266,7 +455,7 @@ class Sky(object):
     def E(self, value):
         self.__e = value
         self._update_turbidity(self.A, self.B, self.C, self.D, self.E)
-        self.__is_generated = False
+        self._is_generated = False
 
     @property
     def c1(self):
@@ -304,7 +493,7 @@ class Sky(object):
     @tau_L.setter
     def tau_L(self, value):
         assert value >= 1., "Turbidity must be greater or eaqual to 1."
-        self.__is_generated = self.__tau_L == value and self.__is_generated
+        self._is_generated = self.__tau_L == value and self._is_generated
         self._update_luminance_coefficients(value)
 
     @property
@@ -329,93 +518,6 @@ class Sky(object):
         float
         """
         return np.exp(-(self.tau_L - self.c1) / (self.c2 + eps))
-
-    @property
-    def Y(self):
-        """
-        The luminance of the sky (K cd/m^2)
-
-        Returns
-        -------
-        np.ndarray[float]
-        """
-        assert self.__is_generated, "Sky is not generated yet. In order to generate the env, use the call function."
-        return self.__y
-
-    @property
-    def DOP(self):
-        """
-        The linear degree of polarisation in the sky
-
-        Returns
-        -------
-        np.ndarray[float]
-        """
-        assert self.__is_generated, "Sky is not generated yet. In order to generate the env, use the call function."
-        return self.__dop
-
-    @property
-    def AOP(self):
-        """
-        The angle of linear polarisation in the sky
-
-        Returns
-        -------
-        np.ndarray[float]
-        """
-        assert self.__is_generated, "Sky is not generated yet. In order to generate the env, use the call function."
-        return self.__aop
-
-    @property
-    def theta(self):
-        """
-        The elevation of the last used elements.
-
-        Returns
-        -------
-        np.ndarray[float]
-        """
-        assert self.__is_generated, "Sky is not generated yet. In order to generate sky env, use the call function."
-        return self.__theta
-
-    @theta.setter
-    def theta(self, value):
-        self.__theta = value
-        self.__is_generated = False
-
-    @property
-    def phi(self):
-        """
-        The azimuth of the last used elements.
-
-        Returns
-        -------
-        np.ndarray[float]
-        """
-        assert self.__is_generated, "Sky is not generated yet. In order to generate the sky, use the call function."
-        return self.__phi
-
-    @phi.setter
-    def phi(self, value):
-        self.__phi = value
-        self.__is_generated = False
-
-    @property
-    def eta(self):
-        """
-        The percentage of noise induced in each element.
-
-        Returns
-        -------
-        np.ndarray[float]
-        """
-        assert self.__is_generated, "Sky is not generated yet. In order to generate the sky, use the call function."
-        return self.__eta
-
-    @eta.setter
-    def eta(self, value):
-        self.__eta = value
-        self.__is_generated = False
 
     def _update_luminance_coefficients(self, tau_L):
         """
@@ -472,7 +574,7 @@ class Sky(object):
         sky.__y = self.__y
         sky.__eta = self.__eta
 
-        sky.__is_generated = False
+        sky._is_generated = False
         return sky
 
     @staticmethod

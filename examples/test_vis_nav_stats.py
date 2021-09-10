@@ -78,7 +78,7 @@ if __name__ == '__main__':
     plt.xlim(300, 5200)
     plt.xlabel('number of ommatidia')
     plt.ylabel('percentage of replaces (%)')
-    plt.ylim([0, 10])
+    plt.ylim([0, 4])
 
     plt.subplot(122)
     i = np.argsort(df['scans'])
@@ -86,7 +86,7 @@ if __name__ == '__main__':
         df[key] = np.array(df[key])[i]
 
     for j, model in enumerate(np.unique(df['model'])):
-        i = (df['model'] == model) & (df['ommatidia'] == 5000) & df['pca']
+        i = (df['model'] == model) & (df['ommatidia'] == 1000) & df['pca']
         sca = np.sort(np.unique(df['scans']))
         sca_range = sca.max() - sca.min()
         rep = 100 * df['replaces'][i] / df['route_length'][i]
@@ -110,7 +110,7 @@ if __name__ == '__main__':
     plt.xlabel('number of scans')
     plt.ylabel('number of replaces')
     plt.xlim(2, 126)
-    plt.ylim([0, 10])
+    plt.ylim([0, 4])
 
     plt.tight_layout()
     plt.show()
