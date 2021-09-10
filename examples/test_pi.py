@@ -1,10 +1,10 @@
-from invertsy.env.seville2009 import load_routes
+from invertsy.env.world import Seville2009
 from invertsy.sim.simulation import PathIntegrationSimulation
 from invertsy.sim.animation import PathIntegrationAnimation
 
 
 def main(*args):
-    routes = load_routes(degrees=True)
+    routes = Seville2009.load_routes(degrees=True)
     ant_no, rt_no, rt = routes['ant_no'][0], routes['route_no'][0], routes['path'][0]
     print("Ant#: %d, Route#: %d, steps#: %d" % (ant_no, rt_no, rt.shape[0]))
 

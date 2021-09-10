@@ -2,14 +2,14 @@ from invertpy.brain.mushroombody import PerfectMemory, WillshawNetwork
 from invertpy.sense import CompoundEye
 
 from invertsy.agent import VisualNavigationAgent
-from invertsy.env.seville2009 import load_routes, Seville2009
+from invertsy.env.world import Seville2009
 from invertsy.sim.simulation import VisualNavigationSimulation
 
 import numpy as np
 
 
 def main(*args):
-    routes = load_routes(degrees=True)
+    routes = Seville2009.load_routes(degrees=True)
 
     replace = True
     calibrate = True

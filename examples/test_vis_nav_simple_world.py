@@ -2,8 +2,7 @@ from invertpy.brain.mushroombody import PerfectMemory, WillshawNetwork
 from invertpy.sense import CompoundEye
 
 from invertsy.agent import VisualNavigationAgent
-from invertsy.env.seville2009 import load_routes, Seville2009
-from invertsy.env.simple import SimpleWorld
+from invertsy.env.world import Seville2009, SimpleWorld
 from invertsy.sim.simulation import VisualNavigationSimulation
 from invertsy.sim.animation import VisualNavigationAnimation
 
@@ -11,7 +10,7 @@ import numpy as np
 
 
 def main(*args):
-    routes = load_routes(degrees=True)
+    routes = Seville2009.load_routes(degrees=True)
 
     replace = True
     calibrate = True
