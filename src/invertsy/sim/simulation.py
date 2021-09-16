@@ -777,7 +777,7 @@ class VisualFamiliaritySimulation(Simulation):
         self._calibrate = calibrate
         self._has_map = True
         self._outbound = True
-        self._familiarity_map = np.zeros((nb_cols, nb_rows, nb_orientations), dtype=agent.dtype)
+        self._familiarity_map = np.zeros((nb_rows, nb_cols, nb_orientations), dtype=agent.dtype)
         self.__nb_cols = nb_cols
         self.__nb_rows = nb_rows
         self.__nb_oris = nb_orientations
@@ -863,14 +863,14 @@ class VisualFamiliaritySimulation(Simulation):
 
         elif self.has_map:  # build the map
             j = i - self._route.shape[0] * int(self.has_outbound)
-            col, row, ori = [index for index in np.ndindex(self._familiarity_map.shape[:3])][j]
+            row, col, ori = [index for index in np.ndindex(self._familiarity_map.shape[:3])][j]
             x = col / self.nb_cols * 10.
             y = row / self.nb_rows * 10.
             yaw = ori / self.nb_orientations * 360.
             self._agent.xyz = [x, y, self.agent.z]
             self._agent.ori = R.from_euler('Z', yaw, degrees=True)
             self._agent(sky=self._sky, scene=self._world, act=False, callback=self.update_stats)
-            self._familiarity_map[col, row, ori] = self._stats["familiarity"][-1]
+            self._familiarity_map[row, col, ori] = self._stats["familiarity"][-1]
 
     def update_stats(self, a):
         """
@@ -910,10 +910,10 @@ class VisualFamiliaritySimulation(Simulation):
         else:
             col, row, ori = [index for index in np.ndindex(self._familiarity_map.shape[:3])][i]
         return (super().message() +
-                " - x: %.2f (col: % 4d), y: %.2f (row: % 4d), z: %.2f, Φ: %.0f (scan: % 4d)"
+                " - x: %.2f (row: % 4d), y: %.2f (col: % 4d), z: %.2f, Φ: % 4d (scan: % 4d)"
                 " - PN (change): %.2f%%, KC (change): %.2f%%, familiarity: %.2f%%,"
                 " capacity: %.2f%%") % (
-            x, col, y, row, z, phi, ori, pn_diff * 100., kc_diff * 100., fam * 100., capacity * 100.)
+            x, row, y, col, z, phi, ori, pn_diff * 100., kc_diff * 100., fam * 100., capacity * 100.)
 
     @property
     def agent(self):

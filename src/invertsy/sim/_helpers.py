@@ -390,7 +390,7 @@ def create_familiarity_map(nb_cols, nb_rows, cmap="RdPu", subplot=111, ax=None):
     ax.set_ylabel("familiarity", fontsize=8)
     ax.tick_params(axis='both', labelsize=8)
 
-    fam = ax.imshow(np.zeros((nb_cols, nb_rows), dtype='float32'), cmap=cmap, vmin=0, vmax=1,
+    fam = ax.imshow(np.zeros((nb_cols, nb_rows), dtype='float32'), cmap=cmap, vmin=0.0, vmax=1.0,
                     interpolation="none", aspect="auto")
 
     return fam

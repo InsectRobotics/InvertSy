@@ -739,7 +739,7 @@ class VisualFamiliarityAnimation(Animation):
 
             fam_all = self.fam_all.get_array()
             fam_all[:] = np.max(self.sim.familiarity_map, axis=2)
-            self.fam_all.set_array(fam_all)
+            self.fam_all.set_array(np.max(1 - (1 - fam_all) / (1 - fam_all).max(), axis=2))
 
         return time
 

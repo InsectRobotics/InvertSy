@@ -12,6 +12,7 @@ import numpy as np
 def main(*args):
     routes = Seville2009.load_routes(degrees=True)
 
+    show = True
     replace = True
     calibrate = True
 
@@ -39,7 +40,7 @@ def main(*args):
         sim = VisualNavigationSimulation(rt, agent=agent, world=SimpleWorld(), calibrate=calibrate, nb_scans=nb_scans,
                                          nb_ommatidia=nb_ommatidia, name=agent_name, free_motion=not replace)
         ani = VisualNavigationAnimation(sim)
-        ani(save=True, show=False, save_type="mp4", save_stats=True)
+        ani(save=not show, show=show, save_type="mp4", save_stats=not show)
         # sim(save=True)
 
         break
