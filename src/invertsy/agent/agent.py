@@ -18,8 +18,8 @@ from invertpy.sense import PolarisationSensor, CompoundEye, Sensor
 from invertpy.brain import MushroomBody, WillshawNetwork, CentralComplex, PolarisationCompass, Component
 from invertpy.brain.mushroombody import IncentiveCircuit
 from invertpy.brain.activation import winner_takes_all, relu
-from invertpy.brain.compass import decode_sph
-from invertpy.brain.preprocessing import Whitening, DiscreteCosineTransform
+from invertpy.brain.compass import ring2sph
+from invertpy.brain.preprocessing import Whitening, DiscreteCosineTransform, pca
 
 from scipy.spatial.transform import Rotation as R
 from copy import copy
@@ -578,7 +578,7 @@ class PathIntegrationAgent(Agent):
             #     flow = optic_flow(world, self._dx)
 
         r_tcl = self._pol_brain(r_pol=r, ori=self._pol_sensor.ori)
-        _, phi = decode_sph(r_tcl)
+        _, phi = ring2sph(r_tcl)
         return self._cx(phi=phi, flow=flow)
 
     def _act(self):
@@ -614,7 +614,7 @@ class PathIntegrationAgent(Agent):
 
 class VisualNavigationAgent(Agent):
 
-    def __init__(self, eye=None, memory=None, saturation=1.5, nb_scans=7, freq_trans=True,
+    def __init__(self, eye=None, memory=None, saturation=1.5, nb_scans=7, freq_trans=True, whitening=pca,
                  mb_mixture=None, *args, **kwargs):
         """
         Agent specialised in the visual navigation task. It contains the CompoundEye as a sensor and the mushroom body
@@ -668,12 +668,15 @@ class VisualNavigationAgent(Agent):
         """
         The preferred angles for scanning
         """
+        if nb_scans <= 1:
+            self._pref_angles = np.array([0])
+
         self._familiarity = np.zeros_like(self._pref_angles)
         """
         The familiarity of each preferred angle
         """
 
-        self._preprocessing = [Whitening(nb_input=eye.nb_ommatidia, dtype=eye.dtype)]
+        self._preprocessing = [Whitening(nb_input=eye.nb_ommatidia, w_method=whitening, dtype=eye.dtype)]
         """
         List of the preprocessing components
         """
@@ -696,7 +699,7 @@ class VisualNavigationAgent(Agent):
         for process in self._preprocessing:
             process.reset()
 
-    def _sense(self, sky=None, scene=None, **kwargs):
+    def _sense(self, sky=None, scene=None, omm_responses=None, **kwargs):
         """
         Using its only sensor (the compound eye) it senses the radiation from the sky and the given scene to calculate
         the familiarity. In the case of route following (when there is no update), it scans in all the preferred angles
@@ -708,6 +711,8 @@ class VisualNavigationAgent(Agent):
             the sky instance. Default is None
         scene: Seville2009, optional
             the world instance. Default is None
+        omm_responses: np.ndarray[float]
+            the pre-rendered ommatidia responses. Default is None
 
         Returns
         -------
@@ -719,7 +724,7 @@ class VisualNavigationAgent(Agent):
         self._familiarity[:] = 0.
 
         if self.update:
-            r = self.get_pn_responses(sky=sky, scene=scene)
+            r = self.get_pn_responses(sky=sky, scene=scene, omm_responses=omm_responses)
             r_mbon = self._mem(cs=r, us=np.ones(1, dtype=self.dtype))
 
             self._familiarity[front] = self.get_familiarity(r_mbon)
@@ -790,7 +795,7 @@ class VisualNavigationAgent(Agent):
         self.rotate(R.from_euler('Z', steer, degrees=True))
         self.move_forward()
 
-    def calibrate(self, sky=None, scene=None, nb_samples=32, radius=2.):
+    def calibrate(self, sky=None, scene=None, omm_responses=None, nb_samples=32, radius=2.):
         """
         Approximates the calibration of the optic lobes of the agent.
         In this case, it randomly collects a number of samples (in different positions and direction) in a radius
@@ -803,6 +808,8 @@ class VisualNavigationAgent(Agent):
             the sky instance. Default is None
         scene: Seville2009, optional
             the world instance. Default is None
+        omm_responses: np.ndarray[float]
+            the pre-rendered ommatidia responses. Default is None
         nb_samples: int, optional
             the number of samples to use
         radius: float, optional
@@ -818,16 +825,21 @@ class VisualNavigationAgent(Agent):
         xyz = copy(self.xyz)
         ori = copy(self.ori)
 
+        if omm_responses is not None:
+            nb_samples = omm_responses.shape[0]
+
         samples = np.zeros((nb_samples, self._mem.nb_cs), dtype=self.dtype)
         xyzs, oris = [], []
         for i in range(nb_samples):
-            self.xyz = xyz + self.rng.uniform(-radius, radius, 3) * np.array([1., 1., 0])
-            self.ori = R.from_euler("Z", self.rng.uniform(-180, 180), degrees=True)
-            samples[i] = self.get_pn_responses(sky, scene)
-            xyzs.append(copy(self.xyz))
-            oris.append(copy(self.ori))
-            print("Calibration: %d/%d - x: %.2f, y: %.2f, z: %.2f, yaw: %d" % (
-                i + 1, nb_samples, self.x, self.y, self.z, self.yaw_deg))
+            if omm_responses is None:
+                self.xyz = xyz + self.rng.uniform(-radius, radius, 3) * np.array([1., 1., 0])
+                self.ori = R.from_euler("Z", self.rng.uniform(-180, 180), degrees=True)
+                xyzs.append(copy(self.xyz))
+                oris.append(copy(self.ori))
+
+                print("Calibration: %d/%d - x: %.2f, y: %.2f, z: %.2f, yaw: %d" % (
+                    i + 1, nb_samples, self.x, self.y, self.z, self.yaw_deg))
+            samples[i] = self.get_pn_responses(sky, scene, omm_responses[i])
         self._preprocessing[-1].reset(samples)
 
         self.xyz = xyz
@@ -837,7 +849,7 @@ class VisualNavigationAgent(Agent):
 
         return xyzs, oris
 
-    def get_pn_responses(self, sky=None, scene=None):
+    def get_pn_responses(self, sky=None, scene=None, omm_responses=None):
         """
         Transforms the current snapshot of the environment into the PN responses.
 
@@ -850,16 +862,25 @@ class VisualNavigationAgent(Agent):
             the sky instance. Default is None
         scene: Seville2009, optional
             the world instance. Default is None
+        omm_responses: np.ndarray[float]
+            the pre-rendered ommatidia responses. Default is None
 
         Returns
         -------
         r: np.ndarray[float]
             the responses of the PNs
         """
-        r = np.clip(self._eye(sky=sky, scene=scene).mean(axis=1), 0, 1)
+        if omm_responses is None:  # if rendered ommatidia responses are provided, use them
+            omm_responses = self._eye(sky=sky, scene=scene)
+
+        r = np.clip(omm_responses.mean(axis=1), 0, 1)
         for process in self._preprocessing:
             r = process(r)
         return r
+
+    @property
+    def preprocessing(self):
+        return self._preprocessing
 
     @property
     def familiarity(self):
@@ -906,7 +927,10 @@ class VisualNavigationAgent(Agent):
         """
         Indicates if calibration has been completed
         """
-        return self._preprocessing[-1].calibrated
+        for p in self._preprocessing:
+            if isinstance(p, Whitening):
+                return p.calibrated
+        return False
 
     @staticmethod
     def get_steering(familiarity, pref_angles, max_steering=None, degrees=True, reverse=False):

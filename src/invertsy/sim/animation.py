@@ -11,11 +11,13 @@ __license__ = "GPLv3+"
 __version__ = "v1.0.0-alpha"
 __maintainer__ = "Evripidis Gkanias"
 
+from invertpy.brain.compass import ring2complex
 from invertsy.__helpers import __root__
 
 from ._helpers import *
 from .simulation import RouteSimulation, PathIntegrationSimulation, Simulation
 from .simulation import VisualNavigationSimulation, VisualFamiliaritySimulation
+from .simulation import VisualFamiliarityGridExplorationSimulation
 
 from scipy.spatial.transform import Rotation as R
 from matplotlib import animation
@@ -657,7 +659,7 @@ class VisualFamiliarityAnimation(Animation):
 
         Parameters
         ----------
-        sim: VisualFamiliaritySimulation
+        sim: VisualFamiliaritySimulation | VisualFamiliarityGridExplorationSimulation
             the visual navigation simulation instance
         cmap: str, optional
             the colour map to be used for the responses from the ommatidia. Default is 'Greens_r'
@@ -683,9 +685,9 @@ class VisualFamiliarityAnimation(Animation):
                                cmap="Greys", ax=ax_dict["C"])
         kc = create_kc_history(sim.agent, self.nb_frames, sep=sim.route.shape[0],
                                cmap="Greys", ax=ax_dict["D"])
-        fam_all = create_familiarity_map(sim.nb_cols, sim.nb_rows, cmap="RdPu", ax=ax_dict["E"])
+        fam_all, fam_qui = create_familiarity_map(sim.nb_cols, sim.nb_rows, cmap="RdPu", ax=ax_dict["E"])
 
-        self._lines.extend([pn, kc, fam_all])
+        self._lines.extend([pn, kc, fam_all, fam_qui])
 
         plt.tight_layout()
 
@@ -740,6 +742,9 @@ class VisualFamiliarityAnimation(Animation):
             fam_all = self.fam_all.get_array()
             fam_all[:] = np.max(self.sim.familiarity_map, axis=2)
             self.fam_all.set_array(np.max(1 - (1 - fam_all) / (1 - fam_all).max(), axis=2))
+            z = ring2complex(self.sim.familiarity_map, axis=2)
+            u, v = z.real(), z.imag()
+            self.fam_qui.set_UVC(u, v)
 
         return time
 
@@ -845,7 +850,7 @@ class VisualFamiliarityAnimation(Animation):
     @property
     def fam_all(self):
         """
-        The history of familiarity in the figure for all the scanning directions.
+        The map of familiarity in the figure for all the visited positions.
 
         Returns
         -------
@@ -853,6 +858,20 @@ class VisualFamiliarityAnimation(Animation):
         """
         if len(self._lines) > 8:
             return self._lines[8]
+        else:
+            return None
+
+    @property
+    def fam_qui(self):
+        """
+        The direction of the maximum familiarity in the figure for all the visited directions.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        if len(self._lines) > 9:
+            return self._lines[9]
         else:
             return None
 

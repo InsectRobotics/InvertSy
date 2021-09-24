@@ -392,8 +392,12 @@ def create_familiarity_map(nb_cols, nb_rows, cmap="RdPu", subplot=111, ax=None):
 
     fam = ax.imshow(np.zeros((nb_cols, nb_rows), dtype='float32'), cmap=cmap, vmin=0.0, vmax=1.0,
                     interpolation="none", aspect="auto")
+    x, y = np.arange(nb_cols), np.arange(nb_rows)
+    x, y = np.meshgrid(x, y)
+    v, u = np.zeros_like(x), np.zeros_like(y)
+    qui = ax.quiver(x, y, v, u, pivot='mid', color='k', scale=15)
 
-    return fam
+    return fam, qui
 
 
 def create_familiarity_history(nb_frames, sep=None, subplot=111, ax=None):
