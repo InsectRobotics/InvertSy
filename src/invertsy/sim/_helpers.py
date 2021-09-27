@@ -85,6 +85,68 @@ def create_map_axis(world=None, nest=None, feeder=None, subplot=111, ax=None):
     return line_c, line_b, pos, (vert, codes), cal, poi
 
 
+def create_side_axis(world=None, subplot=111, ax=None):
+    """
+    Draws a map with all the vegetation from the world (if given), the nest and feeder positions (if given) and returns
+    the ongoing and previous paths of the agent, the agent's current position, the marker (arror) of the agents facing
+    direction, the calibration points and the points where the agent is taken back on the route after replacing.
+
+    Parameters
+    ----------
+    world: Seville2009, optional
+        the world containing the vegetation. Default is None
+    nest: np.ndarray[float], optional
+        the position of the nest. Default is None
+    feeder: np.ndarray[float], optional
+        the position of the feeder. Default is None
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    line_c: matplotlib.lines.Line2D
+        the ongoing path of the agent
+    line_b: matplotlib.lines.Line2D
+        the previous paths of the agent
+    pos: matplotlib.collections.PathCollection
+        the current position of the agent
+    marker: tuple[np.ndarray[float], np.ndarray[float]]
+        the marker parameters
+    cal: matplotlib.collections.PathCollection
+        the points on the map where the calibration took place
+    poi: matplotlib.collections.PathCollection
+        the points on the map where the agent was put back on the route
+    """
+
+    if ax is None:
+        ax = plt.subplot(subplot)
+
+    ymin, ymax = None, None
+    zmin, zmax = None, None
+    if world is not None:
+        for polygon, colour in zip(world.polygons, world.colours):
+            z = polygon[[0, 1, 2, 0], 2]
+            y = polygon[[0, 1, 2, 0], 1]
+            z_min, z_max = np.min(z), np.max(z)
+            y_min, y_max = np.min(y), np.max(y)
+            if zmin is None or z_min < zmin:
+                zmin = z_min
+            if zmax is None or z_max > zmax:
+                zmax = z_max
+            if ymin is None or y_min < ymin:
+                ymin = y_min
+            if ymax is None or y_max > ymax:
+                ymax = y_max
+            ax.plot(y, z, c=colour)
+
+    ax.set_aspect('equal', 'box')
+    ax.set_ylim(min(0, zmin), zmax * 1.1)
+    ax.set_xlim(ymin - .5, ymax + .5)
+    ax.tick_params(axis='both', labelsize=8)
+
+
 def create_eye_axis(eye, cmap="Greys_r", subplot=111, ax=None):
     """
     Draws a map of the positions of the ommatidia coloured using their photo-receptor responses.
@@ -297,6 +359,50 @@ def create_familiarity_response_history(agent, nb_frames, sep=None, cmap="Greys"
         ax.plot([sep, sep], [0, nb_scans-1], 'grey', lw=1)
 
     return fam, fam_line
+
+
+def create_familiarity_map(nb_cols, nb_rows, cmap="RdPu", subplot=111, ax=None):
+    """
+    Draws the familiarity history for every scan as an image, where each pixel is a scan in time and its colour reflects
+    the familiarity in this scan. Also the lowest value is marked using a red line.
+
+    Parameters
+    ----------
+    agent: VisualNavigationAgent
+        the agent to get the data and properties from
+    cmap: str, optional
+        the colour map of the responses. Default is 'Greys'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the familiarity history
+    matplotlib.lines.Line2D
+        the line showing the lowest familiarity value
+    """
+    ax = get_axis(ax, subplot)
+
+    ax.set_yticks([])
+    ax.set_xticks([])
+    ax.set_ylim(0, nb_rows-1)
+    ax.set_xlim(0, nb_cols-1)
+    ax.set_axis_off()
+    ax.set_aspect('auto', 'box')
+    ax.set_ylabel("familiarity", fontsize=8)
+    ax.tick_params(axis='both', labelsize=8)
+
+    fam = ax.imshow(np.zeros((nb_cols, nb_rows), dtype='float32'), cmap=cmap, vmin=0.0, vmax=1.0,
+                    interpolation="none", aspect="auto")
+    x, y = np.arange(nb_cols), np.arange(nb_rows)
+    x, y = np.meshgrid(x, y)
+    v, u = np.zeros_like(x), np.zeros_like(y)
+    qui = ax.quiver(x, y, v, u, pivot='mid', color='k', scale=15)
+
+    return fam, qui
 
 
 def create_familiarity_history(nb_frames, sep=None, subplot=111, ax=None):

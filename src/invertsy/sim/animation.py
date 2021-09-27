@@ -11,11 +11,13 @@ __license__ = "GPLv3+"
 __version__ = "v1.0.0-alpha"
 __maintainer__ = "Evripidis Gkanias"
 
+from invertpy.brain.compass import ring2complex
 from invertsy.__helpers import __root__
 
 from ._helpers import *
-from .simulation import RouteSimulation, VisualNavigationSimulation, PathIntegrationSimulation,\
-    LandmarkIntegrationSimulation, Simulation
+from .simulation import RouteSimulation, PathIntegrationSimulation, Simulation
+from .simulation import VisualNavigationSimulation, VisualFamiliaritySimulation
+from .simulation import VisualFamiliarityGridExplorationSimulation
 
 from scipy.spatial.transform import Rotation as R
 from matplotlib import animation
@@ -24,9 +26,24 @@ from matplotlib.path import Path
 import matplotlib.pyplot as plt
 import matplotlib.cm
 import numpy as np
+import sys
 import os
 
-__anim_dir__ = os.path.abspath(os.path.join(__root__, "..", "..", "OneDrive", "PhD", "antworld-animations"))
+__default_anim_dir__ = os.path.abspath(os.path.join(__root__, "data", "animation", "vids"))
+if not os.path.isdir(__default_anim_dir__):
+    os.makedirs(__default_anim_dir__)
+if "linux" in sys.platform:
+    __drive_dir__ = os.path.abspath(os.path.join(__root__, "..", "..", "OneDrive"))
+elif "win" in sys.platform:
+    __drive_dir__ = os.path.abspath(os.path.join("C:", "Users", "Odin", "OneDrive - University of Edinburgh"))
+else:
+    __drive_dir__ = __default_anim_dir__
+
+__anim_dir__ = os.path.join(__drive_dir__, "PhD", "antworld-animations")
+
+if not os.path.isdir(__anim_dir__):
+    __anim_dir__ = __default_anim_dir__
+
 """
 Directory where to save the animation videos to 
 """
@@ -93,9 +110,9 @@ class Animation(object):
             if save:
                 if save_name is None:
                     save_name = "%s.%s" % (self.name, save_type.lower())
-                save_path = os.path.join(__anim_dir__, save_name)
-                print("\nSaving animation in: '%s'" % save_path)
-                self.ani.save(save_path, fps=self._fps)
+                filepath = os.path.join(__anim_dir__, save_name)
+                print("Saving video in '%s'." % filepath)
+                self.ani.save(filepath, fps=self._fps)
 
             if show:
                 plt.show()
@@ -246,8 +263,17 @@ class RouteAnimation(Animation):
         """
         super().__init__(sim, *args, **kwargs)
 
-        omm = create_eye_axis(sim.eye, cmap=cmap, subplot=221)
-        line, _, pos, self._marker = create_map_axis(world=sim.world, subplot=122)[:4]
+        ax_dict = self.fig.subplot_mosaic(
+            """
+            AB
+            AB
+            AB
+            CB
+            """
+        )
+        omm = create_eye_axis(sim.eye, cmap=cmap, ax=ax_dict['A'])
+        line, _, pos, self._marker = create_map_axis(world=sim.world, ax=ax_dict['B'])[:4]
+        create_side_axis(sim.world, ax=ax_dict['C'])
 
         plt.tight_layout()
 
@@ -624,6 +650,232 @@ class VisualNavigationAnimation(Animation):
         """
         if len(self._lines) > 12:
             return self._lines[12]
+        else:
+            return None
+
+
+class VisualFamiliarityAnimation(Animation):
+
+    def __init__(self, sim, cmap="Greens_r", *args, **kwargs):
+        """
+        Animation for the visual navigation simulation. It visualised the current view of the agent, its current and
+        previous positions on the map along with the vegetation, and the statistics according to the parameters.
+
+        Parameters
+        ----------
+        sim: VisualFamiliaritySimulation | VisualFamiliarityGridExplorationSimulation
+            the visual navigation simulation instance
+        cmap: str, optional
+            the colour map to be used for the responses from the ommatidia. Default is 'Greens_r'
+        """
+        super().__init__(sim, *args, **kwargs)
+
+        ax_dict = self.fig.subplot_mosaic(
+            """
+            AABB
+            AABB
+            CEBB
+            DEBB
+            """
+        )
+
+        omm = create_eye_axis(sim.eye, cmap=cmap, ax=ax_dict["A"])
+        line_c, line_b, pos, self._marker, cal, poi = create_map_axis(
+            world=sim.world, ax=ax_dict["B"], nest=sim.route[-1, :2], feeder=sim.route[0, :2])
+
+        self._lines.extend([omm, line_c, line_b, pos, cal, poi])
+
+        pn = create_pn_history(sim.agent, self.nb_frames, sep=sim.route.shape[0],
+                               cmap="Greys", ax=ax_dict["C"])
+        kc = create_kc_history(sim.agent, self.nb_frames, sep=sim.route.shape[0],
+                               cmap="Greys", ax=ax_dict["D"])
+        fam_all, fam_qui = create_familiarity_map(sim.nb_cols, sim.nb_rows, cmap="RdPu", ax=ax_dict["E"])
+
+        self._lines.extend([pn, kc, fam_all, fam_qui])
+
+        plt.tight_layout()
+
+    def _animate(self, i):
+        """
+        Runs the current iteration of the simulation and updates the data for the figure.
+
+        Parameters
+        ----------
+        i: int
+            the current iteration
+        """
+        if i == 0:
+            xyzs = self.sim.reset()
+            if xyzs is not None:
+                self.cal.set_offsets(np.array(xyzs)[:, [1, 0]])
+        elif i == self.sim.route.shape[0]:
+            self.line_b.set_data(np.array(self.sim.stats["position"])[..., 1],
+                                 np.array(self.sim.stats["position"])[..., 0])
+
+        time = self.sim.step(i)
+
+        r = self.sim.stats["ommatidia"][-1].mean(axis=1)
+        x, y = np.array(self.sim.stats["position"])[..., :2].T
+
+        # draw the ommatidia responses
+        self.omm.set_array(r.T.flatten())
+
+        # draw current path
+        if i < self.sim.route.shape[0]:
+            self.line_c.set_data(y, x)
+
+        # draw current position and orientation
+        self.pos.set_offsets(np.array([y[-1], x[-1]]))
+        vert, codes = self._marker
+        vertices = R.from_euler('Z', -self.sim.agent.ori.as_euler('ZYX', degrees=True)[0], degrees=True).apply(vert)
+        self.pos.set_paths((Path(vertices[:, :2], codes),))
+
+        # draw the PN activity
+        pn = self.pn.get_array()
+        pn[:, i] = self.sim.mem.r_cs[0].T.flatten()
+        self.pn.set_array(pn)
+
+        # draw the KC activity
+        kc = self.kc.get_array()
+        kc[:, i] = self.sim.mem.r_kc[0].T.flatten()
+        self.kc.set_array(kc)
+
+        # draw familiarity map
+        if self.fam_all is not None:
+
+            fam_all = self.fam_all.get_array()
+            fam_all[:] = np.max(1 - (1 - self.sim.familiarity_map) / (1 - self.sim.familiarity_map).max(), axis=2)
+            self.fam_all.set_array(fam_all)
+            # z = ring2complex(self.sim.familiarity_map, axis=2)
+            # u, v = z.real, z.imag
+            # self.fam_qui.set_UVC(u, v)
+
+        return time
+
+    @property
+    def sim(self):
+        """
+        The simulation that runs on the background
+
+        Returns
+        -------
+        VisualFamiliaritySimulation
+        """
+        return self._sim
+
+    @property
+    def omm(self):
+        """
+        The collection of ommatidia in the figure.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
+        return self._lines[0]
+
+    @property
+    def line_c(self):
+        """
+        The line representing the ongoing path of the agent in the figure.
+
+        Returns
+        -------
+        matplotlib.lines.Line2D
+        """
+        return self._lines[1]
+
+    @property
+    def line_b(self):
+        """
+        The line representing the finished path of the agent in the figure.
+
+        Returns
+        -------
+        matplotlib.lines.Line2D
+        """
+        return self._lines[2]
+
+    @property
+    def pos(self):
+        """
+        The current position of agent in the figure.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
+        return self._lines[3]
+
+    @property
+    def cal(self):
+        """
+        The positions the figure used for calibration in.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
+        return self._lines[4]
+
+    @property
+    def poi(self):
+        """
+        The positions in the figure where the agent was brought back to the route.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
+        return self._lines[5]
+
+    @property
+    def pn(self):
+        """
+        The history of the PN response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[6]
+
+    @property
+    def kc(self):
+        """
+        The history of the KC response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[7]
+
+    @property
+    def fam_all(self):
+        """
+        The map of familiarity in the figure for all the visited positions.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        if len(self._lines) > 8:
+            return self._lines[8]
+        else:
+            return None
+
+    @property
+    def fam_qui(self):
+        """
+        The direction of the maximum familiarity in the figure for all the visited directions.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        if len(self._lines) > 9:
+            return self._lines[9]
         else:
             return None
 

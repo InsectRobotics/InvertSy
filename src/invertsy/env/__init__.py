@@ -15,5 +15,5 @@ __license__ = "GPLv3+"
 __version__ = "v1.0.0-alpha"
 __maintainer__ = "Evripidis Gkanias"
 
-from .seville2009 import Seville2009
-from .sky import Sky
+from .world import Seville2009, SimpleWorld, WorldBase
+from .sky import Sky, UniformSky
