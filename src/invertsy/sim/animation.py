@@ -740,11 +740,11 @@ class VisualFamiliarityAnimation(Animation):
         if self.fam_all is not None:
 
             fam_all = self.fam_all.get_array()
-            fam_all[:] = np.max(self.sim.familiarity_map, axis=2)
-            self.fam_all.set_array(np.max(1 - (1 - fam_all) / (1 - fam_all).max(), axis=2))
-            z = ring2complex(self.sim.familiarity_map, axis=2)
-            u, v = z.real(), z.imag()
-            self.fam_qui.set_UVC(u, v)
+            fam_all[:] = np.max(1 - (1 - self.sim.familiarity_map) / (1 - self.sim.familiarity_map).max(), axis=2)
+            self.fam_all.set_array(fam_all)
+            # z = ring2complex(self.sim.familiarity_map, axis=2)
+            # u, v = z.real, z.imag
+            # self.fam_qui.set_UVC(u, v)
 
         return time
 

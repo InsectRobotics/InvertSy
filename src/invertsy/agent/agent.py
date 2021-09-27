@@ -12,7 +12,6 @@ __version__ = "v1.0.0-alpha"
 __maintainer__ = "Evripidis Gkanias"
 
 from ._helpers import eps, RNG
-from invertsy.env import Sky, Seville2009
 
 from invertpy.sense import PolarisationSensor, CompoundEye, Sensor
 from invertpy.brain import MushroomBody, WillshawNetwork, CentralComplex, PolarisationCompass, Component
@@ -726,22 +725,7 @@ class VisualNavigationAgent(Agent):
         if self.update:
             r = self.get_pn_responses(sky=sky, scene=scene, omm_responses=omm_responses)
             r_mbon = self._mem(cs=r, us=np.ones(1, dtype=self.dtype))
-
-            self._familiarity[front] = self.get_familiarity(r_mbon)
-            # if isinstance(self._mem, IncentiveCircuit):
-            #     print(("%s: %.2f, " * 6) % (
-            #         self._mem.mbon_names[0], r_mbon[0], self._mem.mbon_names[1], r_mbon[1],
-            #         self._mem.mbon_names[2], r_mbon[2], self._mem.mbon_names[3], r_mbon[3],
-            #         self._mem.mbon_names[4], r_mbon[4], self._mem.mbon_names[5], r_mbon[5]
-            #     ), end=" ")
-            #     print("fam: %.4f" % self._familiarity[front])
-            #     print(("%s: %.2f, " * 6) % (
-            #         self._mem.dan_names[0], self._mem.r_dan[0, 0], self._mem.dan_names[1], self._mem.r_dan[0, 1],
-            #         self._mem.dan_names[2], self._mem.r_dan[0, 2], self._mem.dan_names[3], self._mem.r_dan[0, 3],
-            #         self._mem.dan_names[4], self._mem.r_dan[0, 4], self._mem.dan_names[5], self._mem.r_dan[0, 5]
-            #     ))
-            if self._mem.nb_kc > 0 and not isinstance(self._mem, IncentiveCircuit):
-                self._familiarity[front] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
+            self._familiarity[front] = self.get_familiarity(r_mbon, self._mem.r_kc[0])
         else:
             ori = copy(self.ori)
 
@@ -763,9 +747,8 @@ class VisualNavigationAgent(Agent):
 
                 self.ori = ori * R.from_euler('Z', angle, degrees=True)
                 r = self.get_pn_responses(sky=sky, scene=scene)
-                self._familiarity[i] = self.get_familiarity(self._mem(cs=r))
-                if self._mem.nb_kc > 0 and not isinstance(self._mem, IncentiveCircuit):
-                    self._familiarity[i] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
+                r_mbon_ = self._mem(cs=r)
+                self._familiarity[i] = self.get_familiarity(r_mbon_, self._mem.r_kc[0])
 
                 cs.append(copy(self._mem.r_cs))
                 us.append(copy(self._mem.r_us))
@@ -837,8 +820,8 @@ class VisualNavigationAgent(Agent):
                 xyzs.append(copy(self.xyz))
                 oris.append(copy(self.ori))
 
-                print("Calibration: %d/%d - x: %.2f, y: %.2f, z: %.2f, yaw: %d" % (
-                    i + 1, nb_samples, self.x, self.y, self.z, self.yaw_deg))
+            print("Calibration: %d/%d - x: %.2f, y: %.2f, z: %.2f, yaw: %d" % (
+                i + 1, nb_samples, self.x, self.y, self.z, self.yaw_deg))
             samples[i] = self.get_pn_responses(sky, scene, omm_responses[i])
         self._preprocessing[-1].reset(samples)
 
@@ -975,7 +958,7 @@ class VisualNavigationAgent(Agent):
             steer = np.rad2deg(steer)
         return steer
 
-    def get_familiarity(self, r_mbon):
+    def get_familiarity(self, r_mbon=None, r_kc=None):
         """
         Computes the familiarity using the MBON responses.
 
@@ -983,17 +966,17 @@ class VisualNavigationAgent(Agent):
         ----------
         r_mbon: np.ndarray[float]
             MBON responses
+        r_kc: np.ndarray[float]
+            KC responses
 
         Returns
         -------
         float
             the familiarity
         """
-        if isinstance(self._mem, IncentiveCircuit):
-            fams = []
-            for i, pair in enumerate(['S', 'R', 'M']):
-                if pair in self._mbon_mixture:
-                    fams.append(.5 + (r_mbon[i * 2] - r_mbon[i * 2 + 1]) / 4)
-            return np.mean(fams)
-        else:
-            return 1. - r_mbon
+        if r_mbon is None:
+            r_mbon = self._mem.r_mbon
+        if r_kc is None:
+            r_kc = np.ones(1, self.dtype)
+
+        return 1. - np.clip(r_mbon / np.maximum(np.sum(r_kc > 0), 1), 0, 1)

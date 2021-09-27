@@ -1138,6 +1138,7 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
         self.__nb_cols = nb_cols
         self.__nb_rows = nb_rows
         self.__nb_oris = nb_orientations
+        self.__ndindex = [index for index in np.ndindex(self._dump_map.shape[:3])]
 
         self._stats = {
             "ommatidia": [],
@@ -1193,7 +1194,7 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
 
         elif self.has_grid:  # build the map
             j = i - self._route.shape[0] * int(self.has_outbound)
-            row, col, ori = [index for index in np.ndindex(self._dump_map.shape[:3])][j]
+            row, col, ori = self.__ndindex[j]
             x = self.col2x(col)
             y = self.row2y(row)
             yaw = self.ori2yaw(ori)
@@ -1223,7 +1224,7 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
         if i < 0:
             col, row, ori = -1, -1, -1
         else:
-            col, row, ori = [index for index in np.ndindex(self._dump_map.shape[:3])][i]
+            col, row, ori = self.__ndindex[i]
         return (super().message() +
                 " - x: %.2f (row: % 4d), y: %.2f (col: % 4d), z: %.2f, Φ: % 4d (scan: % 4d)") % (
             x, row, y, col, z, phi, ori)
@@ -1389,7 +1390,7 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
 
 class VisualFamiliarityGridExplorationSimulation(Simulation):
 
-    def __init__(self, data, agent=None, calibrate=False, saturation=5., **kwargs):
+    def __init__(self, data, nb_rows, nb_cols, nb_oris, agent=None, calibrate=False, saturation=5., **kwargs):
         """
         Runs the route following task for an autonomous agent, by using entirely its vision. First it forces the agent
         to run through a predefined route. Then it places the agent back at the beginning and lets it autonomously reach
@@ -1424,6 +1425,7 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         route = data["positions_out"]
         views_grid = data["ommatidia"]
         grid = data["positions"]
+        print("CALLED!")
 
         kwargs.setdefault('nb_iterations', int(route.shape[0]) + int(grid.shape[0]))
         kwargs.setdefault('name', 'vn-simulation')
@@ -1431,9 +1433,6 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
 
         self._route = route
         nb_ommatidia = views_route.shape[1]
-        nb_oris = len(np.unique(grid[:, 3]))
-        nb_rows = len(np.unique(grid[:, 1]))
-        nb_cols = len(np.unique(grid[:, 0]))
 
         if agent is None:
             eye = None
@@ -1447,6 +1446,7 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         self._route = np.concatenate([route, grid], axis=0)
         self._route_length = route.shape[0]
 
+        self._eye = agent.sensors[0]
         self._mem = agent.brain[0]
 
         self._calibrate = calibrate
@@ -1456,10 +1456,11 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         self.__nb_cols = nb_cols
         self.__nb_rows = nb_rows
         self.__nb_oris = nb_oris
+        self.__ndindex = [index for index in np.ndindex(self._familiarity_map.shape[:3])]
 
         self._stats = {
             "familiarity_map": self._familiarity_map,
-            "positions": []
+            "position": []
         }
 
     def reset(self):
@@ -1472,22 +1473,24 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         np.ndarray[float]
             array of the 3D positions of the samples used for the calibration
         """
+        self._stats["ommatidia"] = []
         self._stats["PN"] = []
         self._stats["KC"] = []
         self._stats["MBON"] = []
         self._stats["DAN"] = []
         self._stats["capacity"] = []
         self._stats["familiarity"] = []
+        self._stats["position"] = []
 
         self._iteration = 0
         route_xyzs = self._route[:self._route_length, :3]
-        d_nest = np.linalg.norm(route_xyzs - route_xyzs[-1], axis=0)
+        d_nest = np.linalg.norm(route_xyzs - route_xyzs[-1], axis=1)
         xyzs = route_xyzs[d_nest < 2.]
-        i = self.agent.rng.permutation(np.arange(xyzs.shape[0]))
-        xyzs = xyzs[i][:32]
+        i = self.agent.rng.permutation(np.arange(xyzs.shape[0]))[:32]
+        xyzs = xyzs[i]
         if self._calibrate and not self._agent.is_calibrated:
-            self._agent.xyz = self._route[self._route_length, :3]
-            self._agent.ori = R.from_euler('Z', self._route[-1, 3], degrees=True)
+            self._agent.xyz = self._route[self._route_length-1, :3]
+            self._agent.ori = R.from_euler('Z', self._route[self._route_length-1, 3], degrees=True)
             self._agent.update = False
             self._agent.calibrate(omm_responses=self._views[i])
 
@@ -1508,10 +1511,12 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         self._agent.update = False
 
         # create a separate line
+        self._stats["position_out"] = self._stats["position"]
         self._stats["capacity_out"] = self._stats["capacity"]
         self._stats["familiarity_out"] = self._stats["familiarity"]
         self._stats["capacity"] = []
         self._stats["familiarity"] = []
+        self._stats["position"] = []
 
     def _step(self, i):
         """
@@ -1535,7 +1540,7 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
 
         elif self.has_grid:  # build the map
             j = i - self._route_length * int(self.has_outbound)
-            row, col, ori = [index for index in np.ndindex(self._familiarity_map.shape[:3])][j]
+            row, col, ori = self.__ndindex[j]
             x = self.col2x(col)
             y = self.row2y(row)
             yaw = self.ori2yaw(ori)
@@ -1556,6 +1561,8 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
 
         assert a == self.agent, "The input agent should be the same as the one used in the simulation!"
 
+        self._stats["ommatidia"].append(self._views[self._iteration])
+        self._stats["position"].append(self._route[self._iteration])
         self._stats["PN"].append(self.mem.r_cs.copy())
         self._stats["KC"].append(self.mem.r_kc.copy())
         self._stats["MBON"].append(self.mem.r_mbon.copy())
@@ -1574,11 +1581,11 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
             pn_diff = np.absolute(self.mem.r_cs[0]).mean()
             kc_diff = np.absolute(self.mem.r_kc[0]).mean()
         capacity = self.capacity
-        i = self._iteration - self._route.shape[0] * int(self.has_outbound)
+        i = self._iteration - self._route_length * int(self.has_outbound)
         if i < 0:
             col, row, ori = -1, -1, -1
         else:
-            col, row, ori = [index for index in np.ndindex(self._familiarity_map.shape[:3])][i]
+            col, row, ori = self.__ndindex[i]
         return (super().message() +
                 " - x: %.2f (row: % 4d), y: %.2f (col: % 4d), z: %.2f, Φ: % 4d (scan: % 4d)"
                 " - PN (change): %.2f%%, KC (change): %.2f%%, familiarity: %.2f%%,"
@@ -1605,7 +1612,29 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         -------
         np.ndarray[float]
         """
-        return self._route
+        return self._route[:self._route_length]
+
+    @property
+    def world(self):
+        """
+        The world used for the simulation.
+
+        Returns
+        -------
+        None
+        """
+        return None
+
+    @property
+    def eye(self):
+        """
+        The compound eye of the agent.
+
+        Returns
+        -------
+        CompoundEye
+        """
+        return self._eye
 
     @property
     def mem(self):
@@ -1651,7 +1680,7 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         float
         """
         return (self._stats["L"][-1] if len(self._stats["L"]) > 0
-                else np.linalg.norm(self._route[-1, :3] - self._route[0, :3]))
+                else np.linalg.norm(self._route[self._route_length-1, :3] - self._route[0, :3]))
 
     @property
     def calibrate(self):
