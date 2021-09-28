@@ -14,8 +14,9 @@ __maintainer__ = "Evripidis Gkanias"
 from ._helpers import eps, RNG
 
 from invertpy.sense import PolarisationSensor, CompoundEye, Sensor
-from invertpy.brain import MushroomBody, WillshawNetwork, CentralComplex, PolarisationCompass, Component
-from invertpy.brain.mushroombody import IncentiveCircuit
+from invertpy.brain import MushroomBody, WillshawNetwork, PolarisationCompass, Component
+from invertpy.brain.centralcomplex import FlyCentralComplex, BeeCentralComplex
+from invertpy.brain.mushroombody import IncentiveCircuit, CrossIncentive
 from invertpy.brain.activation import winner_takes_all, relu
 from invertpy.brain.compass import ring2sph
 from invertpy.brain.preprocessing import Whitening, DiscreteCosineTransform, pca
@@ -27,7 +28,7 @@ import numpy as np
 
 
 class Agent(object):
-    def __init__(self, xyz=None, ori=None, speed=0.1, delta_time=1., dtype='float32', name='agent', rng=RNG):
+    def __init__(self, xyz=None, ori=None, speed=0.1, delta_time=1., proc_steps=1, dtype='float32', name='agent', rng=RNG):
         """
         Abstract agent class that holds all the basic methods and attributes of an agent such as:
 
@@ -52,6 +53,8 @@ class Agent(object):
             the agent's internal clock speed. Default is 1 tick/second
         name: str, optional
             the name of the agent. Default is 'agent'
+        proc_steps: int, optional
+            the number of processing steps per sensing step
         dtype: np.dtype, optional
             the type of the agents parameters
         """
@@ -72,6 +75,7 @@ class Agent(object):
         self._dt_default = delta_time  # seconds
         self._dx = speed  # meters / second
 
+        self._proc_steps = np.maximum(proc_steps, 1)
         self.name = name
         self.dtype = dtype
 
@@ -533,7 +537,7 @@ class PathIntegrationAgent(Agent):
 
         pol_sensor = PolarisationSensor(nb_input=60, field_of_view=56, degrees=True)
         pol_brain = PolarisationCompass(nb_pol=60, loc_ori=copy(pol_sensor.omm_ori), nb_sol=8, integrated=True)
-        cx = CentralComplex(nb_tb1=8)
+        cx = BeeCentralComplex(nb_tb1=8)
 
         self.add_sensor(pol_sensor, local=True)
         self.add_brain_component(pol_brain)
@@ -595,7 +599,7 @@ class PathIntegrationAgent(Agent):
 
         Parameters
         ----------
-        cx: CentralComplex
+        cx: BeeCentralComplex
             the central complex instance of the agent
 
         Returns
@@ -613,7 +617,7 @@ class PathIntegrationAgent(Agent):
 
 class VisualNavigationAgent(Agent):
 
-    def __init__(self, eye=None, memory=None, saturation=1.5, nb_scans=7, freq_trans=True, whitening=pca,
+    def __init__(self, eye=None, memory=None, saturation=1.5, nb_scans=7, freq_trans=False, whitening=pca,
                  mb_mixture=None, *args, **kwargs):
         """
         Agent specialised in the visual navigation task. It contains the CompoundEye as a sensor and the mushroom body
@@ -634,9 +638,6 @@ class VisualNavigationAgent(Agent):
             the number of scans during the route following task. Default is 7
         freq_trans: bool, optional
             whether to transform the visual input into the frequency domain by using the DCT method. Default is False
-        mb_mixture: str, optional
-            which types of MBONs to use for the familiarity computation. S: susceptible, R: restrained, M: LTM. Default
-            is None: mixture of all of them.
         """
         super().__init__(*args, **kwargs)
 
@@ -648,14 +649,16 @@ class VisualNavigationAgent(Agent):
             # #KC = 40 * #PN
             memory = WillshawNetwork(nb_cs=eye.nb_ommatidia, nb_kc=eye.nb_ommatidia * 40, sparseness=0.01,
                                      eligibility_trace=.1)
+
+        memory.f_cs = lambda x: np.asarray(
+            np.greater(x.T, np.sort(x)[..., int(memory.nb_cs * .8)]).T, dtype=self.dtype)
+        memory.f_kc = lambda x: np.asarray(winner_takes_all(x, percentage=memory.sparseness), dtype=self.dtype)
+        memory.f_mbon = lambda x: relu(x, cmax=2)
         if isinstance(memory, IncentiveCircuit):
-            memory.f_cs = lambda x: np.asarray(x > np.sort(x)[int(memory.nb_cs * .7)], dtype=self.dtype)
-            memory.f_kc = lambda x: np.asarray(winner_takes_all(x, percentage=memory.sparseness), dtype=self.dtype)
-            memory.f_mbon = lambda x: relu(x / float(memory.nb_kc * memory.sparseness), cmax=2)
-            memory.b_m = np.array([0, 0, 0, 0, 0, 0])
-            memory.b_d = np.array([-.0, -.0, -.0, -.0, -.0, -.0])
-            memory.mbon_names = np.array(memory.mbon_names)[[1, 0, 3, 2, 5, 4]]
-            memory.dan_names = np.array(memory.dan_names)[[1, 0, 3, 2, 5, 4]]
+            # memory.mbon_names = np.array(memory.mbon_names)[[1, 0, 3, 2, 5, 4]]
+            # memory.dan_names = np.array(memory.dan_names)[[1, 0, 3, 2, 5, 4]]
+            memory.mbon_names = np.array(["s_{L}", "s_{R}", "r_{L}", "r_{R}", "m_{L}", "m_{R}"])
+            memory.dan_names = np.array(["d_{L}", "d_{R}", "c_{L}", "c_{R}", "f_{L}", "f_{R}"])
 
         self.add_sensor(eye)
         self.add_brain_component(memory)
@@ -663,10 +666,11 @@ class VisualNavigationAgent(Agent):
         self._eye = eye  # type: CompoundEye
         self._mem = memory  # type: MushroomBody
 
-        self._pref_angles = np.linspace(-60, 60, nb_scans)
+        self._pref_angles = None
         """
         The preferred angles for scanning
         """
+        
         if nb_scans <= 1:
             self._pref_angles = np.array([0])
 
@@ -680,9 +684,7 @@ class VisualNavigationAgent(Agent):
         List of the preprocessing components
         """
         if freq_trans:
-            self._preprocessing.insert(0, DiscreteCosineTransform(nb_input=eye.nb_ommatidia, dtype=eye.dtype))
-
-        self._mbon_mixture = "SRM" if mb_mixture is None else mb_mixture.upper()
+            self._preprocessing.insert(-1, DiscreteCosineTransform(nb_input=eye.nb_ommatidia, dtype=eye.dtype))
 
         self.reset()
 
@@ -690,8 +692,8 @@ class VisualNavigationAgent(Agent):
         super().reset()
 
         if isinstance(self._mem, IncentiveCircuit):
-            self._mem.b_m = np.array([0, 0, 0, 0, 0, 0])
-            self._mem.b_d = np.array([-.0, -.0, -.0, -.0, -.0, -.0])
+            self._mem.b_m *= 0.
+            self._mem.b_d *= 0.
 
         self._familiarity = np.zeros_like(self._pref_angles)
 
@@ -719,7 +721,6 @@ class VisualNavigationAgent(Agent):
             how familiar does the agent is with every scan made
         """
 
-        front = self._familiarity.shape[0] // 2
         self._familiarity[:] = 0.
 
         if self.update:
@@ -729,23 +730,50 @@ class VisualNavigationAgent(Agent):
         else:
             ori = copy(self.ori)
 
-            r_cs = copy(self._mem.r_cs)
-            r_us = copy(self._mem.r_us)
-            r_kc = copy(self._mem.r_kc)
-            r_apl = copy(self._mem.r_apl)
-            r_dan = copy(self._mem.r_dan)
-            r_mbon = copy(self._mem.r_mbon)
+            if self.nb_scans > 1:
+                r_cs = copy(self._mem.r_cs)
+                r_us = copy(self._mem.r_us)
+                r_kc = copy(self._mem.r_kc)
+                r_apl = copy(self._mem.r_apl)
+                r_dan = copy(self._mem.r_dan)
+                r_mbon = copy(self._mem.r_mbon)
 
-            cs, us, kc, apl, dan, mbon = [], [], [], [], [], []
-            for i, angle in enumerate(self._pref_angles):
-                self._mem._cs = copy(r_cs)
-                self._mem._us = copy(r_us)
-                self._mem._kc = copy(r_kc)
-                self._mem._apl = copy(r_apl)
-                self._mem._dan = copy(r_dan)
-                self._mem._mbon = copy(r_mbon)
+                cs, us, kc, apl, dan, mbon = [], [], [], [], [], []
+                for i, angle in enumerate(self._pref_angles):
+                    self._mem._cs = copy(r_cs)
+                    self._mem._us = copy(r_us)
+                    self._mem._kc = copy(r_kc)
+                    self._mem._apl = copy(r_apl)
+                    self._mem._dan = copy(r_dan)
+                    self._mem._mbon = copy(r_mbon)
 
-                self.ori = ori * R.from_euler('Z', angle, degrees=True)
+                    self.ori = ori * R.from_euler('Z', angle, degrees=True)
+                    r = self.get_pn_responses(sky=sky, scene=scene)
+                    for proc_step in range(self._proc_steps-1):
+                        self._mem(cs=r)
+                    self._familiarity[i] = self.get_familiarity(self._mem(cs=r))[0]
+                    # if self._mem.nb_kc > 0 and not isinstance(self._mem, IncentiveCircuit):
+                    #     self._familiarity[i] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
+
+                    cs.append(copy(self._mem.r_cs))
+                    us.append(copy(self._mem.r_us))
+                    kc.append(copy(self._mem.r_kc))
+                    apl.append(copy(self._mem.r_apl))
+                    dan.append(copy(self._mem.r_dan))
+                    mbon.append(copy(self._mem.r_mbon))
+
+                self.ori = ori
+
+                i = self._familiarity.argmax()
+
+                self._mem._cs = cs[i]
+                self._mem._us = us[i]
+                self._mem._kc = kc[i]
+                self._mem._apl = apl[i]
+                self._mem._dan = dan[i]
+                self._mem._mbon = mbon[i]
+
+            else:
                 r = self.get_pn_responses(sky=sky, scene=scene)
                 r_mbon_ = self._mem(cs=r)
                 self._familiarity[i] = self.get_familiarity(r_mbon_, self._mem.r_kc[0])
@@ -757,16 +785,17 @@ class VisualNavigationAgent(Agent):
                 dan.append(copy(self._mem.r_dan))
                 mbon.append(copy(self._mem.r_mbon))
 
-            self.ori = ori
+                r_mbon = None
+                for proc_step in range(self._proc_steps):
+                    r_mbon = self._mem(cs=r)
+                self._familiarity[:] = self.get_familiarity(r_mbon)
 
-            i = self._familiarity.argmax()
+                # if self._mem.nb_kc > 0 and not isinstance(self._mem, IncentiveCircuit):
+                #     self._familiarity[:] /= (np.sum(self._mem.r_kc[0] > 0) + eps)
 
-            self._mem._cs = cs[i]
-            self._mem._us = us[i]
-            self._mem._kc = kc[i]
-            self._mem._apl = apl[i]
-            self._mem._dan = dan[i]
-            self._mem._mbon = mbon[i]
+        # print(("MBON: [" + "  ".join(["%.2f"] * self._mem.r_mbon[0].size) + "]") % tuple(self._mem.r_mbon[0].flatten()),
+        #       ("DAN: [" + "  ".join(["%.2f"] * self._mem.r_dan[0].size) + "]") % tuple(self._mem.r_dan[0].flatten()))
+        self.get_steering_from_mbons(self._mem.r_mbon[0], max_steering=10, degrees=True)
 
         return self._familiarity
 
@@ -774,8 +803,12 @@ class VisualNavigationAgent(Agent):
         """
         Uses the familiarity vector to compute the next movement and moves the agent to its new position.
         """
-        steer = self.get_steering(self.familiarity, self.pref_angles, max_steering=20, degrees=True)
-        self.rotate(R.from_euler('Z', steer, degrees=True))
+        # steering = self.get_steering(self.familiarity, self.pref_angles, max_steering=20, degrees=True)
+        gain = None
+        if isinstance(self._mem, CrossIncentive):
+            gain = 1.
+        steering = self.get_steering_from_mbons(self._mem.r_mbon, gain=gain, max_steering=10, degrees=True)
+        self.rotate(R.from_euler('Z', steering, degrees=True))
         self.move_forward()
 
     def calibrate(self, sky=None, scene=None, omm_responses=None, nb_samples=32, radius=2.):
@@ -836,6 +869,7 @@ class VisualNavigationAgent(Agent):
         """
         Transforms the current snapshot of the environment into the PN responses.
 
+        - Apply mental rotation (if applicable)
         - Apply DCT (if applicable)
         - Apply PCA whitening (if applicable)
 
@@ -861,6 +895,28 @@ class VisualNavigationAgent(Agent):
             r = process(r)
         return r
 
+    def get_omm_responses(self, sky=None, scene=None):
+        """
+        Generates the current snapshot of the environement.
+
+        Parameters
+        ----------
+        sky: Sky, optional
+            the sky instance. Default is None
+        scene: Seville2009, optional
+            the world instance. Default is None
+
+        Returns
+        -------
+        r: np.ndarray[float]
+            the responses of the ommatidia
+        """
+        return np.clip(self._eye(sky=sky, scene=scene).mean(axis=1), 0, 1)
+
+    @property
+    def nb_mental_rotations(self):
+        return self._mem.neuron_dims
+
     @property
     def preprocessing(self):
         return self._preprocessing
@@ -884,7 +940,7 @@ class VisualNavigationAgent(Agent):
         """
         The number of scans to be applied
         """
-        return self._pref_angles.shape[0]
+        return self._nb_scans
 
     @property
     def update(self):
@@ -916,7 +972,7 @@ class VisualNavigationAgent(Agent):
         return False
 
     @staticmethod
-    def get_steering(familiarity, pref_angles, max_steering=None, degrees=True, reverse=False):
+    def get_steering_from_mbons(r_mbon, gain=1., max_steering=None, degrees=True):
         """
         Outputs a scalar where sign determines left or right turn.
 
@@ -930,8 +986,58 @@ class VisualNavigationAgent(Agent):
             the maximum steering allowed for the agent. Default is 30 degrees
         degrees: bool, optional
             whether the max_steering is in degrees or radians. Default is degrees
-        reverse: bool, optional
-            whether the highest (False) or the lowest (True) familiarity drives the steering. Default is True
+
+        Returns
+        -------
+        output: float
+            the angle of steering in radians
+        """
+        if degrees:
+            angle = lambda x: x
+        else:
+            angle = np.rad2deg
+        if max_steering is None:
+            max_steering = 5.
+        else:
+            max_steering = angle(max_steering)
+
+        if gain is None:
+            gain = max_steering
+
+        if r_mbon.size < 2:
+            step = 1
+        elif r_mbon.size == 2 or r_mbon.size == 6:
+            step = 2
+        else:
+            step = r_mbon.size // 2
+        steering = (r_mbon[..., 1::step] - r_mbon[..., 0::step]).mean()
+
+        if np.isnan(steering):
+            steering = 0.
+
+        # print("Steering: %.2f" % steering, end=", ")
+        steering = np.clip(gain * steering, -max_steering, max_steering)
+        # print("Clipped: %.2f" % steering)
+        if not degrees:
+            steering = np.deg2rad(steering)
+
+        return steering
+
+    @staticmethod
+    def get_steering(familiarity, pref_angles, max_steering=None, degrees=True):
+        """
+        Outputs a scalar where sign determines left or right turn.
+
+        Parameters
+        ----------
+        familiarity: np.ndarray[float]
+            the familiarity vector computed by scanning the environment
+        pref_angles: np.ndarray[float]
+            the preference angle associated to the values of the familiarity vector
+        max_steering: float, optional
+            the maximum steering allowed for the agent. Default is 30 degrees
+        degrees: bool, optional
+            whether the max_steering is in degrees or radians. Default is degrees
 
         Returns
         -------
@@ -944,16 +1050,24 @@ class VisualNavigationAgent(Agent):
             max_steering = np.deg2rad(max_steering)
         if degrees:
             pref_angles = np.deg2rad(pref_angles)
-        r = familiarity - familiarity.min()
-        if reverse:
-            r = r.max() - r
-        r = r / (r.sum() + eps)
+        # r = familiarity - familiarity.min()
+        # r = np.power(1e-02, np.absolute(1 - familiarity))
+        # r = familiarity / (familiarity.sum() + eps)
+        r = familiarity
         pref_angles_c = r * np.exp(1j * pref_angles)
 
-        steer = np.clip(np.angle(np.sum(pref_angles_c) / (np.sum(familiarity) + eps)), -max_steering, max_steering)
+        steer_vector = np.sum(pref_angles_c)
+        steer = (np.angle(steer_vector) + np.pi) % (2 * np.pi) - np.pi
+        print("Steering: %.2f" % np.rad2deg(steer), end=", ")
+        # steer less for small vectors
+        steer *= np.clip(np.absolute(steer_vector) * 2., eps, 1.)
+        print("Vector: %.2f" % np.absolute(steer_vector), end=", ")
+
         if np.isnan(steer):
             steer = 0.
-        print("Steering: %d" % np.rad2deg(steer))
+        print("Final steering: %.2f" % np.rad2deg(steer), end=", ")
+        steer = np.clip(steer, -max_steering, max_steering)
+        print("Clipped: %d" % np.rad2deg(steer))
         if degrees:
             steer = np.rad2deg(steer)
         return steer
@@ -980,3 +1094,312 @@ class VisualNavigationAgent(Agent):
             r_kc = np.ones(1, self.dtype)
 
         return 1. - np.clip(r_mbon / np.maximum(np.sum(r_kc > 0), 1), 0, 1)
+
+class LandmarkIntegrationAgent(Agent):
+
+    def __init__(self, *args, **kwargs):
+        """
+        Agent specialised in the path integration task affected by visual landmarks. It contains a compound eye with a
+        Dorsal Rim Area as a sensor, and the polarised light compass, the central complex and the mushroom body as brain
+        components.
+        """
+        super().__init__(*args, **kwargs)
+
+        nb_omm = 1100
+        nb_pol = 100
+        nb_vis = nb_omm - nb_pol
+
+        # set the acceptance angle of the ommatidia (DRA and other)
+        omm_rho = np.zeros(nb_omm, dtype=float)
+        omm_rho[:nb_pol] = np.deg2rad(5)
+        omm_rho[nb_pol:] = np.deg2rad(15)
+
+        # set the polarisation sensitivity of the ommatidia (DRA and other)
+        omm_pol = np.zeros(nb_omm, dtype=float)
+        omm_pol[:nb_pol] = 1.
+        omm_pol[nb_pol:] = 0.
+
+        # set the saturation of the ommatidia (DRA and other)
+        omm_res = np.zeros(nb_omm, dtype=float)
+        omm_res[:nb_pol] = 6.
+        omm_res[nb_pol:] = 6.
+
+        # set the spectral sensitivity of the ommatidia (DRA and other)
+        omm_spe = np.zeros((nb_omm, 5), dtype=float)
+        omm_spe[:nb_pol] = [0., 0., 0., .5, 1.]
+        omm_spe[nb_pol:] = [0., 0., 1., 0., 0.]
+
+        eye = CompoundEye(nb_input=nb_omm, omm_rho=omm_rho, omm_pol_op=omm_pol, omm_res=omm_res, c_sensitive=omm_spe)
+        self.add_sensor(eye, local=True)
+
+        pol_compass = PolarisationCompass(nb_pol=nb_pol, loc_ori=copy(eye.omm_ori[:100]), nb_sol=8, integrated=True)
+        mb = WillshawNetwork(nb_cs=nb_vis, nb_kc=nb_vis * 40, sparseness=0.01, eligibility_trace=.1, repeat_rate=.2)
+        cx = FlyCentralComplex(nb_epg=8, repeat_rate=.5, fixed_pfl3s=True)
+
+        self.add_brain_component(pol_compass)
+        self.add_brain_component(mb)
+        self.add_brain_component(cx)
+
+        self._eye = eye
+        self._compass = pol_compass
+        self._mb = mb
+        self._cx = cx
+
+        self._preprocessing = [
+            Whitening(nb_input=nb_vis, dtype=eye.dtype)
+        ]
+        """
+        List of the preprocessing components
+        """
+
+        self._familiarity = 0.
+        """
+        The familiarity of the latest input
+        """
+
+        self._default_flow = self._dx * np.ones(2) / np.sqrt(2)
+
+    def reset(self):
+        super().reset()
+
+        if isinstance(self._mb, IncentiveCircuit):
+            self._mb.b_m = np.array([0, 0, 0, 0, 0, 0])
+            self._mb.b_d = np.array([-.0, -.0, -.0, -.0, -.0, -.0])
+
+        for process in self._preprocessing:
+            process.reset()
+
+    def _sense(self, sky=None, scene=None, flow=None, **kwargs):
+        """
+        Using its compound eyes with POL sensitivity it senses the radiation from the sky which is interrupted by the
+        given scene, and the optic flow for self motion calculation.
+
+        Parameters
+        ----------
+        sky: Sky, optional
+            the sky instance. Default is None
+        scene: Seville2009, optional
+            the world instance. Default is None
+        flow: np.ndarray[float], optional
+            the optic flow. Default is the preset optic flow
+
+        Returns
+        -------
+        out: np.ndarray[float]
+            the output of the central complex
+        """
+        if sky is None and scene is None:
+            r_pol, r_pn = 0., 0.
+        else:
+            r_pol, r_pn = self.get_pn_responses(sky=sky, scene=scene)
+
+        if flow is None:
+            flow = self._default_flow
+            # if scene is None:
+            #     flow = self._default_flow
+            # else:
+            #     flow = optic_flow(world, self._dx)
+        nod = flow
+        # dna_min, dna_max = self._cx.r_dna2.min(), self._cx.r_dna2.max()
+        # if dna_max - dna_min > 1e-03:
+        #     nod = (self._cx.r_dna2 - dna_min) / (dna_max - dna_min)
+        # else:
+        #     nod = self._cx.r_dna2 * 0.
+        # print(self._cx.r_dna2, nod)
+
+        r_tcl = self._compass(r=r_pol, ori=self._eye.ori)
+
+        # calculate the US distribution
+        us = 2. * bimodal_reinforcement(1, self._mb.nb_us, dtype=self._mb.dtype) * float(self.update)
+
+        self._familiarity = self.get_familiarity(self._mb(cs=r_pn, us=us))
+
+        self._cx(compass=r_tcl, nod=nod, reinforcement=self._familiarity)
+        return self._cx.r_dna2
+
+    def _act(self):
+        """
+        Uses the output of the central complex to compute the next movement and moves the agent to its new position.
+        """
+        steer = self.get_steering(self._cx)
+        self.rotate(R.from_euler('Z', steer, degrees=False))
+        self.move_forward()
+
+    def calibrate(self, sky=None, scene=None, nb_samples=32, radius=2.):
+        """
+        Approximates the calibration of the optic lobes of the agent.
+        In this case, it randomly collects a number of samples (in different positions and direction) in a radius
+        around the nest. These samples are used in order to build a PCA whitening map, that transforms the visual
+        input from the ommatidia to a white signal thying to maximise its information.
+
+        Parameters
+        ----------
+        sky: Sky, optional
+            the sky instance. Default is None
+        scene: Seville2009, optional
+            the world instance. Default is None
+        nb_samples: int, optional
+            the number of samples to use
+        radius: float, optional
+            the radius around the nest from where the samples will be taken
+
+        Returns
+        -------
+        xyz: list[np.ndarray[float]]
+            the positions of the agent for every sample
+        ori: list[R]
+            the orientations of the agent for every sample
+        """
+        xyz = copy(self.xyz)
+        ori = copy(self.ori)
+
+        nb_out = 1
+        for process in self._preprocessing:
+            if isinstance(process, MentalRotation):
+                nb_out *= process.nb_output
+        samples = np.zeros((nb_samples * nb_out, self._mb.nb_cs), dtype=self.dtype)
+        xyzs, oris = [], []
+        for i in range(nb_samples):
+            self.xyz = xyz + self.rng.uniform(-radius, radius, 3) * np.array([1., 1., 0])
+            self.ori = R.from_euler("Z", self.rng.uniform(-180, 180), degrees=True)
+            _, samples[i*nb_out:(i+1)*nb_out] = self.get_omm_responses(sky, scene)
+            xyzs.append(copy(self.xyz))
+            oris.append(copy(self.ori))
+            print("Calibration: %d/%d - x: %.2f, y: %.2f, z: %.2f, yaw: %d" % (
+                i + 1, nb_samples, self.x, self.y, self.z, self.yaw_deg))
+        self._preprocessing[-1].reset(samples)
+
+        self.xyz = xyz
+        self.ori = ori
+
+        print("Calibration: DONE!")
+
+        return xyzs, oris
+
+    def get_pn_responses(self, sky=None, scene=None):
+        """
+        Transforms the current snapshot of the environment into the PN responses.
+
+        - Apply DCT (if applicable)
+        - Apply PCA whitening (if applicable)
+
+        Parameters
+        ----------
+        sky: Sky, optional
+            the sky instance. Default is None
+        scene: Seville2009, optional
+            the world instance. Default is None
+
+        Returns
+        -------
+        r_pol: np.ndarray[float]
+            the responses of the POL neurons
+
+        r_pn: np.ndarray[float]
+            the responses of the PNs
+        """
+        r_pol, r_pn = self.get_omm_responses(sky=sky, scene=scene)
+        for process in self._preprocessing:
+            r_pn = process(r_pn)
+        return r_pol, r_pn
+
+    def get_omm_responses(self, sky=None, scene=None):
+        """
+        Generates the current snapshot of the environement.
+
+        Parameters
+        ----------
+        sky: Sky, optional
+            the sky instance. Default is None
+        scene: Seville2009, optional
+            the world instance. Default is None
+
+        Returns
+        -------
+        r: np.ndarray[float]
+            the responses of the ommatidia
+        """
+
+        r = self._eye(sky=sky, scene=scene)
+        r_pol = r[:self._compass.nb_pol]
+        r_omm = np.clip(r[self._compass.nb_pol:].mean(axis=1), 0, 1)
+        return r_pol, r_omm
+
+    def get_familiarity(self, r_mbon):
+        """
+        Computes the familiarity using the MBON responses.
+
+        Parameters
+        ----------
+        r_mbon: np.ndarray[float]
+            MBON responses
+
+        Returns
+        -------
+        float
+            the familiarity
+        """
+        if r_mbon.shape[-1] >= 6:
+            fams = r_mbon[..., [1, 3, 5]] - r_mbon[..., [0, 2, 4]]
+            return np.power(1e-01, np.clip(.5 + np.mean(fams, axis=-1) / 2., 0., 1.))
+        else:
+            z = 1.
+            if self._mb.nb_kc > 0:
+                z = np.sum(self._mb.r_kc[0] > 0) + eps
+            return np.power(1e-01, r_mbon.flatten() / z)
+
+    @property
+    def update(self):
+        """
+        Whether the memory will be updated or not
+        """
+        return self._mb.update or self._cx.update
+
+    @update.setter
+    def update(self, v):
+        """
+        Enables (True) or disables (False) the memory updates.
+
+        Parameters
+        ----------
+        v: bool
+            memory updates
+        """
+        self._mb.update = v
+        self._cx.update = v
+
+    @property
+    def familiarity(self):
+        """
+        The familiarity of the latest snapshot per preferred angle
+        """
+        return self._familiarity
+
+    @property
+    def is_calibrated(self):
+        """
+        Indicates if calibration has been completed
+        """
+        return self._preprocessing[-1].calibrated
+
+    @staticmethod
+    def get_steering(cx):
+        """
+        Outputs a scalar where sign determines left or right turn.
+
+        Parameters
+        ----------
+        cx: FlyCentralComplex
+            the central complex instance of the agent
+
+        Returns
+        -------
+        output: float | np.ndarray[float]
+            the angle of steering in radians
+        """
+
+        dna2 = cx.r_dna2
+        steer = np.clip((dna2[0] - dna2[1]) * 400. + cx.rng.randn(), -2.5, 2.5)
+        # steer = np.clip((dna2[1] - dna2[0]) * 400. + cx.rng.randn(), -2.5, 2.5)
+        print("- Steering: %.2f" % steer)
+        return np.deg2rad(steer)

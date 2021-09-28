@@ -1,0 +1,14 @@
+name: invertpy
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.8
+  - pip
+  - setuptools~=52.0.0
+  - wheel
+  - scipy>=1.6.1
+  - numpy>=1.20.1
+  - scikit-learn>=0.23.2
+  - joblib>=1.0.1
+  - matplotlib>=3.3.4
+  - pytz

@@ -1,7 +1,7 @@
-from invertsy.agent import VisualNavigationAgent, PathIntegrationAgent
+from invertsy.agent.agent import VisualNavigationAgent, PathIntegrationAgent, LandmarkIntegrationAgent
 
-from invertpy.brain import CelestialCompass, MushroomBody
-from invertpy.sense import CompoundEye
+from invertpy.brain import MushroomBody
+from invertpy.sense import CompoundEye, PolarisationSensor
 
 import matplotlib.pyplot as plt
 import matplotlib.collections
@@ -54,7 +54,7 @@ def create_map_axis(world=None, nest=None, feeder=None, subplot=111, ax=None):
         for polygon, colour in zip(world.polygons, world.colours):
             x = polygon[[0, 1, 2, 0], 0]
             y = polygon[[0, 1, 2, 0], 1]
-            ax.plot(y, x, c=colour)
+            ax.fill_between(y, x[0], x, facecolor=colour, edgecolor=colour, alpha=.7, lw=.5)
 
     if nest is not None:
         ax.scatter([nest[1]], [nest[0]], marker='o', s=50, c='black')
@@ -249,7 +249,7 @@ def create_pn_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=
 
     Parameters
     ----------
-    agent: VisualNavigationAgent
+    agent: VisualNavigationAgent | LandmarkIntegrationAgent
         the agent to get the data and properties from
     nb_frames: int
         the total number of frames for the animation
@@ -267,7 +267,7 @@ def create_pn_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=
     matplotlib.image.AxesImage
         the image of the PN history responses
     """
-    nb_pn = agent.brain[0].nb_cs
+    nb_pn = agent.brain[int(isinstance(agent, LandmarkIntegrationAgent))].nb_cs
     return create_image_history(nb_pn, nb_frames, sep=sep, title="PN",  cmap=cmap, subplot=subplot, ax=ax)
 
 
@@ -278,7 +278,7 @@ def create_kc_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=
 
     Parameters
     ----------
-    agent: VisualNavigationAgent
+    agent: VisualNavigationAgent | LandmarkIntegrationAgent
         the agent to get the data and properties from
     nb_frames: int
         the total number of frames for the animation
@@ -296,7 +296,7 @@ def create_kc_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=
     matplotlib.image.AxesImage
         the image of the KC history responses
     """
-    nb_kc = agent.brain[0].nb_kc
+    nb_kc = agent.brain[int(isinstance(agent, LandmarkIntegrationAgent))].nb_kc
     return create_image_history(nb_kc, nb_frames, sep=sep, title="KC",  cmap=cmap, subplot=subplot, ax=ax)
 
 
@@ -328,6 +328,8 @@ def create_familiarity_response_history(agent, nb_frames, sep=None, cmap="Greys"
         the line showing the lowest familiarity value
     """
     nb_scans = agent.nb_scans
+    if nb_scans <= 1:
+        nb_scans = agent.nb_mental_rotations
 
     ax = get_axis(ax, subplot)
 
@@ -336,7 +338,8 @@ def create_familiarity_response_history(agent, nb_frames, sep=None, cmap="Greys"
     ax.set_ylim(0, nb_scans-1)
     ax.set_xlim(0, nb_frames-1)
     ax.set_yticks([0, nb_scans//2, nb_scans-1])
-    ax.set_yticklabels([int(agent.pref_angles[0]), int(agent.pref_angles[nb_scans//2]), int(agent.pref_angles[-1])])
+    angles = np.roll(agent.pref_angles, len(agent.pref_angles) // 2)
+    ax.set_yticklabels([angles[0], angles[len(angles) // 2], angles[-1]])
     ax.set_aspect('auto')
     ax.spines['right'].set_visible(False)
     ax.spines['top'].set_visible(False)
@@ -345,7 +348,9 @@ def create_familiarity_response_history(agent, nb_frames, sep=None, cmap="Greys"
     ax.set_ylabel("familiarity", fontsize=8)
     ax.tick_params(axis='both', labelsize=8)
 
-    fam = ax.imshow(np.zeros((nb_scans, nb_frames), dtype='float32'), cmap=cmap, vmin=0, vmax=1,
+    fam = ax.imshow(np.zeros((nb_scans, nb_frames), dtype='float32'), cmap=cmap,
+                    vmin=0, vmax=1,
+                    # vmin=0.40, vmax=0.60,
                     interpolation="none", aspect="auto")
 
     fam_line, = ax.plot([], [], 'red', lw=.5, alpha=.5)
@@ -452,7 +457,7 @@ def create_dra_axis(sensor, cmap="coolwarm", centre=None, scale=1., draw_axis=Tr
 
     Parameters
     ----------
-    sensor: CelestialCompass
+    sensor: PolarisationSensor
         the compass sensor to get the data and parameters from
     centre: list[float], optional
         the centre of the DRA map. Default is [.5, .5]
@@ -472,7 +477,7 @@ def create_dra_axis(sensor, cmap="coolwarm", centre=None, scale=1., draw_axis=Tr
     matplotlib.collections.PathCollection
         the ommatidia of the DRA as a path collection
     """
-    omm_x, omm_y, omm_z = sensor._loc_ori.apply(np.array([1, 0, 0])).T
+    omm_x, omm_y, omm_z = sensor.omm_ori.apply(np.array([1, 0, 0])).T
 
     if ax is None:
         ax = plt.subplot(subplot)
@@ -497,6 +502,36 @@ def create_dra_axis(sensor, cmap="coolwarm", centre=None, scale=1., draw_axis=Tr
                      c=np.zeros(omm_y.shape[0], dtype='float32'), cmap=cmap, vmin=-.5, vmax=.5)
 
     return omm
+
+
+def create_cmp_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=None):
+    """
+    Draws the compass history of responses as an image, where each pixel is a neuron in time and its colour reflects the
+    response rate of the neuron.
+
+    Parameters
+    ----------
+    agent: LandmarkIntegrationAgent
+        the agent to get the data and properties from
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'coolwarm'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the TB1 history responses
+    """
+    nb_cmp = agent.brain[2].nb_cmp
+    return create_image_history(nb_cmp, nb_frames, sep=sep, title="CMP", cmap=cmap, vmin=0, vmax=1, subplot=subplot,
+                                ax=ax)
 
 
 def create_tb1_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111, ax=None):
@@ -644,9 +679,189 @@ def create_cpu4_mem_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot
     return create_image_history(nb_cpu4, nb_frames, sep=sep, title="CPU4 (mem)", cmap=cmap, vmin=-1, vmax=1, subplot=subplot, ax=ax)
 
 
-def create_cx_axis(agent, cmap="coolwarm", subplot=111, ax=None):
+def create_compass_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111, ax=None):
     """
-    Draws all the neurons and ommaditia of the given agent in a single axis, representing a snapshot of their current
+    Draws the compass history of responses as an image, where each pixel is a neuron in time and its colour reflects the
+    response rate of the neuron.
+
+    Parameters
+    ----------
+    agent: LandmarkIntegrationAgent
+        the agent to get the data and properties from
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'coolwarm'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the compass history responses
+    """
+    nb_cmp = agent.brain[1].nb_cmp
+    return create_image_history(nb_cmp, nb_frames, sep=sep, title="Compass", cmap=cmap, vmin=-1, vmax=1,
+                                subplot=subplot, ax=ax)
+
+
+def create_epg_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=None):
+    """
+    Draws the E-PG history of responses as an image, where each pixel is a neuron in time and its colour reflects the
+    response rate of the neuron.
+
+    Parameters
+    ----------
+    agent: LandmarkIntegrationAgent
+        the agent to get the data and properties from
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'coolwarm'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the E-PG history responses
+    """
+    nb_epg = agent.brain[2].nb_epg
+    return create_image_history(nb_epg, nb_frames, sep=sep, title="E-PG", cmap=cmap, vmin=0, vmax=1,
+                                subplot=subplot, ax=ax)
+
+
+def create_peg_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=None):
+    """
+    Draws the P-EG history of responses as an image, where each pixel is a neuron in time and its colour reflects the
+    response rate of the neuron.
+
+    Parameters
+    ----------
+    agent: LandmarkIntegrationAgent
+        the agent to get the data and properties from
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'coolwarm'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the P-EG history responses
+    """
+    nb_peg = agent.brain[2].nb_peg
+    return create_image_history(nb_peg, nb_frames, sep=sep, title="P-EG", cmap=cmap, vmin=0, vmax=1,
+                                subplot=subplot, ax=ax)
+
+
+def create_pen_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=None):
+    """
+    Draws the P-EN history of responses as an image, where each pixel is a neuron in time and its colour reflects the
+    response rate of the neuron.
+
+    Parameters
+    ----------
+    agent: LandmarkIntegrationAgent
+        the agent to get the data and properties from
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'coolwarm'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the P-EN history responses
+    """
+    nb_pen = agent.brain[2].nb_pen
+    return create_image_history(nb_pen, nb_frames, sep=sep, title="P-EN", cmap=cmap, vmin=0, vmax=1,
+                                subplot=subplot, ax=ax)
+
+
+def create_pfl_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=None):
+    """
+    Draws the PFL3 history of responses as an image, where each pixel is a neuron in time and its colour reflects the
+    response rate of the neuron.
+
+    Parameters
+    ----------
+    agent: LandmarkIntegrationAgent
+        the agent to get the data and properties from
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'coolwarm'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the PFL3 history responses
+    """
+    nb_pfl = agent.brain[2].nb_pfl3
+    return create_image_history(nb_pfl, nb_frames, sep=sep, title="PFL3", cmap=cmap, vmin=0, vmax=1,
+                                subplot=subplot, ax=ax)
+
+
+def create_fbn_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=None):
+    """
+    Draws the FsBN history of responses as an image, where each pixel is a neuron in time and its colour reflects the
+    response rate of the neuron.
+
+    Parameters
+    ----------
+    agent: LandmarkIntegrationAgent
+        the agent to get the data and properties from
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float, optional
+        the iteration where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'coolwarm'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the FsBN history responses
+    """
+    nb_fbn = agent.brain[2].nb_fbn
+    return create_image_history(nb_fbn, nb_frames, sep=sep, title="FsBN", cmap=cmap, vmin=0, vmax=1,
+                                subplot=subplot, ax=ax)
+
+
+def create_bcx_axis(agent, cmap="coolwarm", subplot=111, ax=None):
+    """
+    Draws all the neurons and ommatidia of the given agent in a single axis, representing a snapshot of their current
     values.
 
     Parameters

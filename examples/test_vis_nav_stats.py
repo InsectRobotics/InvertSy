@@ -74,11 +74,11 @@ if __name__ == '__main__':
                  'C%d' % j, linestyle='', marker='.')
 
     plt.legend()
-    plt.xticks(np.sort(np.unique(df['ommatidia'])))
+    plt.xticks([500, 1000, 2000, 3000, 4000, 5000])
     plt.xlim(300, 5200)
-    plt.xlabel('number of ommatidia')
-    plt.ylabel('percentage of replaces (%)')
-    plt.ylim([0, 4])
+    plt.xlabel('number of ommatidia (121 scans)')
+    plt.ylabel('mean replacements / meter')
+    plt.ylim([0, 5])
 
     plt.subplot(122)
     i = np.argsort(df['scans'])
@@ -106,11 +106,11 @@ if __name__ == '__main__':
                  'C%d' % j, linestyle='', marker='.')
 
     plt.legend()
-    plt.xticks(np.sort(np.unique(df['scans'])))
-    plt.xlabel('number of scans')
-    plt.ylabel('number of replaces')
+    plt.xticks([7, 31, 61, 91, 121])
+    plt.xlabel('number of scans (1000 ommatidia)')
+    plt.ylabel('mean replacements / meter')
     plt.xlim(2, 126)
-    plt.ylim([0, 4])
+    plt.ylim([0, 5])
 
     plt.tight_layout()
     plt.show()

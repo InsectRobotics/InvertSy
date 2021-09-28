@@ -115,7 +115,9 @@ class Simulation(object):
             filename = self._name
         else:
             filename = filename.replace('.npz', '')
-        np.savez_compressed(os.path.join(__stat_dir__, "%s.npz" % filename), **self._stats)
+        save_path = os.path.join(__stat_dir__, "%s.npz" % filename)
+        np.savez_compressed(save_path, **self._stats)
+        print("\nSaved stats in: '%s'" % save_path)
 
     def __call__(self, save=False):
         """
@@ -330,7 +332,7 @@ class RouteSimulation(Simulation):
 
 class VisualNavigationSimulation(Simulation):
 
-    def __init__(self, route, agent=None, sky=None, world=None, nb_ommatidia=None, nb_scans=7,
+    def __init__(self, route, agent=None, sky=None, world=None, nb_ommatidia=None, nb_scans=121,
                  calibrate=False, frequency=False, free_motion=True, **kwargs):
         """
         Runs the route following task for an autonomous agent, by using entirely its vision. First it forces the agent
@@ -428,6 +430,8 @@ class VisualNavigationSimulation(Simulation):
         self._stats["C"] = []  # distance that the agent has covered
         self._stats["capacity"] = []
         self._stats["familiarity"] = []
+        if "replace" in self._stats:
+            self._stats.pop("replace")
 
         self._iteration = 0
         xyzs = None
@@ -495,7 +499,7 @@ class VisualNavigationSimulation(Simulation):
             if not self._free_motion and "replace" in self._stats:
                 d_route = np.linalg.norm(self._route[:, :3] - self._agent.xyz, axis=1)
                 point = np.argmin(d_route)
-                if d_route[point] > 0.1:  # move for more than 10cm away from the route
+                if d_route[point] > 0.2:  # move for more than 20cm away from the route
                     self._agent.xyz = self._route[point, :3]
                     self._agent.ori = R.from_euler('Z', self._route[point, 3], degrees=True)
                     self._stats["replace"].append(True)
@@ -553,11 +557,12 @@ class VisualNavigationSimulation(Simulation):
         d_nest = self.d_nest
         d_trav = (self._stats["C"][-1] if len(self._stats["C"]) > 0
                   else (self._stats["C_out"][-1] if "C_out" in self._stats else 0.))
+        replaces = np.sum(self._stats["replace"]) if "replace" in self._stats else 0
         return (super().message() +
                 " - x: %.2f, y: %.2f, z: %.2f, Φ: %.0f"
                 " - PN (change): %.2f%%, KC (change): %.2f%%, familiarity: %.2f%%,"
-                " capacity: %.2f%%, L: %.2fm, C: %.2fm") % (
-            x, y, z, phi, pn_diff * 100., kc_diff * 100., fam * 100., capacity * 100., d_nest, d_trav)
+                " capacity: %.2f%%, L: %.2fm, C: %.2fm, #replaces: %d") % (
+            x, y, z, phi, pn_diff * 100., kc_diff * 100., fam * 100., capacity * 100., d_nest, d_trav, replaces)
 
     @property
     def agent(self):
