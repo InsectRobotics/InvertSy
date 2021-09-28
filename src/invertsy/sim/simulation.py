@@ -11,13 +11,12 @@ __license__ = "GPLv3+"
 __version__ = "v1.0.0-alpha"
 __maintainer__ = "Evripidis Gkanias"
 
-from invertpy.brain.mushroombody import IncentiveCircuit
+from invertpy.brain.memory import MemoryComponent
 from invertsy.__helpers import __data__
-from invertsy.env import UniformSky, Sky, Seville2009, WorldBase
+from invertsy.env import UniformSky, Sky, Seville2009
 from invertsy.agent import VisualNavigationAgent, PathIntegrationAgent
 
 from invertpy.sense import CompoundEye
-from invertpy.brain import MushroomBody
 
 from scipy.spatial.transform import Rotation as R
 
@@ -517,13 +516,15 @@ class VisualNavigationSimulation(Simulation):
         assert a == self.agent, "The input agent should be the same as the one used in the simulation!"
 
         self._stats["ommatidia"].append(self.eye.responses.copy())
-        self._stats["PN"].append(self.mem.r_cs.copy())
-        self._stats["KC"].append(self.mem.r_kc.copy())
-        self._stats["MBON"].append(self.mem.r_mbon.copy())
-        self._stats["DAN"].append(self.mem.r_dan.copy())
+        if hasattr(self.mem, 'r_inp'):
+            self._stats["PN"].append(self.mem.r_inp.copy())
+        if hasattr(self.mem, 'r_spr'):
+            self._stats["KC"].append(self.mem.r_spr.copy())
+        if hasattr(self.mem, 'r_out'):
+            self._stats["MBON"].append(self.mem.r_out.copy())
         self._stats["path"].append([self.agent.x, self.agent.y, self.agent.z, self.agent.yaw])
         self._stats["L"].append(np.linalg.norm(self.agent.xyz - self._route[-1, :3]))
-        self._stats["capacity"].append(np.clip(self.mem.w_k2m, 0, 1).mean())
+        self._stats["capacity"].append(self.mem.free_space)
         self._stats["familiarity"].append(self.familiarity)
         c = self._stats["C"][-1] if len(self._stats["C"]) > 0 else 0.
         if len(self._stats["path"]) > 1:
@@ -540,8 +541,14 @@ class VisualNavigationSimulation(Simulation):
             pn_diff = np.absolute(self._stats["PN"][-1] - self._stats["PN"][-2]).mean()
             kc_diff = np.absolute(self._stats["KC"][-1] - self._stats["KC"][-2]).mean()
         else:
-            pn_diff = np.absolute(self.mem.r_cs[0]).mean()
-            kc_diff = np.absolute(self.mem.r_kc[0]).mean()
+            if hasattr(self.mem, 'r_inp'):
+                pn_diff = np.absolute(self.mem.r_inp[0]).mean()
+            else:
+                pn_diff = 0.
+            if hasattr(self.mem, 'r_spr'):
+                kc_diff = np.absolute(self.mem.r_spr[0]).mean()
+            else:
+                kc_diff = 0.
         capacity = self.capacity
         d_nest = self.d_nest
         d_trav = (self._stats["C"][-1] if len(self._stats["C"]) > 0
@@ -603,7 +610,7 @@ class VisualNavigationSimulation(Simulation):
 
         Returns
         -------
-        MushroomBody
+        MemoryComponent
         """
         return self._mem
 
@@ -628,7 +635,7 @@ class VisualNavigationSimulation(Simulation):
         -------
         float
         """
-        return np.clip(self.mem.w_k2m, 0, 1).mean()
+        return self.mem.free_space
 
     @property
     def d_nest(self):
@@ -801,7 +808,6 @@ class VisualFamiliaritySimulation(Simulation):
         self._stats["PN"] = []
         self._stats["KC"] = []
         self._stats["MBON"] = []
-        self._stats["DAN"] = []
         self._stats["position"] = []
         self._stats["capacity"] = []
         self._stats["familiarity"] = []
@@ -885,12 +891,14 @@ class VisualFamiliaritySimulation(Simulation):
         assert a == self.agent, "The input agent should be the same as the one used in the simulation!"
 
         self._stats["ommatidia"].append(self.eye.responses.copy())
-        self._stats["PN"].append(self.mem.r_cs.copy())
-        self._stats["KC"].append(self.mem.r_kc.copy())
-        self._stats["MBON"].append(self.mem.r_mbon.copy())
-        self._stats["DAN"].append(self.mem.r_dan.copy())
+        if hasattr(self.mem, 'r_inp'):
+            self._stats["PN"].append(self.mem.r_inp.copy())
+        if hasattr(self.mem, 'r_spr'):
+            self._stats["KC"].append(self.mem.r_spr.copy())
+        if hasattr(self.mem, 'r_out'):
+            self._stats["MBON"].append(self.mem.r_out.copy())
         self._stats["position"].append([self.agent.x, self.agent.y, self.agent.z, self.agent.yaw])
-        self._stats["capacity"].append(np.clip(self.mem.w_k2m, 0, 1).mean())
+        self._stats["capacity"].append(self.mem.free_space)
         self._stats["familiarity"].append(self.familiarity)
 
     def message(self):
@@ -901,8 +909,14 @@ class VisualFamiliaritySimulation(Simulation):
             pn_diff = np.absolute(self._stats["PN"][-1] - self._stats["PN"][-2]).mean()
             kc_diff = np.absolute(self._stats["KC"][-1] - self._stats["KC"][-2]).mean()
         else:
-            pn_diff = np.absolute(self.mem.r_cs[0]).mean()
-            kc_diff = np.absolute(self.mem.r_kc[0]).mean()
+            if hasattr(self.mem, 'r_inp'):
+                pn_diff = np.absolute(self.mem.r_inp[0]).mean()
+            else:
+                pn_diff = 0.
+            if hasattr(self.mem, 'r_spr'):
+                kc_diff = np.absolute(self.mem.r_spr[0]).mean()
+            else:
+                kc_diff = 0.
         capacity = self.capacity
         i = self._iteration - self._route.shape[0] * int(self.has_outbound)
         if i < 0:
@@ -966,7 +980,7 @@ class VisualFamiliaritySimulation(Simulation):
 
         Returns
         -------
-        MushroomBody
+        MemoryComponent
         """
         return self._mem
 
@@ -991,7 +1005,7 @@ class VisualFamiliaritySimulation(Simulation):
         -------
         float
         """
-        return np.clip(self.mem.w_k2m, 0, 1).mean()
+        return self.mem.free_space
 
     @property
     def d_nest(self):
@@ -1563,11 +1577,13 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
 
         self._stats["ommatidia"].append(self._views[self._iteration])
         self._stats["position"].append(self._route[self._iteration])
-        self._stats["PN"].append(self.mem.r_cs.copy())
-        self._stats["KC"].append(self.mem.r_kc.copy())
-        self._stats["MBON"].append(self.mem.r_mbon.copy())
-        self._stats["DAN"].append(self.mem.r_dan.copy())
-        self._stats["capacity"].append(np.clip(self.mem.w_k2m, 0, 1).mean())
+        if hasattr(self.mem, 'r_inp'):
+            self._stats["PN"].append(self.mem.r_inp.copy())
+        if hasattr(self.mem, 'r_spr'):
+            self._stats["KC"].append(self.mem.r_spr.copy())
+        if hasattr(self.mem, 'r_out'):
+            self._stats["MBON"].append(self.mem.r_out.copy())
+        self._stats["capacity"].append(self.mem.free_space)
         self._stats["familiarity"].append(self.familiarity)
 
     def message(self):
@@ -1578,8 +1594,14 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
             pn_diff = np.absolute(self._stats["PN"][-1] - self._stats["PN"][-2]).mean()
             kc_diff = np.absolute(self._stats["KC"][-1] - self._stats["KC"][-2]).mean()
         else:
-            pn_diff = np.absolute(self.mem.r_cs[0]).mean()
-            kc_diff = np.absolute(self.mem.r_kc[0]).mean()
+            if hasattr(self.mem, 'r_inp'):
+                pn_diff = np.absolute(self.mem.r_inp[0]).mean()
+            else:
+                pn_diff = 0.
+            if hasattr(self.mem, 'r_spr'):
+                kc_diff = np.absolute(self.mem.r_spr[0]).mean()
+            else:
+                kc_diff = 0.
         capacity = self.capacity
         i = self._iteration - self._route_length * int(self.has_outbound)
         if i < 0:
@@ -1643,7 +1665,7 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
 
         Returns
         -------
-        MushroomBody
+        MemoryComponent
         """
         return self._mem
 
@@ -1668,7 +1690,7 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         -------
         float
         """
-        return np.clip(self.mem.w_k2m, 0, 1).mean()
+        return self.mem.free_space
 
     @property
     def d_nest(self):
