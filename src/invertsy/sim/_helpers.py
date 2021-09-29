@@ -1,4 +1,4 @@
-from invertsy.agent.agent import VisualNavigationAgent, PathIntegrationAgent, LandmarkIntegrationAgent
+from invertsy.agent.agent import VisualNavigationAgent, PathIntegrationAgent
 
 from invertpy.brain import MushroomBody
 from invertpy.sense import CompoundEye, PolarisationSensor
@@ -267,7 +267,7 @@ def create_pn_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=
     matplotlib.image.AxesImage
         the image of the PN history responses
     """
-    nb_pn = agent.brain[int(isinstance(agent, LandmarkIntegrationAgent))].nb_cs
+    nb_pn = agent.brain[0].nb_input
     return create_image_history(nb_pn, nb_frames, sep=sep, title="PN",  cmap=cmap, subplot=subplot, ax=ax)
 
 
@@ -278,7 +278,7 @@ def create_kc_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=
 
     Parameters
     ----------
-    agent: VisualNavigationAgent | LandmarkIntegrationAgent
+    agent: VisualNavigationAgent
         the agent to get the data and properties from
     nb_frames: int
         the total number of frames for the animation
@@ -296,7 +296,7 @@ def create_kc_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=
     matplotlib.image.AxesImage
         the image of the KC history responses
     """
-    nb_kc = agent.brain[int(isinstance(agent, LandmarkIntegrationAgent))].nb_kc
+    nb_kc = agent.brain[0].nb_hidden
     return create_image_history(nb_kc, nb_frames, sep=sep, title="KC",  cmap=cmap, subplot=subplot, ax=ax)
 
 

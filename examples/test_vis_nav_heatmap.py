@@ -29,8 +29,8 @@ def main(*args):
     print("Heatmap simulation from data")
     print("File:", data_filename)
 
-    # mem = PerfectMemory(nb_input=nb_ommatidia)
-    mem = WillshawNetwork(nb_input=nb_ommatidia, nb_sparse=nb_ommatidia * 40, sparseness=0.01, eligibility_trace=0.)
+    mem = PerfectMemory(nb_input=nb_ommatidia, maximum_capacity=813)
+    # mem = WillshawNetwork(nb_input=nb_ommatidia, nb_sparse=nb_ommatidia * 40, sparseness=0.01, eligibility_trace=0.)
     agent_name = "heatmap-%s%s-scan%d-rows%d-cols%d-ant%d-route%d-%s" % (
         mem.__class__.__name__.lower(),
         "-pca" if calibrate else "",
@@ -40,7 +40,7 @@ def main(*args):
 
     eye = CompoundEye(nb_input=nb_ommatidia, omm_pol_op=0, noise=0., omm_rho=np.deg2rad(4),
                       omm_res=10., c_sensitive=[0, 0., 1., 0., 0.])
-    agent = VisualNavigationAgent(eye, mem, speed=.01)
+    agent = VisualNavigationAgent(eye, mem, nb_scans=1, speed=.01)
     sim = VisualFamiliarityGridExplorationSimulation(data_filename, nb_rows=nb_rows, nb_cols=nb_cols, nb_oris=nb_scans,
                                                      agent=agent, calibrate=calibrate, name=agent_name)
     # ani = VisualFamiliarityAnimation(sim)
