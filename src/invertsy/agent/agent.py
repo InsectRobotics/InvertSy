@@ -613,8 +613,8 @@ class PathIntegrationAgent(Agent):
 
 class VisualNavigationAgent(Agent):
 
-    def __init__(self, eye=None, memory=None, saturation=1.5, nb_scans=7, freq_trans=True, whitening=pca,
-                 mb_mixture=None, *args, **kwargs):
+    def __init__(self, eye=None, memory=None, saturation=1.5, nb_scans=7, freq_trans=False, whitening=pca,
+                 *args, **kwargs):
         """
         Agent specialised in the visual navigation task. It contains the CompoundEye as a sensor and the mushroom body
         as the brain component.
@@ -634,9 +634,6 @@ class VisualNavigationAgent(Agent):
             the number of scans during the route following task. Default is 7
         freq_trans: bool, optional
             whether to transform the visual input into the frequency domain by using the DCT method. Default is False
-        mb_mixture: str, optional
-            which types of MBONs to use for the familiarity computation. S: susceptible, R: restrained, M: LTM. Default
-            is None: mixture of all of them.
         """
         super().__init__(*args, **kwargs)
 
@@ -653,12 +650,13 @@ class VisualNavigationAgent(Agent):
         self.add_brain_component(memory)
 
         self._eye = eye  # type: CompoundEye
-        self._mem = memory  # type: WillshawNetwork
+        self._mem = memory  # type: MemoryComponent
 
-        self._pref_angles = np.linspace(-60, 60, nb_scans)
+        self._pref_angles = None
         """
         The preferred angles for scanning
         """
+        
         if nb_scans <= 1:
             self._pref_angles = np.array([0])
 
@@ -672,9 +670,7 @@ class VisualNavigationAgent(Agent):
         List of the preprocessing components
         """
         if freq_trans:
-            self._preprocessing.insert(0, DiscreteCosineTransform(nb_input=eye.nb_ommatidia, dtype=eye.dtype))
-
-        self._mbon_mixture = "SRM" if mb_mixture is None else mb_mixture.upper()
+            self._preprocessing.insert(-1, DiscreteCosineTransform(nb_input=eye.nb_ommatidia, dtype=eye.dtype))
 
         self.reset()
 
@@ -718,22 +714,22 @@ class VisualNavigationAgent(Agent):
             ori = copy(self.ori)
 
             r_inp = copy(self._mem.r_inp)
-            r_spr = copy(self._mem.r_spr)
+            r_hid = copy(self._mem.r_hid)
             r_out = copy(self._mem.r_out)
 
-            inp, spr, out = [], [], []
+            inp, hid, out = [], [], []
             for i, angle in enumerate(self._pref_angles):
                 self._mem._inp = copy(r_inp)
-                self._mem._spr = copy(r_spr)
+                self._mem._hid = copy(r_hid)
                 self._mem._out = copy(r_out)
 
                 self.ori = ori * R.from_euler('Z', angle, degrees=True)
                 r = self.get_pn_responses(sky=sky, scene=scene, omm_responses=omm_responses)
-                r_mbon_ = self._mem(inp=r)
-                self._familiarity[i] = self.get_familiarity(r_mbon_, self._mem.r_spr)
+                r_out_ = self._mem(inp=r)
+                self._familiarity[i] = self.get_familiarity(r_out_, self._mem.r_hid)
 
                 inp.append(copy(self._mem.r_inp))
-                spr.append(copy(self._mem.r_spr))
+                hid.append(copy(self._mem.r_hid))
                 out.append(copy(self._mem.r_out))
 
             self.ori = ori
@@ -741,7 +737,7 @@ class VisualNavigationAgent(Agent):
             i = self._familiarity.argmax()
 
             self._mem._inp = inp[i]
-            self._mem._spr = spr[i]
+            self._mem._hid = hid[i]
             self._mem._out = out[i]
 
         return self._familiarity
@@ -837,6 +833,28 @@ class VisualNavigationAgent(Agent):
             r = process(r)
         return r
 
+    def get_omm_responses(self, sky=None, scene=None):
+        """
+        Generates the current snapshot of the environement.
+
+        Parameters
+        ----------
+        sky: Sky, optional
+            the sky instance. Default is None
+        scene: Seville2009, optional
+            the world instance. Default is None
+
+        Returns
+        -------
+        r: np.ndarray[float]
+            the responses of the ommatidia
+        """
+        return np.clip(self._eye(sky=sky, scene=scene).mean(axis=1), 0, 1)
+
+    @property
+    def nb_mental_rotations(self):
+        return self._mem.neuron_dims
+
     @property
     def preprocessing(self):
         return self._preprocessing
@@ -892,7 +910,7 @@ class VisualNavigationAgent(Agent):
         return False
 
     @staticmethod
-    def get_steering(familiarity, pref_angles, max_steering=None, degrees=True, reverse=False):
+    def get_steering_from_mbons(r_mbon, gain=1., max_steering=None, degrees=True):
         """
         Outputs a scalar where sign determines left or right turn.
 
@@ -906,8 +924,58 @@ class VisualNavigationAgent(Agent):
             the maximum steering allowed for the agent. Default is 30 degrees
         degrees: bool, optional
             whether the max_steering is in degrees or radians. Default is degrees
-        reverse: bool, optional
-            whether the highest (False) or the lowest (True) familiarity drives the steering. Default is True
+
+        Returns
+        -------
+        output: float
+            the angle of steering in radians
+        """
+        if degrees:
+            angle = lambda x: x
+        else:
+            angle = np.rad2deg
+        if max_steering is None:
+            max_steering = 5.
+        else:
+            max_steering = angle(max_steering)
+
+        if gain is None:
+            gain = max_steering
+
+        if r_mbon.size < 2:
+            step = 1
+        elif r_mbon.size == 2 or r_mbon.size == 6:
+            step = 2
+        else:
+            step = r_mbon.size // 2
+        steering = (r_mbon[..., 1::step] - r_mbon[..., 0::step]).mean()
+
+        if np.isnan(steering):
+            steering = 0.
+
+        # print("Steering: %.2f" % steering, end=", ")
+        steering = np.clip(gain * steering, -max_steering, max_steering)
+        # print("Clipped: %.2f" % steering)
+        if not degrees:
+            steering = np.deg2rad(steering)
+
+        return steering
+
+    @staticmethod
+    def get_steering(familiarity, pref_angles, max_steering=None, degrees=True):
+        """
+        Outputs a scalar where sign determines left or right turn.
+
+        Parameters
+        ----------
+        familiarity: np.ndarray[float]
+            the familiarity vector computed by scanning the environment
+        pref_angles: np.ndarray[float]
+            the preference angle associated to the values of the familiarity vector
+        max_steering: float, optional
+            the maximum steering allowed for the agent. Default is 30 degrees
+        degrees: bool, optional
+            whether the max_steering is in degrees or radians. Default is degrees
 
         Returns
         -------
@@ -920,16 +988,24 @@ class VisualNavigationAgent(Agent):
             max_steering = np.deg2rad(max_steering)
         if degrees:
             pref_angles = np.deg2rad(pref_angles)
-        r = familiarity - familiarity.min()
-        if reverse:
-            r = r.max() - r
-        r = r / (r.sum() + eps)
+        # r = familiarity - familiarity.min()
+        # r = np.power(1e-02, np.absolute(1 - familiarity))
+        # r = familiarity / (familiarity.sum() + eps)
+        r = familiarity
         pref_angles_c = r * np.exp(1j * pref_angles)
 
-        steer = np.clip(np.angle(np.sum(pref_angles_c) / (np.sum(familiarity) + eps)), -max_steering, max_steering)
+        steer_vector = np.sum(pref_angles_c)
+        steer = (np.angle(steer_vector) + np.pi) % (2 * np.pi) - np.pi
+        print("Steering: %.2f" % np.rad2deg(steer), end=", ")
+        # steer less for small vectors
+        steer *= np.clip(np.absolute(steer_vector) * 2., eps, 1.)
+        print("Vector: %.2f" % np.absolute(steer_vector), end=", ")
+
         if np.isnan(steer):
             steer = 0.
-        print("Steering: %d" % np.rad2deg(steer))
+        print("Final steering: %.2f" % np.rad2deg(steer), end=", ")
+        steer = np.clip(steer, -max_steering, max_steering)
+        print("Clipped: %d" % np.rad2deg(steer))
         if degrees:
             steer = np.rad2deg(steer)
         return steer

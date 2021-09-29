@@ -117,7 +117,9 @@ class Simulation(object):
             filename = self._name
         else:
             filename = filename.replace('.npz', '')
-        np.savez_compressed(os.path.join(__stat_dir__, "%s.npz" % filename), **self._stats)
+        save_path = os.path.join(__stat_dir__, "%s.npz" % filename)
+        np.savez_compressed(save_path, **self._stats)
+        print("\nSaved stats in: '%s'" % save_path)
 
     def __call__(self, save=False):
         """
@@ -332,7 +334,7 @@ class RouteSimulation(Simulation):
 
 class VisualNavigationSimulation(Simulation):
 
-    def __init__(self, route, agent=None, sky=None, world=None, nb_ommatidia=None, nb_scans=7,
+    def __init__(self, route, agent=None, sky=None, world=None, nb_ommatidia=None, nb_scans=121,
                  calibrate=False, frequency=False, free_motion=True, **kwargs):
         """
         Runs the route following task for an autonomous agent, by using entirely its vision. First it forces the agent
@@ -524,7 +526,7 @@ class VisualNavigationSimulation(Simulation):
         self._stats["DAN"].append(self.mem.r_dan.copy())
         self._stats["path"].append([self.agent.x, self.agent.y, self.agent.z, self.agent.yaw])
         self._stats["L"].append(np.linalg.norm(self.agent.xyz - self._route[-1, :3]))
-        self._stats["capacity"].append(np.clip(self.mem.w_k2m, 0, 1).mean())
+        self._stats["capacity"].append(self.mem.free_space)
         self._stats["familiarity"].append(self.familiarity)
         c = self._stats["C"][-1] if len(self._stats["C"]) > 0 else 0.
         if len(self._stats["path"]) > 1:
@@ -537,12 +539,12 @@ class VisualNavigationSimulation(Simulation):
         x, y, z = self._agent.xyz
         phi = self._agent.yaw_deg
         fam = self.familiarity
-        if 1 < self.frame < self.route.shape[0]:
+        if self.frame > 1:
             pn_diff = np.absolute(self._stats["PN"][-1] - self._stats["PN"][-2]).mean()
             kc_diff = np.absolute(self._stats["KC"][-1] - self._stats["KC"][-2]).mean()
         else:
-            pn_diff = np.absolute(self.mem.r_cs[0]).mean()
-            kc_diff = np.absolute(self.mem.r_kc[0]).mean()
+            pn_diff = np.absolute(self.mem.r_inp[0]).mean()
+            kc_diff = np.absolute(self.mem.r_hid[0]).mean()
         capacity = self.capacity
         d_nest = self.d_nest
         d_trav = (self._stats["C"][-1] if len(self._stats["C"]) > 0
@@ -1480,15 +1482,6 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         np.ndarray[float]
             array of the 3D positions of the samples used for the calibration
         """
-        self._stats["ommatidia"] = []
-        self._stats["input_layer"] = []
-        self._stats["hidden_layer"] = []
-        self._stats["output_layer"] = []
-        self._stats["capacity"] = []
-        self._stats["familiarity"] = []
-        self._stats["familiarity_map"] = self._familiarity_map
-        self._stats["position"] = []
-
         self._iteration = 0
         route_xyzs = self._route[:self._route_length, :3]
         d_nest = np.linalg.norm(route_xyzs - route_xyzs[-1], axis=1)

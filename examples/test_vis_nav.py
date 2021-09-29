@@ -25,7 +25,9 @@ def main(*args):
         agent_name = "vn-%s%s-scan%d-ant%d-route%d%s" % (
             mem.__class__.__name__.lower(),
             "-pca" if calibrate else "",
-            nb_scans, ant_no, rt_no,
+            "-scan%d" % nb_scans if nb_scans > 1 else "",
+            ant_no, rt_no,
+            "-mr%d" % nb_mental_rotations if nb_mental_rotations > 1 else "",
             "-replace" if replace else "")
         agent_name += ("-omm%d" % nb_ommatidia) if nb_ommatidia is not None else ""
         print(" - Agent: %s" % agent_name)
