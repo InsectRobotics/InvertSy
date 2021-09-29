@@ -15,7 +15,8 @@ def main(*args):
         # filename = "heatmap-perfectmemory-pca-scan8-rows50-cols50-ant1-route1-simpleworld-omm2000"
         # filename = "heatmap-perfectmemory-pca-scan8-rows50-cols50-ant1-route1-seville2009-omm2000"
         # filename = "heatmap-willshawnetwork-pca-scan8-rows50-cols50-ant1-route1-simpleworld-omm2000"
-        filename = "heatmap-willshawnetwork-pca-scan8-rows50-cols50-ant1-route1-seville2009-omm2000"
+        # filename = "heatmap-willshawnetwork-pca-scan8-rows50-cols50-ant1-route1-seville2009-omm2000"
+        filename = "heatmap-willshawnetwork-pca-scan16-rows100-cols100-ant1-route1-seville2009-omm1000"
 
     data = np.load(os.path.join(__stat_dir__, "%s.npz" % filename))
 
@@ -29,7 +30,10 @@ def main(*args):
     # omm_out = omm[:route_length]
     # omm_in = omm[route_length:]
 
-    mbon = data["familiarity"][:, 0]
+    print([k for k in data.keys()])
+    mbon = data["capacity"]
+    print(mbon.shape)
+    print(mbon.shape, mbon.min(), mbon.max())
     # mbon_out = mbon[:route_length]
     mbon_in = mbon[route_length:]
 

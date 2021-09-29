@@ -1,4 +1,4 @@
-from invertpy.brain.mushroombody import PerfectMemory, WillshawNetwork
+from invertpy.brain.memory import PerfectMemory, WillshawNetwork
 from invertpy.sense import CompoundEye
 
 from invertsy.agent import VisualNavigationAgent
@@ -29,8 +29,8 @@ def main(*args):
     print("Heatmap simulation from data")
     print("File:", data_filename)
 
-    # mem = PerfectMemory(nb_ommatidia)
-    mem = WillshawNetwork(nb_cs=nb_ommatidia, nb_kc=nb_ommatidia * 40, sparseness=0.01, eligibility_trace=0.)
+    # mem = PerfectMemory(nb_input=nb_ommatidia)
+    mem = WillshawNetwork(nb_input=nb_ommatidia, nb_sparse=nb_ommatidia * 40, sparseness=0.01, eligibility_trace=0.)
     agent_name = "heatmap-%s%s-scan%d-rows%d-cols%d-ant%d-route%d-%s" % (
         mem.__class__.__name__.lower(),
         "-pca" if calibrate else "",

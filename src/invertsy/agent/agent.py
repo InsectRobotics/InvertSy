@@ -14,8 +14,8 @@ __maintainer__ = "Evripidis Gkanias"
 from ._helpers import eps, RNG
 
 from invertpy.sense import PolarisationSensor, CompoundEye, Sensor
-from invertpy.brain import MushroomBody, WillshawNetwork, CentralComplex, PolarisationCompass, Component
-from invertpy.brain.mushroombody import IncentiveCircuit
+from invertpy.brain import WillshawNetwork, CentralComplex, PolarisationCompass, Component
+from invertpy.brain.memory import MemoryComponent
 from invertpy.brain.activation import winner_takes_all, relu
 from invertpy.brain.compass import ring2sph
 from invertpy.brain.preprocessing import Whitening, DiscreteCosineTransform, pca
@@ -624,7 +624,7 @@ class VisualNavigationAgent(Agent):
         eye: CompoundEye, optional
             instance of the compound eye of the agent. Default is a compound eye with 5000 ommatidia, with 15 deg
             acceptance angle each, sensitive to green only and not sensitive to polarised light.
-        memory: MushroomBody, optional
+        memory: MemoryComponent, optional
             instance of a mushroom body model as a processing component. Default is the WillshawNetwork with #PN equal
             to the number of ommatidia, #KC equal to 40 x #PN, sparseness is 1%, and eligibility trace (lambda) is 0.1
         saturation: float, optional
@@ -646,22 +646,14 @@ class VisualNavigationAgent(Agent):
 
         if memory is None:
             # #KC = 40 * #PN
-            memory = WillshawNetwork(nb_cs=eye.nb_ommatidia, nb_kc=eye.nb_ommatidia * 40, sparseness=0.01,
+            memory = WillshawNetwork(nb_input=eye.nb_ommatidia, nb_sparse=eye.nb_ommatidia * 40, sparseness=0.01,
                                      eligibility_trace=.1)
-        if isinstance(memory, IncentiveCircuit):
-            memory.f_cs = lambda x: np.asarray(x > np.sort(x)[int(memory.nb_cs * .7)], dtype=self.dtype)
-            memory.f_kc = lambda x: np.asarray(winner_takes_all(x, percentage=memory.sparseness), dtype=self.dtype)
-            memory.f_mbon = lambda x: relu(x / float(memory.nb_kc * memory.sparseness), cmax=2)
-            memory.b_m = np.array([0, 0, 0, 0, 0, 0])
-            memory.b_d = np.array([-.0, -.0, -.0, -.0, -.0, -.0])
-            memory.mbon_names = np.array(memory.mbon_names)[[1, 0, 3, 2, 5, 4]]
-            memory.dan_names = np.array(memory.dan_names)[[1, 0, 3, 2, 5, 4]]
 
         self.add_sensor(eye)
         self.add_brain_component(memory)
 
         self._eye = eye  # type: CompoundEye
-        self._mem = memory  # type: MushroomBody
+        self._mem = memory  # type: WillshawNetwork
 
         self._pref_angles = np.linspace(-60, 60, nb_scans)
         """
@@ -688,10 +680,6 @@ class VisualNavigationAgent(Agent):
 
     def reset(self):
         super().reset()
-
-        if isinstance(self._mem, IncentiveCircuit):
-            self._mem.b_m = np.array([0, 0, 0, 0, 0, 0])
-            self._mem.b_d = np.array([-.0, -.0, -.0, -.0, -.0, -.0])
 
         self._familiarity = np.zeros_like(self._pref_angles)
 
@@ -724,49 +712,37 @@ class VisualNavigationAgent(Agent):
 
         if self.update:
             r = self.get_pn_responses(sky=sky, scene=scene, omm_responses=omm_responses)
-            r_mbon = self._mem(cs=r, us=np.ones(1, dtype=self.dtype))
-            self._familiarity[front] = self.get_familiarity(r_mbon, self._mem.r_kc[0])
+            r_mbon = self._mem(inp=r, reinforcement=np.ones(1, dtype=self.dtype))
+            self._familiarity[front] = self.get_familiarity(r_mbon, self._mem.r_spr)
         else:
             ori = copy(self.ori)
 
-            r_cs = copy(self._mem.r_cs)
-            r_us = copy(self._mem.r_us)
-            r_kc = copy(self._mem.r_kc)
-            r_apl = copy(self._mem.r_apl)
-            r_dan = copy(self._mem.r_dan)
-            r_mbon = copy(self._mem.r_mbon)
+            r_inp = copy(self._mem.r_inp)
+            r_spr = copy(self._mem.r_spr)
+            r_out = copy(self._mem.r_out)
 
-            cs, us, kc, apl, dan, mbon = [], [], [], [], [], []
+            inp, spr, out = [], [], []
             for i, angle in enumerate(self._pref_angles):
-                self._mem._cs = copy(r_cs)
-                self._mem._us = copy(r_us)
-                self._mem._kc = copy(r_kc)
-                self._mem._apl = copy(r_apl)
-                self._mem._dan = copy(r_dan)
-                self._mem._mbon = copy(r_mbon)
+                self._mem._inp = copy(r_inp)
+                self._mem._spr = copy(r_spr)
+                self._mem._out = copy(r_out)
 
                 self.ori = ori * R.from_euler('Z', angle, degrees=True)
-                r = self.get_pn_responses(sky=sky, scene=scene)
-                r_mbon_ = self._mem(cs=r)
-                self._familiarity[i] = self.get_familiarity(r_mbon_, self._mem.r_kc[0])
+                r = self.get_pn_responses(sky=sky, scene=scene, omm_responses=omm_responses)
+                r_mbon_ = self._mem(inp=r)
+                self._familiarity[i] = self.get_familiarity(r_mbon_, self._mem.r_spr)
 
-                cs.append(copy(self._mem.r_cs))
-                us.append(copy(self._mem.r_us))
-                kc.append(copy(self._mem.r_kc))
-                apl.append(copy(self._mem.r_apl))
-                dan.append(copy(self._mem.r_dan))
-                mbon.append(copy(self._mem.r_mbon))
+                inp.append(copy(self._mem.r_inp))
+                spr.append(copy(self._mem.r_spr))
+                out.append(copy(self._mem.r_out))
 
             self.ori = ori
 
             i = self._familiarity.argmax()
 
-            self._mem._cs = cs[i]
-            self._mem._us = us[i]
-            self._mem._kc = kc[i]
-            self._mem._apl = apl[i]
-            self._mem._dan = dan[i]
-            self._mem._mbon = mbon[i]
+            self._mem._inp = inp[i]
+            self._mem._spr = spr[i]
+            self._mem._out = out[i]
 
         return self._familiarity
 
@@ -811,7 +787,7 @@ class VisualNavigationAgent(Agent):
         if omm_responses is not None:
             nb_samples = omm_responses.shape[0]
 
-        samples = np.zeros((nb_samples, self._mem.nb_cs), dtype=self.dtype)
+        samples = np.zeros((nb_samples, self._mem.nb_input), dtype=self.dtype)
         xyzs, oris = [], []
         for i in range(nb_samples):
             if omm_responses is None:
@@ -958,15 +934,15 @@ class VisualNavigationAgent(Agent):
             steer = np.rad2deg(steer)
         return steer
 
-    def get_familiarity(self, r_mbon=None, r_kc=None):
+    def get_familiarity(self, r_out=None, r_spr=None):
         """
         Computes the familiarity using the MBON responses.
 
         Parameters
         ----------
-        r_mbon: np.ndarray[float]
+        r_out: np.ndarray[float]
             MBON responses
-        r_kc: np.ndarray[float]
+        r_spr: np.ndarray[float]
             KC responses
 
         Returns
@@ -974,9 +950,9 @@ class VisualNavigationAgent(Agent):
         float
             the familiarity
         """
-        if r_mbon is None:
-            r_mbon = self._mem.r_mbon
-        if r_kc is None:
-            r_kc = np.ones(1, self.dtype)
+        if r_out is None:
+            r_out = self._mem.r_out
+        if r_spr is None:
+            r_spr = np.ones(1, self.dtype)
 
-        return 1. - np.clip(r_mbon / np.maximum(np.sum(r_kc > 0), 1), 0, 1)
+        return 1. - np.clip(r_out / np.maximum(np.sum(r_spr > 0), 1), 0, 1)

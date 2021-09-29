@@ -17,13 +17,14 @@ from invertsy.env import UniformSky, Sky, Seville2009, WorldBase
 from invertsy.agent import VisualNavigationAgent, PathIntegrationAgent
 
 from invertpy.sense import CompoundEye
-from invertpy.brain import MushroomBody
+from invertpy.brain.memory import MemoryComponent
 
 from scipy.spatial.transform import Rotation as R
 
 import numpy as np
 
 from time import time
+from copy import copy
 
 import os
 
@@ -536,7 +537,7 @@ class VisualNavigationSimulation(Simulation):
         x, y, z = self._agent.xyz
         phi = self._agent.yaw_deg
         fam = self.familiarity
-        if self.frame > 1:
+        if 1 < self.frame < self.route.shape[0]:
             pn_diff = np.absolute(self._stats["PN"][-1] - self._stats["PN"][-2]).mean()
             kc_diff = np.absolute(self._stats["KC"][-1] - self._stats["KC"][-2]).mean()
         else:
@@ -1132,7 +1133,7 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
 
         self._eye = eye
 
-        self._has_map = True
+        self._has_grid = True
         self._outbound = True
         self._dump_map = np.empty((nb_rows, nb_cols, nb_orientations))
         self.__nb_cols = nb_cols
@@ -1168,8 +1169,8 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
         self._eye.ori = R.from_euler('Z', self._route[0, 3], degrees=True)
 
         # create a separate line
-        self._stats["positions_out"] = self._stats["positions"]
-        self._stats["ommatidia_out"] = self._stats["ommatidia"]
+        self._stats["positions_out"] = copy(self._stats["positions"])
+        self._stats["ommatidia_out"] = copy(self._stats["ommatidia"])
         self._stats["positions"] = []
         self._stats["ommatidia"] = []
 
@@ -1188,19 +1189,20 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
 
         if self.has_outbound and i < self._route.shape[0]:  # outbound path
             x, y, z, yaw = self._route[i]
-            self._eye(sky=self._sky, scene=self._world, callback=self.update_stats)
-            self._eye.xyz = [x, y, z]
-            self._eye.ori = R.from_euler('Z', yaw, degrees=True)
 
         elif self.has_grid:  # build the map
             j = i - self._route.shape[0] * int(self.has_outbound)
             row, col, ori = self.__ndindex[j]
             x = self.col2x(col)
             y = self.row2y(row)
+            z = self._eye.z
             yaw = self.ori2yaw(ori)
-            self._eye.xyz = [x, y, self._eye.z]
-            self._eye.ori = R.from_euler('Z', yaw, degrees=True)
-            self._eye(sky=self._sky, scene=self._world, callback=self.update_stats)
+        else:
+            return
+
+        self._eye.xyz = [x, y, z]
+        self._eye.ori = R.from_euler('Z', yaw, degrees=True)
+        self._eye(sky=self._sky, scene=self._world, callback=self.update_stats)
 
     def update_stats(self, eye):
         """
@@ -1225,9 +1227,15 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
             col, row, ori = -1, -1, -1
         else:
             col, row, ori = self.__ndindex[i]
+
+        if len(self._stats["ommatidia"]) > 1:
+            omm_2, omm_1 = self._stats["ommatidia"][-2:]
+            omm_diff = np.sqrt(np.square(omm_1 - omm_2).mean())
+        else:
+            omm_diff = 0.
         return (super().message() +
-                " - x: %.2f (row: % 4d), y: %.2f (col: % 4d), z: %.2f, Φ: % 4d (scan: % 4d)") % (
-            x, row, y, col, z, phi, ori)
+                " - x: %.2f (row: % 4d), y: %.2f (col: % 4d), z: %.2f, Φ: % 4d (scan: % 4d), omm (change): %.2f%%"
+                ) % (x, row, y, col, z, phi, ori, omm_diff * 100)
 
     @property
     def world(self):
@@ -1304,7 +1312,7 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
         -------
         bool
         """
-        return self._has_map
+        return self._has_grid
 
     @has_grid.setter
     def has_grid(self, v):
@@ -1313,7 +1321,7 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
         ----------
         v: bool
         """
-        self._has_map = v
+        self._has_grid = v
 
     @property
     def has_outbound(self):
@@ -1425,7 +1433,6 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         route = data["positions_out"]
         views_grid = data["ommatidia"]
         grid = data["positions"]
-        print("CALLED!")
 
         kwargs.setdefault('nb_iterations', int(route.shape[0]) + int(grid.shape[0]))
         kwargs.setdefault('name', 'vn-simulation')
@@ -1474,12 +1481,12 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
             array of the 3D positions of the samples used for the calibration
         """
         self._stats["ommatidia"] = []
-        self._stats["PN"] = []
-        self._stats["KC"] = []
-        self._stats["MBON"] = []
-        self._stats["DAN"] = []
+        self._stats["input_layer"] = []
+        self._stats["hidden_layer"] = []
+        self._stats["output_layer"] = []
         self._stats["capacity"] = []
         self._stats["familiarity"] = []
+        self._stats["familiarity_map"] = self._familiarity_map
         self._stats["position"] = []
 
         self._iteration = 0
@@ -1499,6 +1506,15 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         self._agent.update = True
 
         self._familiarity_map[:] = 0.
+
+        self._stats["ommatidia"] = []
+        self._stats["input_layer"] = []
+        self._stats["hidden_layer"] = []
+        self._stats["output_layer"] = []
+        self._stats["capacity"] = []
+        self._stats["familiarity"] = []
+        self._stats["familiarity_map"] = self._familiarity_map
+        self._stats["position"] = []
 
         return xyzs
 
@@ -1529,25 +1545,30 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         i: int
             the iteration ID to run
         """
+        row, col, ori = 0, 0, 0
+
         if i == self._route_length:  # initialise route following
             self.init_grid()
 
         if self.has_outbound and i < self._route_length:  # outbound path
             x, y, z, yaw = self._route[i]
-            self._agent(omm_responses=self._views[i], act=False, callback=self.update_stats)
-            self._agent.xyz = [x, y, z]
-            self._agent.ori = R.from_euler('Z', yaw, degrees=True)
 
         elif self.has_grid:  # build the map
             j = i - self._route_length * int(self.has_outbound)
             row, col, ori = self.__ndindex[j]
             x = self.col2x(col)
             y = self.row2y(row)
+            z = self.agent.z
             yaw = self.ori2yaw(ori)
-            self._agent.xyz = [x, y, self.agent.z]
-            self._agent.ori = R.from_euler('Z', yaw, degrees=True)
-            self._agent(omm_responses=self._views[i], act=False, callback=self.update_stats)
-            self._familiarity_map[row, col, ori] = self._stats["familiarity"][-1]
+        else:
+            return
+
+        self._agent.xyz = [x, y, z]
+        self._agent.ori = R.from_euler('Z', yaw, degrees=True)
+        self._agent(omm_responses=self._views[i], act=False, callback=self.update_stats)
+
+        if self.has_grid and i >= self._route_length:
+            self._familiarity_map[row, col, ori] = self.familiarity
 
     def update_stats(self, a):
         """
@@ -1563,11 +1584,10 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
 
         self._stats["ommatidia"].append(self._views[self._iteration])
         self._stats["position"].append(self._route[self._iteration])
-        self._stats["PN"].append(self.mem.r_cs.copy())
-        self._stats["KC"].append(self.mem.r_kc.copy())
-        self._stats["MBON"].append(self.mem.r_mbon.copy())
-        self._stats["DAN"].append(self.mem.r_dan.copy())
-        self._stats["capacity"].append(np.clip(self.mem.w_k2m, 0, 1).mean())
+        self._stats["input_layer"].append(self.mem.r_inp.copy())
+        self._stats["hidden_layer"].append(self.mem.r_hid.copy())
+        self._stats["output_layer"].append(self.mem.r_out.copy())
+        self._stats["capacity"].append(self.mem.free_space)
         self._stats["familiarity"].append(self.familiarity)
 
     def message(self):
@@ -1575,11 +1595,11 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         phi = self._agent.yaw_deg
         fam = self.familiarity
         if self.frame > 1:
-            pn_diff = np.absolute(self._stats["PN"][-1] - self._stats["PN"][-2]).mean()
-            kc_diff = np.absolute(self._stats["KC"][-1] - self._stats["KC"][-2]).mean()
+            pn_diff = np.absolute(self._stats["input_layer"][-1] - self._stats["input_layer"][-2]).mean()
+            kc_diff = np.absolute(self._stats["hidden_layer"][-1] - self._stats["hidden_layer"][-2]).mean()
         else:
-            pn_diff = np.absolute(self.mem.r_cs[0]).mean()
-            kc_diff = np.absolute(self.mem.r_kc[0]).mean()
+            pn_diff = np.absolute(self.mem.r_inp).mean()
+            kc_diff = np.absolute(self.mem.r_hid).mean()
         capacity = self.capacity
         i = self._iteration - self._route_length * int(self.has_outbound)
         if i < 0:
@@ -1588,7 +1608,7 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
             col, row, ori = self.__ndindex[i]
         return (super().message() +
                 " - x: %.2f (row: % 4d), y: %.2f (col: % 4d), z: %.2f, Φ: % 4d (scan: % 4d)"
-                " - PN (change): %.2f%%, KC (change): %.2f%%, familiarity: %.2f%%,"
+                " - input (change): %.2f%%, hidden (change): %.2f%%, familiarity: %.2f%%,"
                 " capacity: %.2f%%") % (
             x, row, y, col, z, phi, ori, pn_diff * 100., kc_diff * 100., fam * 100., capacity * 100.)
 
@@ -1643,7 +1663,7 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
 
         Returns
         -------
-        MushroomBody
+        MemoryComponent
         """
         return self._mem
 
@@ -1668,7 +1688,7 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         -------
         float
         """
-        return np.clip(self.mem.w_k2m, 0, 1).mean()
+        return self.mem.free_space
 
     @property
     def d_nest(self):
