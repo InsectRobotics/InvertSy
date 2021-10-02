@@ -658,7 +658,7 @@ class VisualNavigationAgent(Agent):
         """
         
         if nb_scans <= 1:
-            self._pref_angles = np.array([0])
+            self._pref_angles = np.array([0], dtype=self.dtype)
 
         self._familiarity = np.zeros_like(self._pref_angles)
         """
@@ -1027,7 +1027,8 @@ class VisualNavigationAgent(Agent):
         """
         if r_out is None:
             r_out = self._mem.r_out
-        if r_spr is None:
+        if r_spr is None or len(r_spr) < 1:
             r_spr = np.ones(1, self.dtype)
 
-        return 1. - np.clip(r_out / np.maximum(np.sum(r_spr > 0), 1), 0, 1)
+        novelty = np.clip(r_out / np.maximum(np.sum(r_spr > 0), 1), 0, 1)
+        return np.power(1. - novelty, 4096)
