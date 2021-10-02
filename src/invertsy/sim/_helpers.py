@@ -1,4 +1,4 @@
-from invertsy.agent.agent import VisualNavigationAgent, PathIntegrationAgent, LandmarkIntegrationAgent
+from invertsy.agent.agent import VisualNavigationAgent, PathIntegrationAgent
 
 from invertpy.brain import MushroomBody
 from invertpy.sense import CompoundEye, PolarisationSensor
@@ -267,7 +267,7 @@ def create_pn_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=
     matplotlib.image.AxesImage
         the image of the PN history responses
     """
-    nb_pn = agent.brain[int(isinstance(agent, LandmarkIntegrationAgent))].nb_cs
+    nb_pn = agent.brain[0].nb_input
     return create_image_history(nb_pn, nb_frames, sep=sep, title="PN",  cmap=cmap, subplot=subplot, ax=ax)
 
 
@@ -278,7 +278,7 @@ def create_kc_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=
 
     Parameters
     ----------
-    agent: VisualNavigationAgent | LandmarkIntegrationAgent
+    agent: VisualNavigationAgent
         the agent to get the data and properties from
     nb_frames: int
         the total number of frames for the animation
@@ -296,7 +296,7 @@ def create_kc_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=
     matplotlib.image.AxesImage
         the image of the KC history responses
     """
-    nb_kc = agent.brain[int(isinstance(agent, LandmarkIntegrationAgent))].nb_kc
+    nb_kc = agent.brain[0].nb_hidden
     return create_image_history(nb_kc, nb_frames, sep=sep, title="KC",  cmap=cmap, subplot=subplot, ax=ax)
 
 
@@ -1073,3 +1073,133 @@ def get_axis(ax=None, subplot=111):
         else:
             ax = plt.subplot(*subplot)
     return ax
+
+
+def col2x(col, nb_cols, max_meters=10.):
+    """
+    Transforms column number to the 'x' coordinate.
+
+    Parameters
+    ----------
+    col : int
+        the column number
+    nb_cols : int
+        the total number of columns
+    max_meters : float
+        the maximum width of the arena in meters. Default is 10 meters
+
+    Returns
+    -------
+    float
+        the 'x' coordinate
+    """
+    return float(col) / float(nb_cols) * float(max_meters)
+
+
+def x2col(x, nb_cols, max_meters=10.):
+    """
+    Transforms the 'x' coordinate to the column number.
+
+    Parameters
+    ----------
+    x : float
+        the 'x' coordinate
+    nb_cols : int
+        the total number of columns
+    max_meters : float
+        the maximum width of the arena in meters. Default is 10 meters
+
+    Returns
+    -------
+    int :
+        the column number
+    """
+    return int(float(x) / float(max_meters) * float(nb_cols))
+
+
+def row2y(row, nb_rows, max_meters=10.):
+    """
+    Transforms row number to the 'y' coordinate.
+
+    Parameters
+    ----------
+    row : int
+        the row number
+    nb_rows : int
+        the total number of rows
+    max_meters : float
+        the maximum length of the arena in meters. Default is 10 meters
+
+    Returns
+    -------
+    float
+        the 'y' coordinate
+    """
+    return float(row) / float(nb_rows) * float(max_meters)
+
+
+def y2row(y, nb_rows, max_meters=10):
+    """
+    Transforms the 'y' coordinate to the row number.
+
+    Parameters
+    ----------
+    y : float
+        the 'y' coordinate
+    nb_rows : int
+        the total number of rows
+    max_meters : float
+        the maximum length of the arena in meters. Default is 10 meters
+
+    Returns
+    -------
+    int :
+        the row number
+    """
+    return int(float(y) / float(max_meters) * float(nb_rows))
+
+
+def ori2yaw(ori, nb_oris, degrees=True):
+    """
+    Transforms the orientation identity to the yaw direction.
+
+    Parameters
+    ----------
+    ori : int
+        the orientation identity
+    nb_oris : int
+        the total number of orientations
+    degrees : bool
+        whether we want the output to be in degrees
+
+    Returns
+    -------
+    float
+        the yaw direction
+    """
+
+    two_pi = 360. if degrees else (2 * np.pi)
+    return (float(ori) / float(nb_oris) * two_pi + two_pi / 2) % two_pi - two_pi / 2
+
+
+def yaw2ori(yaw, nb_oris, degrees=True):
+    """
+    Transforms the 'yaw' direction to the orientation identity.
+
+    Parameters
+    ----------
+    yaw : float
+        the 'yaw' direction
+    nb_oris : int
+        the total number of orientations
+    degrees : bool
+        whether the input is in degrees
+
+    Returns
+    -------
+    int :
+        the orientation identity
+    """
+    two_pi = 360. if degrees else (2 * np.pi)
+    return int(float(yaw % two_pi) / two_pi * float(nb_oris))
+

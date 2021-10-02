@@ -732,12 +732,12 @@ class VisualFamiliarityAnimation(Animation):
 
         # draw the PN activity
         pn = self.pn.get_array()
-        pn[:, i] = self.sim.mem.r_cs[0].T.flatten()
+        pn[:, i] = self.sim.mem.r_inp[0].T.flatten()
         self.pn.set_array(pn)
 
         # draw the KC activity
         kc = self.kc.get_array()
-        kc[:, i] = self.sim.mem.r_kc[0].T.flatten()
+        kc[:, i] = self.sim.mem.r_hid[0].T.flatten()
         self.kc.set_array(kc)
 
         # draw familiarity map

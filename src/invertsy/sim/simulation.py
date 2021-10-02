@@ -8,10 +8,11 @@ __copyright__ = "Copyright (c) 2021, Insect Robotics Group," \
                 "School of Informatics, the University of Edinburgh"
 __credits__ = ["Evripidis Gkanias"]
 __license__ = "GPLv3+"
-__version__ = "v1.0.0-alpha"
+__version__ = "v1.1-alpha"
 __maintainer__ = "Evripidis Gkanias"
 
-from invertpy.brain.mushroombody import IncentiveCircuit
+from ._helpers import col2x, row2y, yaw2ori, x2col, y2row, ori2yaw
+
 from invertsy.__helpers import __data__
 from invertsy.env import UniformSky, Sky, Seville2009, WorldBase
 from invertsy.agent import VisualNavigationAgent, PathIntegrationAgent
@@ -1191,14 +1192,13 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
 
         if self.has_outbound and i < self._route.shape[0]:  # outbound path
             x, y, z, yaw = self._route[i]
-
         elif self.has_grid:  # build the map
             j = i - self._route.shape[0] * int(self.has_outbound)
             row, col, ori = self.__ndindex[j]
-            x = self.col2x(col)
-            y = self.row2y(row)
+            x = col2x(col, nb_cols=self.nb_cols, max_meters=10.)
+            y = row2y(row, nb_rows=self.nb_rows, max_meters=10.)
             z = self._eye.z
-            yaw = self.ori2yaw(ori)
+            yaw = ori2yaw(ori, nb_oris=self.nb_orientations, degrees=True)
         else:
             return
 
@@ -1219,16 +1219,14 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
         assert eye == self._eye, "The input agent should be the same as the one used in the simulation!"
 
         self._stats["ommatidia"].append(self.eye.responses.copy())
-        self._stats["positions"].append([self._eye.x, self._eye.y, self._eye.z, self._eye.yaw])
+        self._stats["positions"].append([self._eye.x, self._eye.y, self._eye.z, self._eye.yaw_deg])
 
     def message(self):
         x, y, z = self._eye.xyz
-        phi = self._eye.yaw_deg
-        i = self._iteration - self._route.shape[0] * int(self.has_outbound)
-        if i < 0:
-            col, row, ori = -1, -1, -1
-        else:
-            col, row, ori = self.__ndindex[i]
+        yaw = self._eye.yaw_deg
+        col = x2col(x, nb_cols=self.nb_cols, max_meters=10.)
+        row = y2row(y, nb_rows=self.nb_rows, max_meters=10.)
+        ori = yaw2ori(yaw, nb_oris=self.nb_orientations, degrees=True)
 
         if len(self._stats["ommatidia"]) > 1:
             omm_2, omm_1 = self._stats["ommatidia"][-2:]
@@ -1236,8 +1234,8 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
         else:
             omm_diff = 0.
         return (super().message() +
-                " - x: %.2f (row: % 4d), y: %.2f (col: % 4d), z: %.2f, Φ: % 4d (scan: % 4d), omm (change): %.2f%%"
-                ) % (x, row, y, col, z, phi, ori, omm_diff * 100)
+                " - x: %.2f (col: % 4d), y: %.2f (row: % 4d), z: %.2f, Φ: % 4d (scan: % 4d), omm (change): %.2f%%"
+                ) % (x, col, y, row, z, yaw, ori, omm_diff * 100)
 
     @property
     def world(self):
@@ -1345,58 +1343,6 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
         """
         self._outbound = v
 
-    def col2x(self, col):
-        """
-        Transforms column number to the 'x' coordinate.
-
-        Parameters
-        ----------
-        col : int
-            the column number
-
-        Returns
-        -------
-        float
-            the 'x' coordinate
-        """
-        return col / self.nb_cols * 10
-
-    def row2y(self, row):
-        """
-        Transforms row number to the 'y' coordinate.
-
-        Parameters
-        ----------
-        row : int
-            the row number
-
-        Returns
-        -------
-        float
-            the 'y' coordinate
-        """
-        return row / self.nb_rows * 10
-
-    def ori2yaw(self, ori, degrees=True):
-        """
-        Transforms the orientation identity to the yaw direction.
-
-        Parameters
-        ----------
-        ori : int
-            the orientation identity
-        degrees : bool
-            whether we want the output to be in degrees
-
-        Returns
-        -------
-        float
-            the yaw direction
-        """
-
-        two_pi = 360 if degrees else (2 * np.pi)
-        return ori / self.nb_orientations * two_pi
-
 
 class VisualFamiliarityGridExplorationSimulation(Simulation):
 
@@ -1440,7 +1386,6 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         kwargs.setdefault('name', 'vn-simulation')
         super().__init__(**kwargs)
 
-        self._route = route
         nb_ommatidia = views_route.shape[1]
 
         if agent is None:
@@ -1543,18 +1488,7 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         if i == self._route_length:  # initialise route following
             self.init_grid()
 
-        if self.has_outbound and i < self._route_length:  # outbound path
-            x, y, z, yaw = self._route[i]
-
-        elif self.has_grid:  # build the map
-            j = i - self._route_length * int(self.has_outbound)
-            row, col, ori = self.__ndindex[j]
-            x = self.col2x(col)
-            y = self.row2y(row)
-            z = self.agent.z
-            yaw = self.ori2yaw(ori)
-        else:
-            return
+        x, y, z, yaw = self._route[i]
 
         self._agent.xyz = [x, y, z]
         self._agent.ori = R.from_euler('Z', yaw, degrees=True)
@@ -1585,7 +1519,7 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
 
     def message(self):
         x, y, z = self._agent.xyz
-        phi = self._agent.yaw_deg
+        yaw = self._agent.yaw_deg
         fam = self.familiarity
         if self.frame > 1:
             pn_diff = np.absolute(self._stats["input_layer"][-1] - self._stats["input_layer"][-2]).mean()
@@ -1594,16 +1528,21 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
             pn_diff = np.absolute(self.mem.r_inp).mean()
             kc_diff = np.absolute(self.mem.r_hid).mean()
         capacity = self.capacity
-        i = self._iteration - self._route_length * int(self.has_outbound)
-        if i < 0:
-            col, row, ori = -1, -1, -1
-        else:
-            col, row, ori = self.__ndindex[i]
+
+        row = y2row(y, nb_rows=self.nb_rows, max_meters=10)
+        col = x2col(x, nb_cols=self.nb_cols, max_meters=10)
+        ori = yaw2ori(yaw, nb_oris=self.nb_orientations, degrees=True)
+
+        # i = self._iteration - self._route_length * int(self.has_outbound)
+        # if i < 0:
+        #     row, col, ori = -1, -1, -1
+        # else:
+        #     row, col, ori = self.__ndindex[i]
         return (super().message() +
-                " - x: %.2f (row: % 4d), y: %.2f (col: % 4d), z: %.2f, Φ: % 4d (scan: % 4d)"
+                " - x: %.2f (col: % 4d), y: %.2f (row: % 4d), z: %.2f, Φ: % 4d (scan: % 4d)"
                 " - input (change): %.2f%%, hidden (change): %.2f%%, familiarity: %.2f%%,"
                 " capacity: %.2f%%") % (
-            x, row, y, col, z, phi, ori, pn_diff * 100., kc_diff * 100., fam * 100., capacity * 100.)
+            x, col, y, row, z, yaw, ori, pn_diff * 100., kc_diff * 100., fam * 100., capacity * 100.)
 
     @property
     def agent(self):
@@ -1761,107 +1700,6 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         v: bool
         """
         self._outbound = v
-
-    def col2x(self, col):
-        """
-        Transforms column number to the 'x' coordinate.
-
-        Parameters
-        ----------
-        col : int
-            the column number
-
-        Returns
-        -------
-        float
-            the 'x' coordinate
-        """
-        return col / self.nb_cols * 10
-
-    def row2y(self, row):
-        """
-        Transforms row number to the 'y' coordinate.
-
-        Parameters
-        ----------
-        row : int
-            the row number
-
-        Returns
-        -------
-        float
-            the 'y' coordinate
-        """
-        return row / self.nb_rows * 10
-
-    def ori2yaw(self, ori, degrees=True):
-        """
-        Transforms the orientation identity to the yaw direction.
-
-        Parameters
-        ----------
-        ori : int
-            the orientation identity
-        degrees : bool
-            whether we want the output to be in degrees
-
-        Returns
-        -------
-        float
-            the yaw direction
-        """
-
-        two_pi = 360 if degrees else (2 * np.pi)
-        return ori / self.nb_orientations * two_pi
-
-    def x2col(self, x):
-        """
-        Transforms the 'x' coordinate to the column number.
-
-        Parameters
-        ----------
-        x : the 'x' coordinate
-
-        Returns
-        -------
-        int :
-            the column number
-        """
-        return int(x / 10 * self.nb_cols)
-
-    def y2row(self, y):
-        """
-        Transforms the 'y' coordinate to the row number.
-
-        Parameters
-        ----------
-        y : the 'y' coordinate
-
-        Returns
-        -------
-        int :
-            the row number
-        """
-        return int(y / 10 * self.nb_rows)
-
-    def yaw2ori(self, yaw, degrees=True):
-        """
-        Transforms the 'yaw' direction to the orientation identity.
-
-        Parameters
-        ----------
-        yaw : float
-            the 'yaw' direction
-        degrees : bool
-            whether the input is in degrees
-
-        Returns
-        -------
-        int :
-            the orientation identity
-        """
-        two_pi = 360 if degrees else (2 * np.pi)
-        return int(yaw / two_pi * self.nb_orientations)
 
 
 class PathIntegrationSimulation(Simulation):
