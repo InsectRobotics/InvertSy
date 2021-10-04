@@ -1495,7 +1495,11 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         self._agent(omm_responses=self._views[i], act=False, callback=self.update_stats)
 
         if self.has_grid and i >= self._route_length:
+            col = x2col(x, nb_cols=self.nb_cols, max_meters=10.)
+            row = y2row(y, nb_rows=self.nb_rows, max_meters=10.)
+            ori = yaw2ori(yaw, nb_oris=self.nb_orientations, degrees=True)
             self._familiarity_map[row, col, ori] = self.familiarity
+            print(col, row, ori, self._stats["familiarity_map"][row, col, ori])
 
     def update_stats(self, a):
         """

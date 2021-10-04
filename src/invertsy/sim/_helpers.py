@@ -1093,7 +1093,7 @@ def col2x(col, nb_cols, max_meters=10.):
     float
         the 'x' coordinate
     """
-    return float(col) / float(nb_cols) * float(max_meters)
+    return np.float32(col) / float(nb_cols) * float(max_meters)
 
 
 def x2col(x, nb_cols, max_meters=10.):
@@ -1135,7 +1135,7 @@ def row2y(row, nb_rows, max_meters=10.):
     float
         the 'y' coordinate
     """
-    return float(row) / float(nb_rows) * float(max_meters)
+    return np.float32(row) / float(nb_rows) * float(max_meters)
 
 
 def y2row(y, nb_rows, max_meters=10):
