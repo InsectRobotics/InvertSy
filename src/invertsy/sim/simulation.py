@@ -155,7 +155,8 @@ class Simulation(object):
         -------
         str
         """
-        return "Simulation %d/%d" % (self._iteration + 1, self._nb_iterations)
+        str_len = len(f"{self._nb_iterations}")
+        return f"Simulation {self._iteration + 1:{str_len}d}/{self._nb_iterations}"
 
     def set_name(self, name):
         """
@@ -1097,7 +1098,8 @@ class VisualFamiliaritySimulation(Simulation):
 class VisualFamiliarityDataCollectionSimulation(Simulation):
 
     def __init__(self, route, eye=None, sky=None, world=None, nb_ommatidia=None, saturation=5.,
-                 nb_orientations=16, nb_rows=100, nb_cols=100, **kwargs):
+                 nb_orientations=16, nb_rows=100, nb_cols=100, nb_parallel=21, disposition_step=0.02,
+                 method="grid", **kwargs):
         """
         Simulation that collects data input (visual) and output (position and orientation) from a world.
 
@@ -1134,7 +1136,10 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
         name: str, optional
             the name of the simulation. Default is `vn-simulation`
         """
-        kwargs.setdefault('nb_iterations', int(route.shape[0]) + nb_orientations * nb_rows * nb_cols)
+        if method == "grid":
+            kwargs.setdefault('nb_iterations', int(route.shape[0]) + nb_orientations * nb_rows * nb_cols)
+        elif method == "parallel":
+            kwargs.setdefault('nb_iterations', int(route.shape[0]) * (nb_orientations * nb_parallel + 1))
         kwargs.setdefault('name', 'vn-simulation')
         super().__init__(**kwargs)
 
@@ -1153,13 +1158,23 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
 
         self._eye = eye
 
-        self._has_grid = True
+        self._has_grid = False
+        self._has_parallel_routes = False
+        if method == "grid":
+            self._has_grid = True
+        elif method == "parallel":
+            self._has_parallel_routes = True
         self._outbound = True
         self._dump_map = np.empty((nb_rows, nb_cols, nb_orientations))
         self.__nb_cols = nb_cols
         self.__nb_rows = nb_rows
         self.__nb_oris = nb_orientations
         self.__ndindex = [index for index in np.ndindex(self._dump_map.shape[:3])]
+
+        route_length = self._route[-1, :2] - self._route[0, :2]
+        norm_length = route_length / np.linalg.norm(route_length)
+        self._disposition = np.array([-norm_length[1], norm_length[0]])
+        self._disposition_step = disposition_step
 
         self._stats = {
             "ommatidia": [],
@@ -1216,6 +1231,18 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
             y = row2y(row, nb_rows=self.nb_rows, max_meters=10.)
             z = self._eye.z
             yaw = ori2yaw(ori, nb_oris=self.nb_orientations, degrees=True)
+        elif self.has_parallel_routes:  # build parallel routes
+            j = i - self._route.shape[0] * int(self.has_outbound)
+            m = (j // self.nb_orientations) % self._route.shape[0]
+            k = j // (self._route.shape[0] * self.nb_orientations)
+            ori = j % self.nb_orientations
+            r = self._disposition_step * float((k % 2 - (k + 1) % 2) * ((k + 1) // 2))
+            shift = r * self._disposition
+            x = self._route[m, 0] + shift[0]
+            y = self._route[m, 1] + shift[1]
+            z = self._eye.z
+            yaw = ori2yaw(ori, nb_oris=self.nb_orientations, degrees=True)
+            print(j, m, ori, k, r, shift)
         else:
             return
 
@@ -1241,18 +1268,34 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
     def message(self):
         x, y, z = self._eye.xyz
         yaw = self._eye.yaw_deg
-        col = x2col(x, nb_cols=self.nb_cols, max_meters=10.)
-        row = y2row(y, nb_rows=self.nb_rows, max_meters=10.)
-        ori = yaw2ori(yaw, nb_oris=self.nb_orientations, degrees=True)
 
         if len(self._stats["ommatidia"]) > 1:
             omm_2, omm_1 = self._stats["ommatidia"][-2:]
             omm_diff = np.sqrt(np.square(omm_1 - omm_2).mean())
         else:
             omm_diff = 0.
+
+        x_ext, y_ext, phi_ext = "", "", ""
+        if self.has_grid:
+            col = x2col(x, nb_cols=self.nb_cols, max_meters=10.)
+            row = y2row(y, nb_rows=self.nb_rows, max_meters=10.)
+            ori = yaw2ori(yaw, nb_oris=self.nb_orientations, degrees=True)
+
+            x_ext = " (col: % 4d)" % col
+            y_ext = " (row: % 4d)" % row
+            phi_ext = " (ori: % 4d)" % ori
+        elif self.has_parallel_routes:
+            ori = yaw2ori(yaw, nb_oris=self.nb_orientations, degrees=True)
+            i = (self._iteration - self._route.shape[0]) // self.nb_orientations
+            if i >= 0:
+                x_ext = " (x': %.2f)" % self._route[i % self._route.shape[0], 0]
+                y_ext = " (y': %.2f)" % self._route[i % self._route.shape[0], 1]
+
+            phi_ext = " (ori: % 4d)" % ori
+
         return (super().message() +
-                " - x: %.2f (col: % 4d), y: %.2f (row: % 4d), z: %.2f, Φ: % 4d (scan: % 4d), omm (change): %.2f%%"
-                ) % (x, col, y, row, z, yaw, ori, omm_diff * 100)
+                " - x: %.2f%s, y: %.2f%s, z: %.2f, Φ: % 4d%s, omm (change): %.2f%%"
+                ) % (x, x_ext, y, y_ext, z, yaw, phi_ext, omm_diff * 100)
 
     @property
     def world(self):
@@ -1321,6 +1364,17 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
         return self._dump_map.shape[2]
 
     @property
+    def disposition_step(self):
+        """
+        The step size of the parallel disposition in meters.
+
+        Returns
+        -------
+        float
+        """
+        return self._disposition_step
+
+    @property
     def has_grid(self):
         """
         Whether the simulation will run a grid (test) phase.
@@ -1339,6 +1393,26 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
         v: bool
         """
         self._has_grid = v
+
+    @property
+    def has_parallel_routes(self):
+        """
+        Whether the simulation will run a pallelel-route (test) phase.
+
+        Returns
+        -------
+        bool
+        """
+        return self._has_parallel_routes
+
+    @has_parallel_routes.setter
+    def has_parallel_routes(self, v):
+        """
+        Parameters
+        ----------
+        v: bool
+        """
+        self._has_parallel_routes = v
 
     @property
     def has_outbound(self):
