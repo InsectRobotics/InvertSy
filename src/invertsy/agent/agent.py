@@ -14,11 +14,12 @@ __maintainer__ = "Evripidis Gkanias"
 from ._helpers import eps, RNG
 
 from invertpy.sense import PolarisationSensor, CompoundEye, Sensor
-from invertpy.brain import WillshawNetwork, CentralComplex, PolarisationCompass, Component
+from invertpy.brain import WillshawNetwork, PolarisationCompass, Component
+from invertpy.brain.centralcomplex import StoneCX, VectorMemoryCX
 from invertpy.brain.memory import MemoryComponent
 from invertpy.brain.activation import winner_takes_all, relu
 from invertpy.brain.compass import ring2sph
-from invertpy.brain.preprocessing import Whitening, DiscreteCosineTransform, pca
+from invertpy.brain.preprocessing import Whitening, ZernikeMoments, MentalRotation, pca
 
 from scipy.spatial.transform import Rotation as R
 from copy import copy
@@ -524,7 +525,7 @@ class Agent(object):
 
 class PathIntegrationAgent(Agent):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, nb_feeders=1, *args, **kwargs):
         """
         Agent specialised in the path integration task. It contains the Dorsal Rim Area as a sensor, the polarised
         light compass and the central complex as brain components.
@@ -533,7 +534,7 @@ class PathIntegrationAgent(Agent):
 
         pol_sensor = PolarisationSensor(nb_input=60, field_of_view=56, degrees=True)
         pol_brain = PolarisationCompass(nb_pol=60, loc_ori=copy(pol_sensor.omm_ori), nb_sol=8, integrated=True)
-        cx = CentralComplex(nb_tb1=8)
+        cx = VectorMemoryCX(nb_tb1=8, nb_motivations=2, nb_rings=nb_feeders + 1)
 
         self.add_sensor(pol_sensor, local=True)
         self.add_brain_component(pol_brain)
@@ -545,7 +546,7 @@ class PathIntegrationAgent(Agent):
 
         self._default_flow = self._dx * np.ones(2) / np.sqrt(2)
 
-    def _sense(self, sky=None, scene=None, flow=None, **kwargs):
+    def _sense(self, sky=None, scene=None, flow=None, motivation=None, **kwargs):
         """
         Using its only sensor (the dorsal rim area) it senses the radiation from the sky which is interrupted by the
         given scene, and the optic flow for self motion calculation.
@@ -576,9 +577,12 @@ class PathIntegrationAgent(Agent):
             # else:
             #     flow = optic_flow(world, self._dx)
 
+        if motivation is None:
+            motivation = np.array([1, 0])
+
         r_tcl = self._pol_brain(r_pol=r, ori=self._pol_sensor.ori)
         _, phi = ring2sph(r_tcl)
-        return self._cx(phi=phi, flow=flow)
+        return self._cx(phi=phi, flow=flow, motivation=motivation)
 
     def _act(self):
         """
@@ -589,13 +593,13 @@ class PathIntegrationAgent(Agent):
         self.move_forward()
 
     @staticmethod
-    def get_steering(cx) -> float:
+    def get_steering(cx):
         """
         Outputs a scalar where sign determines left or right turn.
 
         Parameters
         ----------
-        cx: CentralComplex
+        cx: StoneCX
             the central complex instance of the agent
 
         Returns
@@ -606,14 +610,15 @@ class PathIntegrationAgent(Agent):
 
         cpu1a = cx.r_cpu1[1:-1]
         cpu1b = np.array([cx.r_cpu1[-1], cx.r_cpu1[0]])
-        motor = cpu1a @ cx.w_cpu1a2motor + cpu1b @ cx.w_cpu1b2motor
+        motor = np.dot(cpu1a, cx.w_cpu1a2motor) + np.dot(cpu1b, cx.w_cpu1b2motor)
         output = motor[0] - motor[1]  # * .25  # to kill the noise a bit!
         return output
 
 
 class VisualNavigationAgent(Agent):
 
-    def __init__(self, eye=None, memory=None, saturation=1.5, nb_scans=7, freq_trans=False, whitening=pca,
+    def __init__(self, eye=None, memory=None, saturation=1.5, nb_scans=7, nb_visual=None,
+                 mental_scanning=0, zernike=False, whitening=pca,
                  *args, **kwargs):
         """
         Agent specialised in the visual navigation task. It contains the CompoundEye as a sensor and the mushroom body
@@ -632,18 +637,22 @@ class VisualNavigationAgent(Agent):
             Default is 1.5
         nb_scans: int, optional
             the number of scans during the route following task. Default is 7
-        freq_trans: bool, optional
+        zernike: bool, optional
             whether to transform the visual input into the frequency domain by using the DCT method. Default is False
         """
         super().__init__(*args, **kwargs)
 
         if eye is None:
-            eye = CompoundEye(nb_input=5000, omm_pol_op=0, noise=0., omm_rho=np.deg2rad(15), omm_res=saturation,
+            eye = CompoundEye(nb_input=1000, omm_pol_op=0, noise=0., omm_rho=np.deg2rad(15), omm_res=saturation,
                               c_sensitive=[0, 0., 1., 0., 0.])
+
+        nb_input = eye.nb_ommatidia
+        if nb_visual is None:
+            nb_visual = nb_input
 
         if memory is None:
             # #KC = 40 * #PN
-            memory = WillshawNetwork(nb_input=eye.nb_ommatidia, nb_sparse=eye.nb_ommatidia * 40, sparseness=0.01,
+            memory = WillshawNetwork(nb_input=nb_visual, nb_sparse=eye.nb_ommatidia * 40, sparseness=0.01,
                                      eligibility_trace=.1)
 
         self.add_sensor(eye)
@@ -657,20 +666,32 @@ class VisualNavigationAgent(Agent):
         The preferred angles for scanning
         """
         
-        if nb_scans <= 1:
+        if nb_scans <= 1 and mental_scanning <= 1:
             self._pref_angles = np.array([0], dtype=self.dtype)
+        elif nb_scans > 1:
+            self._pref_angles = np.linspace(-60, 60, nb_scans)
+        elif mental_scanning > 1:
+            self._pref_angles = np.linspace(0, 360, mental_scanning, endpoint=False)
 
         self._familiarity = np.zeros_like(self._pref_angles)
         """
         The familiarity of each preferred angle
         """
 
-        self._preprocessing = [Whitening(nb_input=eye.nb_ommatidia, w_method=whitening, dtype=eye.dtype)]
+        self._preprocessing = []
         """
         List of the preprocessing components
         """
-        if freq_trans:
-            self._preprocessing.insert(-1, DiscreteCosineTransform(nb_input=eye.nb_ommatidia, dtype=eye.dtype))
+
+        if mental_scanning > 1:
+            self._preprocessing.append(MentalRotation(eye=eye, pref_angles=np.deg2rad(self._pref_angles)))
+
+        if whitening is not None:
+            self._preprocessing.append(Whitening(nb_input=nb_input, nb_output=nb_visual,
+                                                 w_method=whitening, dtype=eye.dtype))
+            nb_input = nb_visual
+        if zernike:
+            self._preprocessing.append(ZernikeMoments(nb_input=nb_input, ori=eye.omm_ori, dtype=eye.dtype))
 
         self.reset()
 
@@ -707,37 +728,57 @@ class VisualNavigationAgent(Agent):
 
         if self.update:
             r = self.get_pn_responses(sky=sky, scene=scene, omm_responses=omm_responses)
-            r_mbon = self._mem(inp=r, reinforcement=np.ones(1, dtype=self.dtype))
-            self._familiarity[0] = self.get_familiarity(r_mbon, self._mem.r_hid)
+            # us = np.zeros_like(self.pref_angles)
+            # us[0] = 1.
+            us = np.power((np.cos(np.deg2rad(self.pref_angles)) + 1) / 2, 32)
+            us -= np.mean(us)
+            us /= np.max(us)
+            # us = np.maximum(us, 0)
+            self._mem(inp=r, reinforcement=us)
+            if self._mem.neuron_dims > 1 or self._mem.nb_output > 1:
+                self._familiarity[:] = self._mem.familiarity.flatten()
+            else:
+                self._familiarity[0] = self._mem.familiarity[0].flatten()
         else:
-            ori = copy(self.ori)
-
-            r_inp = copy(self._mem.r_inp)
-            r_hid = copy(self._mem.r_hid)
-            r_out = copy(self._mem.r_out)
-
             inp, hid, out = [], [], []
-            for i, angle in enumerate(self._pref_angles):
-                self._mem._inp = copy(r_inp)
-                self._mem._hid = copy(r_hid)
-                self._mem._out = copy(r_out)
 
-                self.ori = ori * R.from_euler('Z', angle, degrees=True)
+            if self._mem.neuron_dims > 1 or self._mem.nb_output > 1:
+
                 r = self.get_pn_responses(sky=sky, scene=scene, omm_responses=omm_responses)
-                r_out_ = self._mem(inp=r)
-                self._familiarity[i] = self.get_familiarity(r_out_, self._mem.r_hid)
+                self._mem(inp=r)
+                self._familiarity[:] = self._mem.familiarity.flatten()
 
-                inp.append(copy(self._mem.r_inp))
-                hid.append(copy(self._mem.r_hid))
-                out.append(copy(self._mem.r_out))
+                inp.extend(self._mem.r_inp)
+                hid.extend(self._mem.r_hid)
+                out.extend(self._mem.r_out)
+            else:
+                ori = copy(self.ori)
 
-            self.ori = ori
+                r_inp = copy(self._mem.r_inp)
+                r_hid = copy(self._mem.r_hid)
+                r_out = copy(self._mem.r_out)
 
-            i = self._familiarity.argmax()
+                for i, angle in enumerate(self._pref_angles):
+                    self._mem._inp = copy(r_inp)
+                    self._mem._hid = copy(r_hid)
+                    self._mem._out = copy(r_out)
 
-            self._mem._inp = inp[i]
-            self._mem._hid = hid[i]
-            self._mem._out = out[i]
+                    self.ori = ori * R.from_euler('Z', angle, degrees=True)
+                    r = self.get_pn_responses(sky=sky, scene=scene, omm_responses=omm_responses)
+                    self._mem(inp=r)
+                    self._familiarity[i] = self._mem.familiarity[0].flatten()
+
+                    inp.append(copy(self._mem.r_inp))
+                    hid.append(copy(self._mem.r_hid))
+                    out.append(copy(self._mem.r_out))
+
+                self.ori = ori
+
+                i = self._familiarity.argmax()
+
+                self._mem._inp = inp[i]
+                self._mem._hid = hid[i]
+                self._mem._out = out[i]
 
         return self._familiarity
 
@@ -782,7 +823,9 @@ class VisualNavigationAgent(Agent):
         if omm_responses is not None:
             nb_samples = omm_responses.shape[0]
 
-        samples = np.zeros((nb_samples, self._mem.nb_input), dtype=self.dtype)
+        nb_ms = self.nb_mental_rotations
+
+        samples = np.zeros((nb_samples * nb_ms, self._eye.nb_ommatidia), dtype=self.dtype)
         xyzs, oris = [], []
         for i in range(nb_samples):
             if omm_responses is None:
@@ -793,7 +836,7 @@ class VisualNavigationAgent(Agent):
 
             print("Calibration: %d/%d - x: %.2f, y: %.2f, z: %.2f, yaw: %d" % (
                 i + 1, nb_samples, self.x, self.y, self.z, self.yaw_deg))
-            samples[i] = self.get_pn_responses(sky, scene, omm_responses[i])
+            samples[i*nb_ms:(i+1)*nb_ms] = self.get_pn_responses(sky, scene, omm_responses[i], raw=True)
         self._preprocessing[-1].reset(samples)
 
         self.xyz = xyz
@@ -803,7 +846,7 @@ class VisualNavigationAgent(Agent):
 
         return xyzs, oris
 
-    def get_pn_responses(self, sky=None, scene=None, omm_responses=None):
+    def get_pn_responses(self, sky=None, scene=None, omm_responses=None, raw=False):
         """
         Transforms the current snapshot of the environment into the PN responses.
 
@@ -828,8 +871,24 @@ class VisualNavigationAgent(Agent):
             omm_responses = self._eye(sky=sky, scene=scene)
 
         r = np.clip(omm_responses.mean(axis=1), 0, 1)
-        for process in self._preprocessing:
-            r = process(r)
+        if not raw:
+            for process in self._preprocessing:
+                r = process(r)
+
+        if r.ndim < 2:
+            r = r[np.newaxis, :]
+
+        if self.is_calibrated and False:
+            import matplotlib.pyplot as plt
+
+            plt.figure("preprocessing", figsize=(10, 10))
+
+            yaw, pitch, _ = self._eye.omm_ori.as_euler('ZYX', degrees=True).T
+            for i in range(r.shape[0]):
+                plt.subplot(4, 4, i + 1)
+                plt.scatter(yaw, -pitch, s=20, c=r[i], cmap='coolwarm', vmin=-1, vmax=1)
+
+            plt.show()
         return r
 
     def get_omm_responses(self, sky=None, scene=None):
@@ -1008,27 +1067,3 @@ class VisualNavigationAgent(Agent):
         if degrees:
             steer = np.rad2deg(steer)
         return steer
-
-    def get_familiarity(self, r_out=None, r_spr=None):
-        """
-        Computes the familiarity using the MBON responses.
-
-        Parameters
-        ----------
-        r_out: np.ndarray[float]
-            MBON responses
-        r_spr: np.ndarray[float]
-            KC responses
-
-        Returns
-        -------
-        float
-            the familiarity
-        """
-        if r_out is None:
-            r_out = self._mem.r_out
-        if r_spr is None or len(r_spr) < 1:
-            r_spr = np.ones(1, self.dtype)
-
-        novelty = np.clip(r_out / np.maximum(np.sum(r_spr > 0), 1), 0, 1)
-        return np.power(1. - novelty, 4096)
