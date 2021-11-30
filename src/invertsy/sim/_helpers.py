@@ -10,7 +10,7 @@ import matplotlib.image
 import numpy as np
 
 
-def create_map_axis(world=None, nest=None, feeder=None, subplot=111, ax=None):
+def create_map_axis(world=None, nest=None, feeders=None, subplot=111, ax=None):
     """
     Draws a map with all the vegetation from the world (if given), the nest and feeder positions (if given) and returns
     the ongoing and previous paths of the agent, the agent's current position, the marker (arror) of the agents facing
@@ -60,9 +60,12 @@ def create_map_axis(world=None, nest=None, feeder=None, subplot=111, ax=None):
         ax.scatter([nest[1]], [nest[0]], marker='o', s=50, c='black')
         ax.text(nest[1] - 1, nest[0] - .5, "Nest")
 
-    if feeder is not None:
-        ax.scatter([feeder[1]], [feeder[0]], marker='o', s=50, c='black')
-        ax.text(feeder[1] + .2, feeder[0] + .2, "Feeder")
+    if feeders is not None:
+        if not isinstance(feeders, list):
+            feeders = [feeders]
+        for feeder in feeders:
+            ax.scatter([feeder[1]], [feeder[0]], marker='o', s=50, c='black')
+            ax.text(feeder[1] + .2, feeder[0] + .2, "Feeder")
 
     ax.set_ylim(0, 10)
     ax.set_xlim(0, 10)
@@ -1093,7 +1096,7 @@ def col2x(col, nb_cols, max_meters=10.):
     float
         the 'x' coordinate
     """
-    return np.float32(col) / float(nb_cols) * float(max_meters)
+    return np.float32(col * max_meters) / np.float32(nb_cols)
 
 
 def x2col(x, nb_cols, max_meters=10.):
@@ -1114,7 +1117,7 @@ def x2col(x, nb_cols, max_meters=10.):
     int :
         the column number
     """
-    return int(float(x) / float(max_meters) * float(nb_cols))
+    return np.int(np.float32(x * nb_cols) / np.float32(max_meters))
 
 
 def row2y(row, nb_rows, max_meters=10.):
@@ -1135,7 +1138,7 @@ def row2y(row, nb_rows, max_meters=10.):
     float
         the 'y' coordinate
     """
-    return np.float32(row) / float(nb_rows) * float(max_meters)
+    return np.float32(row * max_meters) / np.float32(nb_rows)
 
 
 def y2row(y, nb_rows, max_meters=10):
@@ -1156,7 +1159,7 @@ def y2row(y, nb_rows, max_meters=10):
     int :
         the row number
     """
-    return int(float(y) / float(max_meters) * float(nb_rows))
+    return np.int(np.float32(y * nb_rows) / np.float32(max_meters))
 
 
 def ori2yaw(ori, nb_oris, degrees=True):
@@ -1178,8 +1181,8 @@ def ori2yaw(ori, nb_oris, degrees=True):
         the yaw direction
     """
 
-    two_pi = 360. if degrees else (2 * np.pi)
-    return (float(ori) / float(nb_oris) * two_pi + two_pi / 2) % two_pi - two_pi / 2
+    two_pi = np.float32(360. if degrees else (2 * np.pi))
+    return (np.float32(ori) * two_pi / np.float32(nb_oris) + two_pi / 2) % two_pi - two_pi / 2
 
 
 def yaw2ori(yaw, nb_oris, degrees=True):
@@ -1200,6 +1203,6 @@ def yaw2ori(yaw, nb_oris, degrees=True):
     int :
         the orientation identity
     """
-    two_pi = 360. if degrees else (2 * np.pi)
-    return int(float(yaw % two_pi) / two_pi * float(nb_oris))
+    two_pi = np.float32(360. if degrees else (2 * np.pi))
+    return np.int(np.float32((yaw % two_pi) * nb_oris) / two_pi)
 

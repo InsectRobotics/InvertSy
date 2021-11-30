@@ -49,6 +49,7 @@ class Simulation(object):
         """
         self._nb_iterations = nb_iterations
         self._iteration = 0
+        self._message_intervals = 1
         self._stats = {}
         self._name = name
 
@@ -137,7 +138,8 @@ class Simulation(object):
 
             for self._iteration in range(self._iteration, self.nb_frames):
                 dt = self.step(self._iteration)
-                print(self.message() + " - time: %.2f sec" % dt)
+                if self._iteration % self.message_intervals == 0:
+                    print(self.message() + " - time: %.2f sec" % dt)
         except KeyboardInterrupt:
             print("Simulation interrupted by keyboard!")
         finally:
@@ -197,6 +199,21 @@ class Simulation(object):
         int
         """
         return self._iteration
+
+    @property
+    def message_intervals(self):
+        """
+        The number of steps between printed messages.
+
+        Returns
+        -------
+        int
+        """
+        return self._message_intervals
+
+    @message_intervals.setter
+    def message_intervals(self, v):
+        self._message_intervals = v
 
     @property
     def name(self):
@@ -391,7 +408,7 @@ class VisualNavigationSimulation(Simulation):
             if nb_ommatidia is not None:
                 eye = CompoundEye(nb_input=nb_ommatidia, omm_pol_op=0, noise=0., omm_rho=np.deg2rad(15),
                                   omm_res=saturation, c_sensitive=[0, 0., 1., 0., 0.])
-            agent = VisualNavigationAgent(eye=eye, saturation=saturation, freq_trans=frequency, nb_scans=nb_scans,
+            agent = VisualNavigationAgent(eye=eye, saturation=saturation, zernike=frequency, nb_scans=nb_scans,
                                           speed=0.01)
         self._agent = agent
 
@@ -767,7 +784,7 @@ class VisualFamiliaritySimulation(Simulation):
             if nb_ommatidia is not None:
                 eye = CompoundEye(nb_input=nb_ommatidia, omm_pol_op=0, noise=0., omm_rho=np.deg2rad(15),
                                   omm_res=saturation, c_sensitive=[0, 0., 1., 0., 0.])
-            agent = VisualNavigationAgent(eye=eye, saturation=saturation, freq_trans=frequency, speed=0.01)
+            agent = VisualNavigationAgent(eye=eye, saturation=saturation, zernike=frequency, speed=0.01)
         self._agent = agent
 
         if sky is None:
@@ -1346,7 +1363,7 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
 
 class VisualFamiliarityGridExplorationSimulation(Simulation):
 
-    def __init__(self, data, nb_rows, nb_cols, nb_oris, agent=None, calibrate=False, saturation=5., **kwargs):
+    def __init__(self, data, nb_rows, nb_cols, nb_oris, agent=None, calibrate=False, saturation=5., pre_training=False, **kwargs):
         """
         Runs the route following task for an autonomous agent, by using entirely its vision. First it forces the agent
         to run through a predefined route. Then it places the agent back at the beginning and lets it autonomously reach
@@ -1382,7 +1399,7 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         views_grid = data["ommatidia"]
         grid = data["positions"]
 
-        kwargs.setdefault('nb_iterations', int(route.shape[0]) + int(grid.shape[0]))
+        kwargs.setdefault('nb_iterations', int(route.shape[0]) * (1 + int(pre_training)) + int(grid.shape[0]))
         kwargs.setdefault('name', 'vn-simulation')
         super().__init__(**kwargs)
 
@@ -1411,6 +1428,7 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         self.__nb_rows = nb_rows
         self.__nb_oris = nb_oris
         self.__ndindex = [index for index in np.ndindex(self._familiarity_map.shape[:3])]
+        self.__pre_training = pre_training
 
         self._stats = {
             "familiarity_map": self._familiarity_map,
@@ -1429,9 +1447,9 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         """
         self._iteration = 0
         route_xyzs = self._route[:self._route_length, :3]
-        d_nest = np.linalg.norm(route_xyzs - route_xyzs[-1], axis=1)
-        xyzs = route_xyzs[d_nest < 2.]
-        i = self.agent.rng.permutation(np.arange(xyzs.shape[0]))[:32]
+        d_nest = np.linalg.norm(self._route[:, :3] - self._route[self._route_length, :3], axis=1)
+        xyzs = self._route[d_nest < 2., :3]
+        i = self.agent.rng.permutation(np.arange(xyzs.shape[0]))[:self._views.shape[1]]
         xyzs = xyzs[i]
         if self._calibrate and not self._agent.is_calibrated:
             self._agent.xyz = self._route[self._route_length-1, :3]
@@ -1483,9 +1501,11 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         i: int
             the iteration ID to run
         """
-        row, col, ori = 0, 0, 0
-
-        if i == self._route_length:  # initialise route following
+        if self.__pre_training and i == self._route_length:
+            self.reset()
+        elif i == self._route_length:  # initialise route following
+            self.init_grid()
+        elif self.__pre_training and i == 2 * self._route_length:
             self.init_grid()
 
         x, y, z, yaw = self._route[i]
@@ -1499,7 +1519,6 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
             row = y2row(y, nb_rows=self.nb_rows, max_meters=10.)
             ori = yaw2ori(yaw, nb_oris=self.nb_orientations, degrees=True)
             self._familiarity_map[row, col, ori] = self.familiarity
-            print(col, row, ori, self._stats["familiarity_map"][row, col, ori])
 
     def update_stats(self, a):
         """
@@ -1513,11 +1532,13 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
 
         assert a == self.agent, "The input agent should be the same as the one used in the simulation!"
 
-        self._stats["ommatidia"].append(self._views[self._iteration])
-        self._stats["position"].append(self._route[self._iteration])
-        self._stats["input_layer"].append(self.mem.r_inp.copy())
-        self._stats["hidden_layer"].append(self.mem.r_hid.copy())
-        self._stats["output_layer"].append(self.mem.r_out.copy())
+        self._stats["ommatidia"].append(np.asarray(self._views[self._iteration], dtype=self.mem.dtype))
+        self._stats["position"].append(np.asarray(self._route[self._iteration], dtype=self.mem.dtype))
+        self._stats["input_layer"].append(self.mem.r_inp[0].copy())
+        self._stats["hidden_layer"].append(self.mem.r_hid[0].copy())
+        # if len(self._stats["hidden_layer"]) > 2:
+        #     self._stats["hidden_layer"] = self._stats["hidden_layer"][-2:]
+        self._stats["output_layer"].append(self.mem.r_out[0].copy())
         self._stats["capacity"].append(self.mem.free_space)
         self._stats["familiarity"].append(self.familiarity)
 
@@ -1612,8 +1633,9 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
         -------
         float
         """
-        fam_array = self._agent.familiarity
-        return fam_array[len(fam_array) // 2] if self._iteration < self._route.shape[0] else fam_array.max()
+        v = np.exp(-1j * np.deg2rad(self._agent.pref_angles))
+        w = np.power(np.cos(self._agent.pref_angles) / 2 + .5, 4)
+        return np.clip(np.sum(w * v * self._agent.familiarity / np.sum(w)).real, 0, 1)
 
     @property
     def capacity(self):
@@ -1734,12 +1756,12 @@ class PathIntegrationSimulation(Simulation):
             the name of the simulation. Default is the name of the world or 'simulation'
         """
         name = kwargs.pop('name', None)
-        kwargs.setdefault('nb_iterations', int(2.5 * route.shape[0]))
+        kwargs.setdefault('nb_iterations', int(3.5 * route.shape[0]))
         super().__init__(*args, **kwargs)
         self._route = route
 
         if agent is None:
-            agent = PathIntegrationAgent(speed=.01)
+            agent = PathIntegrationAgent(nb_feeders=1, speed=.01)
         self._agent = agent
 
         if sky is None:
@@ -1752,6 +1774,8 @@ class PathIntegrationSimulation(Simulation):
 
         self._compass_sensor = agent.sensors[0]
         self._compass_model, self._cx = agent.brain
+
+        self._foraging = True
 
     def reset(self):
         """
@@ -1801,9 +1825,24 @@ class PathIntegrationSimulation(Simulation):
             self._agent.xyz = [x, y, z]
             self._agent.ori = R.from_euler('Z', yaw, degrees=True)
             act = False
-        elif i == self.route.shape[0]:
+            self._foraging = True
+        elif i == self._route.shape[0]:
             self.init_inbound()
-        self._agent(sky=self._sky, act=act, callback=self.update_stats)
+            self._foraging = False
+        elif np.linalg.norm(self.agent.xyz - self.route[-1, :3]) < .5:
+            self._foraging = False
+            print("START PI FROM FEEDER")
+        elif self.d_nest < 0.5:
+            # self._agent.xyz = self._route_a[0, :3]
+            self._foraging = True
+            print("START FORAGING!")
+
+        if self._foraging:
+            motivation = np.array([0, 1])
+        else:
+            motivation = np.array([1, 0])
+
+        self._agent(sky=self._sky, act=act, motivation=motivation, callback=self.update_stats)
 
     def update_stats(self, a):
         """
@@ -1825,7 +1864,7 @@ class PathIntegrationSimulation(Simulation):
         self._stats["CPU4"].append(cx.r_cpu4.copy())
         self._stats["CPU4mem"].append(cx.cpu4_mem.copy())
         self._stats["path"].append([a.x, a.y, a.z, a.yaw])
-        self._stats["L"].append(np.linalg.norm(a.xyz - self._route[-1, :3]))
+        self._stats["L"].append(np.linalg.norm(a.xyz - self._route[0, :3]))
         c = self._stats["C"][-1] if len(self._stats["C"]) > 0 else 0.
         if len(self._stats["path"]) > 1:
             step = np.linalg.norm(np.array(self._stats["path"][-1])[:3] - np.array(self._stats["path"][-2])[:3])
@@ -1897,6 +1936,323 @@ class PathIntegrationSimulation(Simulation):
         """
         return (self._stats["L"][-1] if len(self._stats["L"]) > 0
                 else np.linalg.norm(self._route[-1, :3] - self._route[0, :3]))
+
+    @property
+    def r_pol(self):
+        """
+        The POL responses of the compass model of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._compass_model.r_pol.T.flatten()
+
+    @property
+    def r_tb1(self):
+        """
+        The TB1 responses of the central complex of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._cx.r_tb1.T.flatten()
+
+    @property
+    def r_cl1(self):
+        """
+        The CL1 responses of the central complex of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._cx.r_cl1.T.flatten()
+
+    @property
+    def r_cpu1(self):
+        """
+        The CPU1 responses of the central complex of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._cx.r_cpu1.T.flatten()
+
+    @property
+    def r_cpu4(self):
+        """
+        The CPU4 responses of the central complex of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._cx.r_cpu4.T.flatten()
+
+    @property
+    def cpu4_mem(self):
+        """
+        The CPU4 memory of the central complex of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._cx.cpu4_mem.T.flatten()
+
+
+class TwoSourcePathIntegrationSimulation(Simulation):
+
+    def __init__(self, route_a, route_b=None, agent=None, sky=None, world=None, *args, **kwargs):
+        """
+        Runs the path integration task.
+        An agent equipped with a compass and the central complex is forced to follow a route and then it is asked to
+        return to its initial position.
+
+        Parameters
+        ----------
+        route_a: np.ndarray[float]
+            N x 4 matrix that holds the 3D position (x, y, z) and 1D orientation (yaw) for each iteration of the route
+        agent: PathIntegrationAgent, optional
+            the agent that will be used for the path integration. Default is a `PathIntegrationAgent(speed=.01)`
+        sky: Sky, optional
+            the sky of the environment. Default is a sky with the sun to the South and 30 degrees above the horizon
+        world: WorldBase, optional
+            the world that creates the scenery disturbing the celestial compass or using the visual surroundings as a
+            a compass. Default is None
+
+        Other Parameters
+        ----------------
+        nb_iterations: int, optional
+            the number of iterations to run the simulation. Default is 2.5 times the number of time-steps of the route
+        name: str, optional
+            the name of the simulation. Default is the name of the world or 'simulation'
+        """
+        if route_b is None:
+            route_b = route_a.copy()
+            route_b[:, [1, 3]] = -route_b[:, [1, 3]]
+            route_b[:, :3] += route_a[0, :3] - route_b[0, :3]
+
+        name = kwargs.pop('name', None)
+        kwargs.setdefault('nb_iterations', int(3. * route_a.shape[0] + 3. * route_b.shape[0]))
+        super().__init__(*args, **kwargs)
+        self._route_a = route_a
+        self._route_b = route_b
+
+        if agent is None:
+            agent = PathIntegrationAgent(nb_feeders=2, speed=.01)
+        self._agent = agent
+
+        if sky is None:
+            sky = Sky(30, 180, degrees=True)
+        self._sky = sky
+        self._world = world
+
+        if name is None and world is not None:
+            self._name = world.name
+
+        self._compass_sensor = agent.sensors[0]
+        self._compass_model, self._cx = agent.brain
+
+        self._foraging = True
+        self._b_iter_offset = None
+
+    def reset(self):
+        """
+        Resets the agent anf the logged statistics.
+        """
+        self._stats["POL"] = []
+        self._stats["SOL"] = []
+        self._stats["TB1"] = []
+        self._stats["CL1"] = []
+        self._stats["CPU1"] = []
+        self._stats["CPU4"] = []
+        self._stats["CPU4mem"] = []
+        self._stats["path"] = []
+        self._stats["L"] = []
+        self._stats["C"] = []
+
+        self._b_iter_offset = None
+        self._foraging = True
+
+        self.agent.reset()
+
+    def init_inbound(self, route_name='a'):
+        """
+        Sets up the inbound phase from source A.
+        Changes the labels of the logged stats to their outbound equivalent and resets them for the new phase to come.
+
+        Parameters
+        ----------
+        route_name : str, optional
+            the route for which to initialise the inbound route. Default is 'a'
+        """
+        # create a separate line
+        if route_name == 'a':
+            self._stats["outbound"] = copy(self._stats["path"])
+            self._stats["L_out"] = copy(self._stats["L"])
+            self._stats["C_out"] = copy(self._stats["C"])
+            self._stats["path"] = []
+            self._stats["L"] = []
+            self._stats["C"] = []
+
+    def _step(self, i):
+        """
+        Runs one iteration of the simulation. If the iteration is less than the maximum number of iterations in the
+        route it forces the agent to follow the route, otherwise it lets the agent decide its actions.
+
+        Parameters
+        ----------
+        i: int
+            the iteration ID
+        """
+        self._iteration = i
+
+        act = True
+        if self._foraging:
+            run_a = i < self._route_a.shape[0]
+            run_b = self._b_iter_offset is None or (
+                    self._b_iter_offset is not None and i - self._b_iter_offset < self._route_b.shape[0])
+            if run_a:  # outbound
+                x, y, z, yaw = self._route_a[i]
+                self._agent.xyz = [x, y, z]
+                self._agent.ori = R.from_euler('Z', yaw, degrees=True)
+                act = False
+            elif run_b:
+                if self._b_iter_offset is None:
+                    self._b_iter_offset = i
+                x, y, z, yaw = self._route_b[i - self._b_iter_offset]
+                self._agent.xyz = [x, y, z]
+                self._agent.ori = R.from_euler('Z', yaw, degrees=True)
+                act = False
+
+        if np.linalg.norm(self.agent.xyz - self.route_a[-1, :3]) < .1:
+            self.init_inbound('a')
+            self._foraging = False
+            print("START PI FROM A")
+        elif np.linalg.norm(self.agent.xyz - self.route_b[-1, :3]) < .1:
+            self.init_inbound('b')
+            self._foraging = False
+            print("START PI FROM B")
+        elif self.d_nest < 0.5:
+            # self._agent.xyz = self._route_a[0, :3]
+            self._foraging = True
+            print("START FORAGING!")
+        if self._foraging:
+            motivation = np.array([0, 1])
+        else:
+            motivation = np.array([1, 0])
+
+        self._agent(sky=self._sky, act=act, motivation=motivation, callback=self.update_stats)
+
+    def update_stats(self, a):
+        """
+        Updates the logged statistics of the agent.
+
+        Parameters
+        ----------
+        a: PathIntegrationAgent
+        """
+
+        assert a == self.agent, "The input agent should be the same as the one used in the simulation!"
+
+        compass, cx = a.brain
+        self._stats["POL"].append(compass.r_pol.copy())
+        self._stats["SOL"].append(compass.r_sol.copy())
+        self._stats["TB1"].append(cx.r_tb1.copy())
+        self._stats["CL1"].append(cx.r_cl1.copy())
+        self._stats["CPU1"].append(cx.r_cpu1.copy())
+        self._stats["CPU4"].append(cx.r_cpu4.copy())
+        self._stats["CPU4mem"].append(cx.cpu4_mem.copy())
+        self._stats["path"].append([a.x, a.y, a.z, a.yaw])
+        self._stats["L"].append(np.linalg.norm(a.xyz - self._route_a[0, :3]))
+        c = self._stats["C"][-1] if len(self._stats["C"]) > 0 else 0.
+        if len(self._stats["path"]) > 1:
+            step = np.linalg.norm(np.array(self._stats["path"][-1])[:3] - np.array(self._stats["path"][-2])[:3])
+        else:
+            step = 0.
+        self._stats["C"].append(c + step)
+
+    def message(self):
+        x, y, z = self._agent.xyz
+        phi = self._agent.yaw_deg
+        d_nest = self.d_nest
+        d_trav = (self._stats["C"][-1] if len(self._stats["C"]) > 0
+                  else (self._stats["C_out"][-1] if "C_out" in self._stats else 0.))
+        return (super().message() + " - x: %.2f, y: %.2f, z: %.2f, Φ: %.0f - L: %.2fm, C: %.2fm") % (
+            x, y, z, phi, d_nest, d_trav)
+
+    @property
+    def agent(self):
+        """
+        The agent of the simulation.
+
+        Returns
+        -------
+        PathIntegrationAgent
+        """
+        return self._agent
+
+    @property
+    def route_a(self):
+        """
+        N x 4 array representing the route that the agent follows to food source A before returning to its initial
+        position.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._route_a
+
+    @property
+    def route_b(self):
+        """
+        N x 4 array representing the route that the agent follows to food source B before returning to its initial
+        position.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._route_b
+
+    @property
+    def sky(self):
+        """
+        The sky model of the environment.
+
+        Returns
+        -------
+        Sky
+        """
+        return self._sky
+
+    @property
+    def world(self):
+        """
+        The vegetation of the environment.
+
+        Returns
+        -------
+        Seville2009
+        """
+        return self._world
+
+    @property
+    def d_nest(self):
+        """
+        The distance between the agent and the nest.
+
+        Returns
+        -------
+        float
+        """
+        return (self._stats["L"][-1] if len(self._stats["L"]) > 0
+                else np.linalg.norm(self._route_a[-1, :3] - self._route_a[0, :3]))
 
     @property
     def r_pol(self):

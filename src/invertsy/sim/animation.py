@@ -15,7 +15,8 @@ from invertpy.brain.compass import ring2complex
 from invertsy.__helpers import __root__
 
 from ._helpers import *
-from .simulation import RouteSimulation, PathIntegrationSimulation, Simulation
+from .simulation import RouteSimulation, Simulation
+from .simulation import PathIntegrationSimulation, TwoSourcePathIntegrationSimulation
 from .simulation import VisualNavigationSimulation, VisualFamiliaritySimulation
 from .simulation import VisualFamiliarityGridExplorationSimulation
 
@@ -882,7 +883,7 @@ class VisualFamiliarityAnimation(Animation):
 
 class PathIntegrationAnimation(Animation):
 
-    def __init__(self, sim: PathIntegrationSimulation, show_history=True, cmap="coolwarm", *args, **kwargs):
+    def __init__(self, sim, show_history=True, cmap="coolwarm", *args, **kwargs):
         """
         Animation for the path integration simulation. Shows the POL neurons responses in the Dorsal Rim Area, the
         position and history of positions of the agent on the map (with vegetation if provided) and the responses of
@@ -890,7 +891,7 @@ class PathIntegrationAnimation(Animation):
 
         Parameters
         ----------
-        sim: PathIntegrationSimulation
+        sim: PathIntegrationSimulation, TwoSourcePathIntegrationSimulation
             the path integration simulation isnstance
         show_history: bool, optional
             if True, it shows the history instead of just the current responses. Default is True
@@ -919,16 +920,29 @@ class PathIntegrationAnimation(Animation):
                 """
             )
 
+        if isinstance(sim, PathIntegrationSimulation):
+            nest = sim.route[0, :2]
+            feeders = [sim.route[-1, :2]]
+            route = sim.route
+        elif isinstance(sim, TwoSourcePathIntegrationSimulation):
+            nest = sim.route_a[0, :2]
+            feeders = [sim.route_a[-1, :2], sim.route_b[-1, :2]]
+            route = sim.route_a
+        else:
+            nest = None
+            feeders = None
+            route = None
+
         line_c, line_b, pos, self._marker = create_map_axis(world=sim.world, ax=ax_dict["B"],
-                                                            nest=sim.route[0, :2], feeder=sim.route[-1, :2])[:4]
+                                                            nest=nest, feeders=feeders)[:4]
 
         if show_history:
             omm = create_dra_axis(sim.agent.sensors[0], cmap=cmap, ax=ax_dict["A"])
-            tb1 = create_tb1_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap, ax=ax_dict["C"])
-            cl1 = create_cl1_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap, ax=ax_dict["D"])
-            cpu1 = create_cpu1_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap, ax=ax_dict["E"])
-            cpu4 = create_cpu4_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap, ax=ax_dict["F"])
-            cpu4mem = create_cpu4_mem_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap,
+            tb1 = create_tb1_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["C"])
+            cl1 = create_cl1_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["D"])
+            cpu1 = create_cpu1_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["E"])
+            cpu4 = create_cpu4_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["F"])
+            cpu4mem = create_cpu4_mem_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap,
                                               ax=ax_dict["G"])
         else:
             omm, tb1, cl1, cpu1, cpu4, cpu4mem = create_bcx_axis(sim.agent, cmap=cmap, ax=ax_dict["A"])
@@ -949,12 +963,21 @@ class PathIntegrationAnimation(Animation):
         i: int
             the current iteration number
         """
+
+        if isinstance(self.sim, PathIntegrationSimulation):
+            route_size = self.sim.route.shape[0]
+        elif isinstance(self.sim, TwoSourcePathIntegrationSimulation):
+            route_size = self.sim.route_a.shape[0]
+        else:
+            route_size = -1
+            print("None INSTANCE!")
         if i == 0:
             self.line_b.set_data([], [])
             self.sim.reset()
-        elif i == self.sim.route.shape[0]:
-            self.line_b.set_data(np.array(self.sim.stats["path"])[..., 1], np.array(self.sim.stats["path"])[..., 0])
-            self.sim.init_inbound()
+        elif i - 1 == route_size:
+            self.line_b.set_data(np.array(self.sim.stats["outbound"])[..., 1],
+                                 np.array(self.sim.stats["outbound"])[..., 0])
+            # self.sim.init_inbound()
 
         time = self.sim.step(i)
 
@@ -1134,18 +1157,18 @@ class LandmarkIntegrationAnimation(Animation):
         )
 
         line_c, line_b, pos, self._marker, cal, poi = create_map_axis(
-            world=sim.world, ax=ax_dict["B"], nest=sim.route[0, :2], feeder=sim.route[-1, :2])[:6]
+            world=sim.world, ax=ax_dict["B"], nest=sim.route_a[0, :2], feeder=sim.route_a[-1, :2])[:6]
 
         omm = create_eye_axis(sim.agent.sensors[0], cmap="Greens_r", ax=ax_dict["A"])
-        cmp = create_cmp_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["C"])
-        pfl = create_pfl_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["F"])
-        fbn = create_fbn_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["I"])
-        epg = create_epg_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["D"])
-        peg = create_peg_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["G"])
-        pen = create_pen_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["J"])
-        pn = create_pn_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["E"])
-        kc = create_kc_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["H"])
-        fam = create_familiarity_history(self.nb_frames, sep=sim.route.shape[0], ax=ax_dict["K"])
+        cmp = create_cmp_history(sim.agent, self.nb_frames, sep=sim.route_a.shape[0], cmap="Greys", ax=ax_dict["C"])
+        pfl = create_pfl_history(sim.agent, self.nb_frames, sep=sim.route_a.shape[0], cmap="Greys", ax=ax_dict["F"])
+        fbn = create_fbn_history(sim.agent, self.nb_frames, sep=sim.route_a.shape[0], cmap="Greys", ax=ax_dict["I"])
+        epg = create_epg_history(sim.agent, self.nb_frames, sep=sim.route_a.shape[0], cmap="Greys", ax=ax_dict["D"])
+        peg = create_peg_history(sim.agent, self.nb_frames, sep=sim.route_a.shape[0], cmap="Greys", ax=ax_dict["G"])
+        pen = create_pen_history(sim.agent, self.nb_frames, sep=sim.route_a.shape[0], cmap="Greys", ax=ax_dict["J"])
+        pn = create_pn_history(sim.agent, self.nb_frames, sep=sim.route_a.shape[0], cmap="Greys", ax=ax_dict["E"])
+        kc = create_kc_history(sim.agent, self.nb_frames, sep=sim.route_a.shape[0], cmap="Greys", ax=ax_dict["H"])
+        fam = create_familiarity_history(self.nb_frames, sep=sim.route_a.shape[0], ax=ax_dict["K"])
 
         plt.tight_layout()
 
@@ -1167,7 +1190,7 @@ class LandmarkIntegrationAnimation(Animation):
             xyzs = self.sim.reset()
             if xyzs is not None:
                 self.cal.set_offsets(np.array(xyzs)[:, [1, 0]])
-        elif i == self.sim.route.shape[0]:
+        elif i == self.sim.route_a.shape[0]:
             self.line_b.set_data(np.array(self.sim.stats["path"])[..., 1], np.array(self.sim.stats["path"])[..., 0])
 
         time = self.sim.step(i)
