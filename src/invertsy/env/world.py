@@ -593,7 +593,8 @@ def create_route_from_points(*points, step_size=0.01, degrees=True):
 
     # calculate the gradient
     grad = np.diff(xyz, axis=0)
-    grad = np.insert(grad, -1, grad[-1])  # copy the last gradient at the end
+
+    grad = np.insert(grad, -1, grad[-1], axis=0)  # copy the last gradient at the end
 
     # calculate the heading direction
     yaw = np.arctan2(grad[:, 1], grad[:, 0])  # get the direction from the gradient
@@ -602,6 +603,6 @@ def create_route_from_points(*points, step_size=0.01, degrees=True):
         yaw = np.rad2deg(yaw)
 
     # add the heading to the route
-    route = np.hstack([xyz, yaw])
+    route = np.hstack([xyz, yaw[:, np.newaxis]])
 
     return route
