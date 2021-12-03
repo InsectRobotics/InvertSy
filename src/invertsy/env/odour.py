@@ -52,7 +52,7 @@ class StaticOdour(object):
         np.ndarray[float]
             the intensity in all the given positions.
         """
-        rel_int = np.exp(-0.5 * np.linalg.norm(pos - self._centre, axis=-1) / np.square(self._spread))
+        rel_int = np.exp(-0.5 * np.linalg.norm(pos - self._centre.reshape((1, -1)), axis=-1) / np.square(self._spread))
         if eta is None:
             eta = add_noise(noise=noise, shape=rel_int.shape, rng=rng)
         rel_int[eta] = 0.
