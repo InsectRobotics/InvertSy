@@ -14,8 +14,8 @@ __maintainer__ = "Evripidis Gkanias"
 from ._helpers import col2x, row2y, yaw2ori, x2col, y2row, ori2yaw
 
 from invertsy.__helpers import __data__
-from invertsy.env import UniformSky, Sky, Seville2009, WorldBase
-from invertsy.agent import VisualNavigationAgent, PathIntegrationAgent
+from invertsy.env import UniformSky, Sky, Seville2009, WorldBase, StaticOdour
+from invertsy.agent import VisualNavigationAgent, PathIntegrationAgent, NavigatingAgent
 
 from invertpy.sense import CompoundEye
 from invertpy.brain.memory import MemoryComponent
@@ -1242,7 +1242,6 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
             y = self._route[m, 1] + shift[1]
             z = self._eye.z
             yaw = ori2yaw(ori, nb_oris=self.nb_orientations, degrees=True)
-            print(j, m, ori, k, r, shift)
         else:
             return
 
@@ -1760,6 +1759,370 @@ class VisualFamiliarityGridExplorationSimulation(Simulation):
     @property
     def nb_orientations(self):
         return self._familiarity_map.shape[2]
+
+    @property
+    def has_grid(self):
+        """
+        Whether the agent will have a route-following phase.
+
+        Returns
+        -------
+        bool
+        """
+        return self._has_grid
+
+    @has_grid.setter
+    def has_grid(self, v):
+        """
+        Parameters
+        ----------
+        v: bool
+        """
+        self._has_grid = v
+
+    @property
+    def has_outbound(self):
+        """
+        Whether the agent will have a learning phase.
+
+        Returns
+        -------
+        bool
+        """
+        return self._outbound
+
+    @has_outbound.setter
+    def has_outbound(self, v):
+        """
+        Parameters
+        ----------
+        v: bool
+        """
+        self._outbound = v
+
+
+class VisualFamiliarityParallelExplorationSimulation(Simulation):
+
+    def __init__(self, data, parallel, nb_oris, agent=None, calibrate=False, saturation=5., pre_training=False, **kwargs):
+        """
+        Runs the route following task for an autonomous agent, by using entirely its vision. First it forces the agent
+        to run through a predefined route. Then it places the agent back at the beginning and lets it autonomously reach
+        the goal destination by following the exact same route.
+
+        Parameters
+        ----------
+        route: np.ndarray[float]
+            N x 4 matrix that contains the 3D positions and 1D orientation (yaw) of the agent for the route it has to
+            follow
+        agent: VisualNavigationAgent, optional
+            the agent that contains the compound eye and the memory component. Default is the an agent with an eye of
+            nb_ommatidia ommatidia, sensitive to green and 15 degrees acceptance angle
+        calibrate: bool, optional
+            if True, the agent calibrate its eye using PCA whitening, by collecting 32 samples in a radius of 2 meters
+            around the nest, and uses this as an input to its memory component. If False, the raw responses of the
+            photo-receptors are used instead. Default is False
+
+        Other Parameters
+        ----------------
+        nb_iterations: int, optional
+            number of iterations that the simulation will run. Default is 2.1 time the iterations needed to complete
+            the route
+        name: str, optional
+            the name of the simulation. Default is `vn-simulation`
+        """
+
+        if isinstance(data, str):
+            data = np.load(os.path.join(__stat_dir__, data))
+
+        views_route = data["ommatidia_out"]
+        route = data["positions_out"]
+        views_par = data["ommatidia"]
+        route_par = data["positions"]
+
+        kwargs.setdefault('nb_iterations', int(route.shape[0]) * (1 + int(pre_training)) + int(route_par.shape[0]))
+        kwargs.setdefault('name', 'vn-simulation')
+        super().__init__(**kwargs)
+
+        nb_ommatidia = views_route.shape[1]
+
+        if agent is None:
+            eye = None
+            if nb_ommatidia is not None:
+                eye = CompoundEye(nb_input=nb_ommatidia, omm_pol_op=0, noise=0., omm_rho=np.deg2rad(15),
+                                  omm_res=saturation, c_sensitive=[0, 0., 1., 0., 0.])
+            agent = VisualNavigationAgent(eye=eye, saturation=saturation, speed=0.01)
+        self._agent = agent
+
+        self._views = np.concatenate([views_route, views_par], axis=0)
+        self._route = np.concatenate([route, route_par], axis=0)
+        self._route_length = route.shape[0]
+
+        self._eye = agent.sensors[0]
+        self._mem = agent.brain[0]
+
+        self._calibrate = calibrate
+        self._outbound = True
+        self._has_grid = True
+        self._familiarity_par = np.zeros((route.shape[0], parallel, nb_oris), dtype=agent.dtype)
+        self.__nb_par = parallel
+        self.__nb_oris = nb_oris
+        self.__ndindex = [index for index in np.ndindex(self._familiarity_par.shape[:3])]
+        self.__pre_training = pre_training
+
+        self._stats = {
+            "familiarity_par": self._familiarity_par,
+            "position": []
+        }
+
+    def reset(self):
+        """
+        Initialises the logged statistics and iteration count, calibrates the eye of agent if applicable and places it
+        to the beginning of the route.
+
+        Returns
+        -------
+        np.ndarray[float]
+            array of the 3D positions of the samples used for the calibration
+        """
+        self._iteration = 0
+        route_xyzs = self._route[:self._route_length, :3]
+        d_nest = np.linalg.norm(self._route[:, :3] - self._route[self._route_length, :3], axis=1)
+        xyzs = self._route[d_nest < 2., :3]
+        i = self.agent.rng.permutation(np.arange(xyzs.shape[0]))[:self._views.shape[1]]
+        xyzs = xyzs[i]
+        if self._calibrate and not self._agent.is_calibrated:
+            self._agent.xyz = self._route[self._route_length-1, :3]
+            self._agent.ori = R.from_euler('Z', self._route[self._route_length-1, 3], degrees=True)
+            self._agent.update = False
+            self._agent.calibrate(omm_responses=self._views[i])
+
+        self._agent.xyz = self._route[0, :3]
+        self._agent.ori = R.from_euler('Z', self._route[0, 3], degrees=True)
+        self._agent.update = True
+
+        self._familiarity_par[:] = 0.
+
+        self._stats["ommatidia"] = []
+        self._stats["input_layer"] = []
+        self._stats["hidden_layer"] = []
+        self._stats["output_layer"] = []
+        self._stats["capacity"] = []
+        self._stats["familiarity"] = []
+        self._stats["familiarity_par"] = self._familiarity_par
+        self._stats["position"] = []
+
+        return xyzs
+
+    def init_grid(self):
+        """
+        Prepares the simulation for the second phase (inbound) where the agent will try to follow the learnt route.
+        Sets new labels to the logged statistics and erases the current labels, which will be used to store the
+        produced values.
+        """
+        self._agent.update = False
+
+        # create a separate line
+        self._stats["position_out"] = self._stats["position"]
+        self._stats["capacity_out"] = self._stats["capacity"]
+        self._stats["familiarity_out"] = self._stats["familiarity"]
+        self._stats["capacity"] = []
+        self._stats["familiarity"] = []
+        self._stats["position"] = []
+
+    def _step(self, i):
+        """
+        Runs the iterations of the simulation. If the iteration ID exists in the route, it runs steps for the outbound
+        path. If it is the end of the outbound path, it initialises the inbound and then runs the inbound steps. In case
+        of the restrained motion, it prints '~REPLACE~' every time that the agent is brought back to the route.
+
+        Parameters
+        ----------
+        i: int
+            the iteration ID to run
+        """
+        if self.__pre_training and i == self._route_length:
+            self.reset()
+        elif i == self._route_length:  # initialise route following
+            self.init_grid()
+        elif self.__pre_training and i == 2 * self._route_length:
+            self.init_grid()
+
+        x, y, z, yaw = self._route[i]
+
+        self._agent.xyz = [x, y, z]
+        self._agent.ori = R.from_euler('Z', yaw, degrees=True)
+        self._agent(omm_responses=self._views[i], act=False, callback=self.update_stats)
+
+        if self.has_grid and i >= self._route_length:
+            j = i - self._route_length
+            m = (j // self.nb_orientations) % self._route_length
+            k = j // (self._route_length * self.nb_orientations)
+            ori = j % self.nb_orientations
+
+            self._familiarity_par[m, k, ori] = self.familiarity
+
+    def update_stats(self, a):
+        """
+        Logs the current internal values of the agent.
+
+        Parameters
+        ----------
+        a: VisualNavigationAgent
+            the internal agent
+        """
+
+        assert a == self.agent, "The input agent should be the same as the one used in the simulation!"
+
+        self._stats["ommatidia"].append(np.asarray(self._views[self._iteration], dtype=self.mem.dtype))
+        self._stats["position"].append(np.asarray(self._route[self._iteration], dtype=self.mem.dtype))
+        self._stats["input_layer"].append(self.mem.r_inp[0].copy())
+        self._stats["hidden_layer"].append(self.mem.r_hid[0].copy())
+        # if len(self._stats["hidden_layer"]) > 2:
+        #     self._stats["hidden_layer"] = self._stats["hidden_layer"][-2:]
+        self._stats["output_layer"].append(self.mem.r_out[0].copy())
+        self._stats["capacity"].append(self.mem.free_space)
+        self._stats["familiarity"].append(self.familiarity)
+
+    def message(self):
+        x, y, z = self._agent.xyz
+        yaw = self._agent.yaw_deg
+        fam = self.familiarity
+        if self.frame > 1:
+            pn_diff = np.absolute(self._stats["input_layer"][-1] - self._stats["input_layer"][-2]).mean()
+            kc_diff = np.absolute(self._stats["hidden_layer"][-1] - self._stats["hidden_layer"][-2]).mean()
+        else:
+            pn_diff = np.absolute(self.mem.r_inp).mean()
+            kc_diff = np.absolute(self.mem.r_hid).mean()
+        capacity = self.capacity
+
+        j = self._iteration - self._route_length
+        m = (j // self.nb_orientations) % self._route_length
+        x_, y_, _, yaw_ = self.route[m]
+
+        # i = self._iteration - self._route_length * int(self.has_outbound)
+        # if i < 0:
+        #     row, col, ori = -1, -1, -1
+        # else:
+        #     row, col, ori = self.__ndindex[i]
+        return (super().message() +
+                " - x: %.2f (x': %.2f), y: %.2f (y': %.2f), z: %.2f, Φ: % 4d (Φ': % 4d)"
+                " - input (change): %.2f%%, hidden (change): %.2f%%, familiarity: %.2f%%,"
+                " capacity: %.2f%%") % (
+            x, x_, y, y_, z, yaw, yaw_, pn_diff * 100., kc_diff * 100., fam * 100., capacity * 100.)
+
+    @property
+    def agent(self):
+        """
+        The agent that runs in the simulation.
+
+        Returns
+        -------
+        VisualNavigationAgent
+        """
+        return self._agent
+
+    @property
+    def route(self):
+        """
+        The route that the agent tries to follow.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._route[:self._route_length]
+
+    @property
+    def world(self):
+        """
+        The world used for the simulation.
+
+        Returns
+        -------
+        None
+        """
+        return None
+
+    @property
+    def eye(self):
+        """
+        The compound eye of the agent.
+
+        Returns
+        -------
+        CompoundEye
+        """
+        return self._eye
+
+    @property
+    def mem(self):
+        """
+        The memory component of the agent.
+
+        Returns
+        -------
+        MemoryComponent
+        """
+        return self._mem
+
+    @property
+    def familiarity(self):
+        """
+        The maximum familiarity observed.
+
+        Returns
+        -------
+        float
+        """
+        v = np.exp(-1j * np.deg2rad(self._agent.pref_angles))
+        w = np.power(np.cos(self._agent.pref_angles) / 2 + .5, 4)
+        return np.clip(np.absolute(np.sum(w * v * self._agent.familiarity / np.sum(w))), 0, 1)
+
+    @property
+    def capacity(self):
+        """
+        The percentage of unused memory left.
+
+        Returns
+        -------
+        float
+        """
+        return self.mem.free_space
+
+    @property
+    def d_nest(self):
+        """
+        The distance (in meters) between the agent and the goal position (nest).
+
+        Returns
+        -------
+        float
+        """
+        return (self._stats["L"][-1] if len(self._stats["L"]) > 0
+                else np.linalg.norm(self._route[self._route_length-1, :3] - self._route[0, :3]))
+
+    @property
+    def calibrate(self):
+        """
+        If calibration is set.
+
+        Returns
+        -------
+        bool
+        """
+        return self._calibrate
+
+    @property
+    def familiarity_par(self):
+        return self._familiarity_par
+
+    @property
+    def nb_par(self):
+        return self._familiarity_par.shape[1]
+
+    @property
+    def nb_orientations(self):
+        return self._familiarity_par.shape[2]
 
     @property
     def has_grid(self):
@@ -2393,3 +2756,385 @@ class TwoSourcePathIntegrationSimulation(Simulation):
         np.ndarray[float]
         """
         return self._cx.cpu4_mem.T.flatten()
+
+
+class NavigationSimulation(Simulation):
+
+    def __init__(self, routes, agent=None, sky=None, world=None, odours=None, *args, **kwargs):
+        """
+        Runs the path integration task.
+        An agent equipped with a compass and the central complex is forced to follow a route and then it is asked to
+        return to its initial position.
+
+        Parameters
+        ----------
+        route_a: np.ndarray[float]
+            N x 4 matrix that holds the 3D position (x, y, z) and 1D orientation (yaw) for each iteration of the route
+        agent: PathIntegrationAgent, optional
+            the agent that will be used for the path integration. Default is a `PathIntegrationAgent(speed=.01)`
+        sky: Sky, optional
+            the sky of the environment. Default is a sky with the sun to the South and 30 degrees above the horizon
+        world: WorldBase, optional
+            the world that creates the scenery disturbing the celestial compass or using the visual surroundings as a
+            a compass. Default is None
+
+        Other Parameters
+        ----------------
+        nb_iterations: int, optional
+            the number of iterations to run the simulation. Default is 2.5 times the number of time-steps of the route
+        name: str, optional
+            the name of the simulation. Default is the name of the world or 'simulation'
+        """
+
+        name = kwargs.pop('name', None)
+        kwargs.setdefault('nb_iterations', int(np.sum([3 * route.shape[0] for route in routes])))
+        super().__init__(*args, **kwargs)
+        self._routes = routes
+
+        if agent is None:
+            agent = NavigatingAgent(nb_feeders=len(routes), speed=.01)
+        self._agent = agent
+
+        if sky is None:
+            sky = Sky(30, 180, degrees=True)
+        self._sky = sky
+        self._world = world
+        if odours is None:
+            # add odour around the nest
+            odours = [StaticOdour(centre=routes[0][0, :3], spread=.5)]
+            for route in routes:
+                # add odour around the food sources
+                odours.append(StaticOdour(centre=route[-1, :3], spread=1.))
+        self._odours = odours
+
+        if name is None and world is not None:
+            self._name = world.name
+        elif name is None:
+            self._name = "NavigationSimulation"
+
+        self._compass_sensor, self._antennas = agent.sensors
+        self._compass_model, self._cx, self._mb = agent.brain
+
+        self._foraging = True
+        self._iter_offset = np.zeros(len(routes), dtype=int)
+        self._iter_offset[1:] = -1
+        self._current_route_id = 0
+
+    def reset(self):
+        """
+        Resets the agent anf the logged statistics.
+        """
+        self._stats = {
+            "POL": [], "SOL": [],
+            "TB1": [], "CL1": [], "CPU1": [], "CPU4": [], "CPU4mem": [],
+            "MBON": [], "DAN": [], "KC": [], "PN": [], "US": [],
+            "path": [], "L": [], "C": []
+        }
+
+        self._b_iter_offset = None
+        self._foraging = True
+        self._iter_offset = np.zeros(len(self._routes), dtype=int)
+        self._iter_offset[1:] = -1
+        self._current_route_id = 0
+
+        self.agent.reset()
+
+    def init_inbound(self):
+        """
+        Sets up the inbound phase from the current source.
+        Changes the labels of the logged stats to their outbound equivalent and resets them for the new phase to come.
+        """
+        self._stats[f"outbound_{self._current_route_id}"] = copy(self._stats["path"])
+        self._stats[f"L_out_{self._current_route_id}"] = copy(self._stats["L"])
+        self._stats[f"C_out_{self._current_route_id}"] = copy(self._stats["C"])
+        self._stats["path"] = []
+        self._stats["L"] = []
+        self._stats["C"] = []
+
+    def init_outbound(self):
+        """
+        Sets up the inbound phase for the new source.
+        Changes the labels of the logged stats to their inbound equivalent and resets them for the new phase to come.
+        """
+        self._stats[f"inbound_{self._current_route_id}"] = copy(self._stats["path"])
+        self._stats[f"L_in_{self._current_route_id}"] = copy(self._stats["L"])
+        self._stats[f"C_in_{self._current_route_id}"] = copy(self._stats["C"])
+        self._stats["path"] = []
+        self._stats["L"] = []
+        self._stats["C"] = []
+
+    def _step(self, i):
+        """
+        Runs one iteration of the simulation. If the iteration is less than the maximum number of iterations in the
+        route it forces the agent to follow the route, otherwise it lets the agent decide its actions.
+
+        Parameters
+        ----------
+        i: int
+            the iteration ID
+        """
+        self._iteration = i
+        reinforcement = np.zeros(len(self._routes) + 1, dtype=self._mb.dtype)
+
+        act = True
+        repeats = 100
+        # if i == 0:
+        #     reinforcement[0] = 1.
+
+        if self._foraging:
+            # search for the first unprocessed route that meets the criteria
+            route = self.route_c
+
+            if self.i_offset < 0:
+                # if the route has not been processed yet, initialise the counting offset
+                self._iter_offset[self._current_route_id] = i
+            i_off = i - self.i_offset
+
+            # if the iteration falls in the range of this route load its position and orientation
+            if i_off < route.shape[0]:
+                x, y, z, yaw = route[i_off]
+                self._agent.xyz = [x, y, z]
+                self._agent.ori = R.from_euler('Z', yaw, degrees=True)
+                act = False
+
+            if np.linalg.norm(self.agent.xyz - route[-1, :3]) < .1:
+                self.init_inbound()
+                self._foraging = False
+                print(f"START PI FROM ROUTE {self._current_route_id + 1}")
+
+            if route.shape[0] - i_off < repeats:
+                # reward the animal for finding the target source
+                reinforcement[self._current_route_id + 1] = 1.
+
+        elif len(self.stats["L"]) > 1 and self.stats["L"][-2] < self.d_nest < 0.5:
+            # self._agent.xyz = self._route_a[0, :3]
+            self.init_outbound()
+            self._current_route_id = (self._current_route_id + 1) % len(self._routes)
+            self._foraging = True
+            print("START FORAGING!")
+
+            # reward the animal for finding the nest
+            reinforcement[0] = 1.
+        # if (len(self.stats["US"]) >= repeats and
+        #     np.any(self.stats["US"][-1] > 0) and
+        #     np.any(self.stats["US"][-1] != self.stats["US"][-repeats])):
+        #     reinforcement[:] = self.stats["US"][-1]
+
+        self._agent(sky=self._sky, odours=self._odours, reinforcement=reinforcement, act=act, callback=self.update_stats)
+
+    def update_stats(self, a):
+        """
+        Updates the logged statistics of the agent.
+
+        Parameters
+        ----------
+        a: PathIntegrationAgent
+        """
+
+        assert a == self.agent, "The input agent should be the same as the one used in the simulation!"
+
+        compass, cx, mb = a.brain
+        self._stats["POL"].append(compass.r_pol.copy())
+        self._stats["SOL"].append(compass.r_sol.copy())
+        self._stats["TB1"].append(cx.r_tb1.copy())
+        self._stats["CL1"].append(cx.r_cl1.copy())
+        self._stats["CPU1"].append(cx.r_cpu1.copy())
+        self._stats["CPU4"].append(cx.r_cpu4.copy())
+        self._stats["CPU4mem"].append(cx.cpu4_mem.copy())
+        self._stats["MBON"].append(mb.r_mbon[0].copy())
+        self._stats["DAN"].append(mb.r_dan[0].copy())
+        self._stats["KC"].append(mb.r_kc[0].copy())
+        self._stats["PN"].append(mb.r_cs[0].copy())
+        self._stats["US"].append(mb.r_us[0].copy())
+        self._stats["path"].append([a.x, a.y, a.z, a.yaw])
+        self._stats["L"].append(np.linalg.norm(a.xyz - self.route_c[0, :3]))
+        c = self._stats["C"][-1] if len(self._stats["C"]) > 0 else 0.
+        if len(self._stats["path"]) > 1:
+            step = np.linalg.norm(np.array(self._stats["path"][-1])[:3] - np.array(self._stats["path"][-2])[:3])
+        else:
+            step = 0.
+        self._stats["C"].append(c + step)
+
+    def message(self):
+        x, y, z = self._agent.xyz
+        phi = self._agent.yaw_deg
+        d_nest = self.d_nest
+        d_trav = (self._stats["C"][-1] if len(self._stats["C"]) > 0
+                  else (self._stats["C_out"][-1] if "C_out" in self._stats else 0.))
+        mbon = 0 if np.all(np.isclose(np.diff(self._stats['MBON'][-1]), 0)) else (np.argmax(self.stats['MBON'][-1]) + 1)
+        pn = 0 if np.all(np.isclose(np.diff(self._stats['PN'][-1]), 0)) else (np.argmax(self.stats['PN'][-1]) + 1)
+        us = 0 if np.all(np.isclose(np.diff(self._stats['US'][-1]), 0)) else (np.argmax(self.stats['US'][-1]) + 1)
+        return (super().message() + f" - x: {x:.2f}, y: {y:.2f}, z: {z:.2f}, Φ: {phi:.0f}"
+                                    f" - mot: {mbon:d}, CS: {pn:d}, US: {us:d}"
+                                    f" - L: {d_nest:.2f}m, C: {d_trav:.2f}m"
+                                    f" - route: {self._current_route_id + 1:d}" +
+                                    (f" - foraging" if self._foraging else ""))
+
+    @property
+    def agent(self):
+        """
+        The agent of the simulation.
+
+        Returns
+        -------
+        PathIntegrationAgent
+        """
+        return self._agent
+
+    @property
+    def routes(self):
+        """
+        N x 4 array representing the route that the agent follows to food source A before returning to its initial
+        position.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._routes
+
+    @property
+    def route_c(self):
+        """
+        N x 4 array representing the route that the agent follows to food source B before returning to its initial
+        position.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._routes[self._current_route_id]
+
+    @property
+    def sky(self):
+        """
+        The sky model of the environment.
+
+        Returns
+        -------
+        Sky
+        """
+        return self._sky
+
+    @property
+    def world(self):
+        """
+        The vegetation of the environment.
+
+        Returns
+        -------
+        Seville2009
+        """
+        return self._world
+
+    @property
+    def odours(self):
+        """
+        A list with all the odours in the simulation.
+
+        Returns
+        -------
+        list[StaticOdour]
+        """
+        return self._odours
+
+    @property
+    def d_nest(self):
+        """
+        The distance between the agent and the nest.
+
+        Returns
+        -------
+        float
+        """
+        return np.linalg.norm(self.agent.xyz - self.route_c[0, :3])
+
+    @property
+    def i_offset(self):
+        return self._iter_offset[self._current_route_id]
+
+    @property
+    def r_pol(self):
+        """
+        The POL responses of the compass model of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._compass_model.r_pol.T.flatten()
+
+    @property
+    def r_tb1(self):
+        """
+        The TB1 responses of the central complex of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._cx.r_tb1.T.flatten()
+
+    @property
+    def r_cl1(self):
+        """
+        The CL1 responses of the central complex of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._cx.r_cl1.T.flatten()
+
+    @property
+    def r_cpu1(self):
+        """
+        The CPU1 responses of the central complex of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._cx.r_cpu1.T.flatten()
+
+    @property
+    def r_cpu4(self):
+        """
+        The CPU4 responses of the central complex of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._cx.r_cpu4.T.flatten()
+
+    @property
+    def cpu4_mem(self):
+        """
+        The CPU4 memory of the central complex of the agent.
+
+        Returns
+        -------
+        np.ndarray[float]
+        """
+        return self._cx.cpu4_mem.T.flatten()
+
+    @property
+    def r_mbon(self):
+        return self._mb.r_mbon[0].T.flatten()
+
+    @property
+    def r_dan(self):
+        return self._mb.r_dan[0].T.flatten()
+
+    @property
+    def r_kc(self):
+        return self._mb.r_kc[0].T.flatten()
+
+    @property
+    def r_pn(self):
+        return self._mb.r_cs[0].T.flatten()
+
+    @property
+    def r_us(self):
+        return self._mb.r_us[0].T.flatten()
