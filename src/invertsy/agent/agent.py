@@ -11,16 +11,19 @@ __license__ = "GPLv3+"
 __version__ = "v1.0.0-alpha"
 __maintainer__ = "Evripidis Gkanias"
 
+import numbers
+
 from ._helpers import eps, RNG
 
 from invertpy.sense import PolarisationSensor, CompoundEye, Antennas, Sensor
 from invertpy.brain import WillshawNetwork, PolarisationCompass, Component
 from invertpy.brain.centralcomplex import StoneCX, VectorMemoryCX
-from invertpy.brain.mushroombody import VectorMemoryMB
+from invertpy.brain.centralcomplex.vectormemory import mem2vector
+from invertpy.brain.mushroombody import VectorMemoryMB, IncentiveCircuit
 from invertpy.brain.memory import MemoryComponent
 from invertpy.brain.activation import winner_takes_all, relu
 from invertpy.brain.compass import ring2sph
-from invertpy.brain.preprocessing import Whitening, ZernikeMoments, MentalRotation, pca
+from invertpy.brain.preprocessing import Whitening, ZernikeMoments, MentalRotation, LateralInhibition, pca
 
 from scipy.spatial.transform import Rotation as R
 from copy import copy
@@ -542,7 +545,8 @@ class PathIntegrationAgent(Agent):
 
         pol_sensor = PolarisationSensor(nb_input=60, field_of_view=56, degrees=True)
         pol_brain = PolarisationCompass(nb_pol=60, loc_ori=copy(pol_sensor.omm_ori), nb_sol=8, integrated=True)
-        cx = VectorMemoryCX(nb_tb1=8, nb_mbon=2, nb_rings=nb_feeders + 1)
+        cx = VectorMemoryCX(nb_tb1=8, nb_mbon=nb_feeders + 1, nb_rings=nb_feeders + 1, gain=.05)
+        # cx = StoneCX(nb_tb1=8)
 
         self.add_sensor(pol_sensor, local=True)
         self.add_brain_component(pol_brain)
@@ -551,6 +555,7 @@ class PathIntegrationAgent(Agent):
         self._pol_sensor = pol_sensor
         self._pol_brain = pol_brain
         self._cx = cx
+        self._p_phi = None
 
         self._default_flow = self._dx * np.ones(2) / np.sqrt(2)
 
@@ -578,19 +583,32 @@ class PathIntegrationAgent(Agent):
         else:
             r = self._pol_sensor(sky=sky, scene=scene)
 
+        r_tcl = self._pol_brain(r_pol=r, ori=self._pol_sensor.ori)
+        _, phi = ring2sph(r_tcl)
+
         if flow is None:
-            flow = self._default_flow
+            if self._p_phi is None:
+                flow = self._default_flow
+            else:
+                d_phi = (self.yaw - self._p_phi + np.pi) % (2 * np.pi) - np.pi
+                v = self._dx * np.exp(1j * d_phi)
+                flow = self._cx.get_flow(-d_phi, np.array([v.imag, v.real]), 0)
+                print(f"FLOW: {flow}")
+
+            self._p_phi = self.yaw
+
             # if scene is None:
             #     flow = self._default_flow
             # else:
             #     flow = optic_flow(world, self._dx)
 
-        if mbon is None:
-            mbon = np.array([1, 0])
+        if isinstance(self._cx, VectorMemoryCX):
+            if mbon is None:
+                mbon = np.array([1] + [0] * (self._cx.nb_mbon - 1))
 
-        r_tcl = self._pol_brain(r_pol=r, ori=self._pol_sensor.ori)
-        _, phi = ring2sph(r_tcl)
-        return self._cx(phi=phi, flow=flow, mbon=mbon)
+            return self._cx(phi=phi, flow=flow, mbon=mbon)
+        elif isinstance(self._cx, StoneCX):
+            return self._cx(phi=phi, flow=flow)
 
     def _act(self):
         """
@@ -652,14 +670,15 @@ class PathIntegrationAgent(Agent):
         cpu1a = cx.r_cpu1[1:-1]
         cpu1b = np.array([cx.r_cpu1[-1], cx.r_cpu1[0]])
         motor = np.dot(cpu1a, cx.w_cpu1a2motor) + np.dot(cpu1b, cx.w_cpu1b2motor)
-        output = motor[0] - motor[1]  # * .25  # to kill the noise a bit!
+        # output = (motor[0] - motor[1]) * .25  # to kill the noise a bit!
+        output = (motor[0] - motor[1]) * 1.
         return output
 
 
 class VisualNavigationAgent(Agent):
 
     def __init__(self, eye=None, memory=None, saturation=1.5, nb_scans=7, nb_visual=None,
-                 mental_scanning=0, zernike=False, whitening=pca,
+                 lateral_inhibition=True, mental_scanning=0, zernike=False, whitening=pca,
                  *args, **kwargs):
         """
         Agent specialised in the visual navigation task. It contains the CompoundEye as a sensor and the mushroom body
@@ -724,6 +743,9 @@ class VisualNavigationAgent(Agent):
         List of the preprocessing components
         """
 
+        if lateral_inhibition:
+            self._preprocessing.append(LateralInhibition(ori=eye.omm_ori, nb_neighbours=6))
+
         if mental_scanning > 1:
             self._preprocessing.append(MentalRotation(eye=eye, pref_angles=np.deg2rad(self._pref_angles)))
 
@@ -777,10 +799,14 @@ class VisualNavigationAgent(Agent):
             us /= np.max(us)
             # us = np.maximum(us, 0)
             self._mem(inp=r, reinforcement=us)
-            if self._mem.neuron_dims > 1 or self._mem.nb_output > 1:
-                self._familiarity[:] = self._mem.familiarity.flatten()
+            if isinstance(self._mem.familiarity, numbers.Number):
+                fam_raw = np.array([self._mem.familiarity])
             else:
-                self._familiarity[0] = self._mem.familiarity[0].flatten()
+                fam_raw = self._mem.familiarity
+            if self._mem.neuron_dims > 1 or self._mem.nb_output > 1:
+                self._familiarity[:] = fam_raw.flatten()
+            else:
+                self._familiarity[0] = fam_raw[0].flatten()
         else:
             inp, hid, out = [], [], []
 
@@ -878,7 +904,7 @@ class VisualNavigationAgent(Agent):
 
             print("Calibration: %d/%d - x: %.2f, y: %.2f, z: %.2f, yaw: %d" % (
                 i + 1, nb_samples, self.x, self.y, self.z, self.yaw_deg))
-            samples[i*nb_ms:(i+1)*nb_ms] = self.get_pn_responses(sky, scene, omm_responses[i], raw=True)
+            samples[i*nb_ms:(i+1)*nb_ms] = self.get_pn_responses(sky, scene, omm_responses[i], pre_whitened=True)
         self._preprocessing[-1].reset(samples)
 
         self.xyz = xyz
@@ -888,7 +914,7 @@ class VisualNavigationAgent(Agent):
 
         return xyzs, oris
 
-    def get_pn_responses(self, sky=None, scene=None, omm_responses=None, raw=False):
+    def get_pn_responses(self, sky=None, scene=None, omm_responses=None, pre_whitened=False, raw=False):
         """
         Transforms the current snapshot of the environment into the PN responses.
 
@@ -903,6 +929,8 @@ class VisualNavigationAgent(Agent):
             the world instance. Default is None
         omm_responses: np.ndarray[float]
             the pre-rendered ommatidia responses. Default is None
+        pre_whitened: bool
+        raw : bool
 
         Returns
         -------
@@ -913,7 +941,14 @@ class VisualNavigationAgent(Agent):
             omm_responses = self._eye(sky=sky, scene=scene)
 
         r = np.clip(omm_responses.mean(axis=1), 0, 1)
-        if not raw:
+        if raw:
+            pass
+        elif pre_whitened:
+            i = 0
+            while not isinstance(self._preprocessing[i], Whitening) and i < len(self._preprocessing):
+                r = self._preprocessing[i](r)
+                i += 1
+        else:
             for process in self._preprocessing:
                 r = process(r)
 
@@ -1123,15 +1158,17 @@ class NavigatingAgent(PathIntegrationAgent):
     def __init__(self, nb_feeders=1, *args, **kwargs):
         super().__init__(nb_feeders, *args, **kwargs)
 
-        nb_pn = nb_feeders + 1
+        nb_odours = nb_feeders + 1
+        nb_pn = nb_odours + 2  # 2: food-on, food-off
         nb_kc = 100
 
         pol_sensor = PolarisationSensor(nb_input=60, field_of_view=56, degrees=True)
         pol_brain = PolarisationCompass(nb_pol=60, loc_ori=copy(self._pol_sensor.omm_ori), nb_sol=8, integrated=True)
-        cx = VectorMemoryCX(nb_tb1=8, nb_mbon=nb_feeders + 1, nb_rings=nb_feeders + 1)
+        cx = VectorMemoryCX(nb_tb1=8, nb_mbon=nb_feeders + 1, nb_rings=nb_odours, gain=0.1)
 
-        antennas = Antennas(nb_tactile=0, nb_chemical=3, nb_chemical_dimensions=nb_pn)
-        mb = VectorMemoryMB(nb_cs=nb_pn, nb_us=nb_feeders + 1, nb_kc=nb_kc)
+        antennas = Antennas(nb_tactile=0, nb_chemical=3, nb_chemical_dimensions=nb_odours)
+        # mb = IncentiveCircuit(nb_cs=nb_pn, nb_us=2, nb_kc=nb_kc, ltm_charging_speed=0.1)  # IC
+        mb = VectorMemoryMB(nb_cs=nb_pn, nb_us=nb_feeders + 2, nb_kc=nb_kc, ltm_charging_speed=0.05)  # vMB
 
         self._sensors = []
         self._brain = []
@@ -1150,9 +1187,12 @@ class NavigatingAgent(PathIntegrationAgent):
         self._mb = mb
 
         self._reinforcement_gamma = 0.99
-        self._reinforcement = np.zeros(nb_feeders + 1, dtype=self.dtype)
+        self._reinforcement = np.zeros(nb_feeders + 2, dtype=self.dtype)
 
-    def _sense(self, sky=None, scene=None, odours=None, flow=None, reinforcement=None, **kwargs):
+        self._nb_feeders = nb_feeders
+        self._nb_odours = nb_odours
+
+    def _sense(self, sky=None, scene=None, odours=None, food=None, flow=None, reinforcement=None, **kwargs):
 
         r_antenna = self._antennas(odours=odours)
         r_chem = r_antenna[:, self._antennas.nb_tactile:]
@@ -1160,26 +1200,38 @@ class NavigatingAgent(PathIntegrationAgent):
         # ignore the directional (left/right) signal
         r_chem = r_chem.mean(axis=0)
         # ignore the multiple sensors on the antenna
-        r_pn = r_chem.reshape(self._antennas.nb_chemical, - 1).mean(axis=0)
+        r_chem = r_chem.reshape(self._antennas.nb_chemical, - 1).mean(axis=0)
+
+        if food is None:
+            food = np.zeros(2, dtype=r_chem.dtype)
+
+        # create PN responses that sum to 1
+        r_pn = np.r_[r_chem, food] / (np.sum(r_chem) + np.sum(food) + eps)
 
         self._reinforcement *= self._reinforcement_gamma
         if reinforcement is not None:
             self._reinforcement[:] = np.clip(self._reinforcement + reinforcement, 0, 1)
 
-        r_mbon = self._mb(cs=r_pn, us=self._reinforcement)
+        # us = np.r_[self._reinforcement[:1], self._reinforcement[1:].max()]  # IC
+        us = copy(self._reinforcement)  # vMB
+        r_mbon = self._mb(cs=r_pn, us=us)
 
-        mbon = []
-        for i in range(self.nb_vectors):
-            mbon.append(r_mbon[i::self.nb_vectors] - r_mbon[::self.nb_vectors])
+        # mbon = [r_mbon[0::2], r_mbon[1::2]]  # IC
+        mbon = []  # vMB
+        for i in range(self.nb_vectors):  # vMB
+            # specific vector familiarity - general novelty
+            mbon.append(r_mbon[i+1::self._mb.nb_us] - r_mbon[0::self._mb.nb_us])
         mbon = np.array(mbon)
 
         # Susceptible/LTM MBONs are used for read/write of visual memories (?)
         # STM MBONs are used for write of vector memories
         # LTM MBONs are used for read of vector memories
-        mbon = mbon[:, 2]  # LTM reads the motivations from the MB
+        # mbon = mbon[:, 2]  # LTM reads the motivations from the MB
+        mbon = np.mean(mbon, axis=1)
 
         if mbon is None:
-            mbon = np.array([1] + [0] * (self.nb_vectors - 1))
+            mbon = np.array([1] + [0] * self.nb_vectors)
+        mbon[:] = reinforcement[1:]
 
         return super(NavigatingAgent, self)._sense(sky=sky, scene=scene, flow=flow, mbon=mbon, **kwargs)
 
@@ -1193,4 +1245,12 @@ class NavigatingAgent(PathIntegrationAgent):
 
     @property
     def nb_vectors(self):
-        return self._mb.nb_us
+        return self._mb.nb_us - 1
+
+    @property
+    def nb_feeders(self):
+        return self._nb_feeders
+
+    @property
+    def nb_odours(self):
+        return self._nb_odours

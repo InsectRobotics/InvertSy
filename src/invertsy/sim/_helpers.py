@@ -562,7 +562,9 @@ def create_dra_axis(sensor, cmap="coolwarm", centre=None, scale=1., draw_axis=Tr
     matplotlib.collections.PathCollection
         the ommatidia of the DRA as a path collection
     """
-    omm_x, omm_y, omm_z = sensor.omm_ori.apply(np.array([1, 0, 0])).T
+    x, y, _ = sensor.omm_ori.apply(np.array([1, 0, 0])).T
+    omm_y = -x
+    omm_x = y
 
     if ax is None:
         ax = plt.subplot(subplot)
@@ -733,6 +735,36 @@ def create_cpu4_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111
     """
     nb_cpu4 = agent.central_complex.nb_cpu4
     return create_image_history(nb_cpu4, nb_frames, sep=sep, title="CPU4", cmap=cmap, vmin=-1, vmax=1, subplot=subplot, ax=ax)
+
+
+def create_vec_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111, ax=None):
+    """
+    Draws the vector memory activation history of responses as an image, where each pixel is a neuron in time and its
+    colour reflects the response rate of the neuron.
+
+    Parameters
+    ----------
+    agent: PathIntegrationAgent
+        the agent to get the data and properties from
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'coolwarm'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the CPU4 history responses
+    """
+    nb_vec = agent.central_complex.nb_rings
+    return create_image_history(nb_vec, nb_frames, sep=sep, title="vectors", cmap=cmap, vmin=-1, vmax=1,
+                                subplot=subplot, ax=ax)
 
 
 def create_cpu4_mem_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111, ax=None):
@@ -1046,8 +1078,8 @@ def create_image_history(nb_values, nb_frames, sep=None, title=None, cmap="Greys
 
     ax.set_yticks([])
     ax.set_xticks([])
-    ax.set_ylim(0, nb_values-1)
-    ax.set_xlim(0, nb_frames-1)
+    ax.set_ylim(-0.5, nb_values-0.5)
+    ax.set_xlim(-0.5, nb_frames-0.5)
     ax.set_aspect('auto')
     ax.spines['right'].set_visible(False)
     ax.spines['top'].set_visible(False)
