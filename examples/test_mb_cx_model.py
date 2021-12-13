@@ -6,10 +6,10 @@ import numpy as np
 
 
 def main(*args):
-    nb_routes = 3
+    nb_routes = 2
     nb_points = 10
     route_max_distance = 4.  # meters
-    route_range = np.pi / 6
+    route_range = np.pi / 12
 
     print("Mushroom Body and Central Complex simulation for vector memory.")
 
