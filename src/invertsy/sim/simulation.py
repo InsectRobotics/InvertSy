@@ -18,6 +18,7 @@ from invertsy.env import UniformSky, Sky, Seville2009, WorldBase, StaticOdour
 from invertsy.agent import VisualNavigationAgent, PathIntegrationAgent, NavigatingAgent
 
 from invertpy.sense import CompoundEye
+from invertpy.brain.preprocessing import Preprocessing
 from invertpy.brain.memory import MemoryComponent
 
 from scipy.spatial.transform import Rotation as R
@@ -229,7 +230,7 @@ class Simulation(object):
 
 
 class RouteSimulation(Simulation):
-    def __init__(self, route, eye=None, sky=None, world=None, *args, **kwargs):
+    def __init__(self, route, eye=None, preprocessing=None, sky=None, world=None, *args, **kwargs):
         """
         Simulation that runs a predefined route in a world, given a sky and an eye model, and logs the input from the
         eye.
@@ -240,6 +241,8 @@ class RouteSimulation(Simulation):
             N x 4 matrix that holds the 3D position and 1D orientation (yaw) of the eye in every iteration.
         eye: CompoundEye, optional
             the compound eye model. Default is a green sensitive eye with 5000 ommatidia of 10 deg acceptance angle each
+        preprocessing: list[Preprocessing]
+            a list of preprocessors for the input eye. Default is None
         sky: Sky, optional
             the sky model. Default is a sky with the sun to the South and 30 degrees above the horizon
         world: WorldBase, optional
@@ -255,6 +258,10 @@ class RouteSimulation(Simulation):
             eye = CompoundEye(nb_input=2000, omm_pol_op=0, noise=0., omm_rho=np.deg2rad(10), omm_res=5.,
                               c_sensitive=[0., 0., 1., 0., 0.])
         self._eye = eye
+
+        if preprocessing is None:
+            preprocessing = []
+        self._preprocessing = preprocessing
 
         if sky is None:
             sky = UniformSky(luminance=1.)
@@ -290,7 +297,12 @@ class RouteSimulation(Simulation):
         self._eye._xyz = self._route[i, :3]
         self._eye._ori = R.from_euler('Z', self._route[i, 3], degrees=True)
 
-        self._r = self._eye(sky=self._sky, scene=self._world)
+        r = self._eye(sky=self._sky, scene=self._world).mean(axis=1)
+
+        for preprocess in self._preprocessing:
+            r = preprocess(r)
+
+        self._r = r
 
     def message(self):
         return super().message() + " - x: %.2f, y: %.2f, z: %.2f, Φ: %.0f" % tuple(self._route[self._iteration])
@@ -1232,16 +1244,25 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
             z = self._eye.z
             yaw = ori2yaw(ori, nb_oris=self.nb_orientations, degrees=True)
         elif self.has_parallel_routes:  # build parallel routes
-            j = i - self._route.shape[0] * int(self.has_outbound)
-            m = (j // self.nb_orientations) % self._route.shape[0]
-            k = j // (self._route.shape[0] * self.nb_orientations)
-            ori = j % self.nb_orientations
+            j = i - self._route.shape[0] * int(self.has_outbound)  # overall iteration of map
+            m = (j // self.nb_orientations) % self._route.shape[0]  # iteration of position on the route
+            k = j // (self._route.shape[0] * self.nb_orientations)  # disposition iteration
+            ori = j % self.nb_orientations  # rotation iteration
+
+            # calculate the disposition vector
             r = self._disposition_step * float((k % 2 - (k + 1) % 2) * ((k + 1) // 2))
             shift = r * self._disposition
+
+            # calculate the orientation different
+            d_yaw = ori2yaw(ori, nb_oris=self.nb_orientations, degrees=True)
+
+            # apply the disposition to the route position
             x = self._route[m, 0] + shift[0]
             y = self._route[m, 1] + shift[1]
-            z = self._eye.z
-            yaw = ori2yaw(ori, nb_oris=self.nb_orientations, degrees=True)
+            z = self._route[m, 2]  # but not on the z axis
+
+            # apply the rotation of the route orientation
+            yaw = (self._route[m, 3] + d_yaw + 180) % 360 - 180
         else:
             return
 
@@ -2192,7 +2213,7 @@ class PathIntegrationSimulation(Simulation):
         name: str, optional
             the name of the simulation. Default is the name of the world or 'simulation'
         """
-        name = kwargs.pop('name', None)
+        name = kwargs.get('name', None)
         kwargs.setdefault('nb_iterations', int(3.5 * route.shape[0]))
         super().__init__(*args, **kwargs)
         self._route = route
@@ -2473,8 +2494,8 @@ class TwoSourcePathIntegrationSimulation(Simulation):
             route_b[:, [1, 3]] = -route_b[:, [1, 3]]
             route_b[:, :3] += route_a[0, :3] - route_b[0, :3]
 
-        name = kwargs.pop('name', None)
-        kwargs.setdefault('nb_iterations', int(3. * route_a.shape[0] + 3. * route_b.shape[0]))
+        name = kwargs.get('name', None)
+        kwargs.setdefault('nb_iterations', int(6. * route_a.shape[0] + 6. * route_b.shape[0]))
         super().__init__(*args, **kwargs)
         self._route_a = route_a
         self._route_b = route_b
@@ -2495,7 +2516,9 @@ class TwoSourcePathIntegrationSimulation(Simulation):
         self._compass_model, self._cx = agent.brain
 
         self._foraging = True
+        self._forage_id = 0
         self._b_iter_offset = None
+        self._state = []
 
     def reset(self):
         """
@@ -2508,14 +2531,19 @@ class TwoSourcePathIntegrationSimulation(Simulation):
         self._stats["CPU1"] = []
         self._stats["CPU4"] = []
         self._stats["CPU4mem"] = []
+        if hasattr(self.agent.central_complex, "r_vec"):
+            self._stats["vec"] = []
         self._stats["path"] = []
         self._stats["L"] = []
         self._stats["C"] = []
 
         self._b_iter_offset = None
         self._foraging = True
+        self._forage_id = 0
+        self._state = []
 
         self.agent.reset()
+        self.agent.ori = R.from_euler("Z", self.route_a[0, 3], degrees=True)
 
     def init_inbound(self, route_name='a'):
         """
@@ -2528,13 +2556,28 @@ class TwoSourcePathIntegrationSimulation(Simulation):
             the route for which to initialise the inbound route. Default is 'a'
         """
         # create a separate line
+        if "outbound" not in self._stats:
+            self._stats["outbound"] = []
+            self._stats["L_out"] = []
+            self._stats["C_out"] = []
         if route_name == 'a':
-            self._stats["outbound"] = copy(self._stats["path"])
-            self._stats["L_out"] = copy(self._stats["L"])
-            self._stats["C_out"] = copy(self._stats["C"])
+            self._stats["outbound"].extend(copy(self._stats["path"]))
+            self._stats["L_out"].extend(copy(self._stats["L"]))
+            self._stats["C_out"].extend(copy(self._stats["C"]))
             self._stats["path"] = []
             self._stats["L"] = []
             self._stats["C"] = []
+        elif route_name == 'b':
+            self._stats["outbound"].extend(copy(self._stats["path"]))
+            self._stats["L_out"].extend(copy(self._stats["L"]))
+            self._stats["C_out"].extend(copy(self._stats["C"]))
+            self._stats["path"] = []
+            self._stats["L"] = []
+            self._stats["C"] = []
+
+        if len(self._state) == 0 or route_name != self._state[-1]:
+            self._state.append(route_name)
+            print(f"STATE: {self._state}")
 
     def _step(self, i):
         """
@@ -2558,6 +2601,7 @@ class TwoSourcePathIntegrationSimulation(Simulation):
                 self._agent.xyz = [x, y, z]
                 self._agent.ori = R.from_euler('Z', yaw, degrees=True)
                 act = False
+                self._forage_id = 1
             elif run_b:
                 if self._b_iter_offset is None:
                     self._b_iter_offset = i
@@ -2565,25 +2609,46 @@ class TwoSourcePathIntegrationSimulation(Simulation):
                 self._agent.xyz = [x, y, z]
                 self._agent.ori = R.from_euler('Z', yaw, degrees=True)
                 act = False
+                self._forage_id = 2
 
-        if np.linalg.norm(self.agent.xyz - self.route_a[-1, :3]) < .1:
+        if self._foraging and np.linalg.norm(self.agent.xyz - self.route_a[-1, :3]) < .5:
             self.init_inbound('a')
-            self._foraging = False
-            print("START PI FROM A")
-        elif np.linalg.norm(self.agent.xyz - self.route_b[-1, :3]) < .1:
+            if np.sum('b' == np.array(self._state)) > 0:
+                self._foraging = True
+                self._forage_id = 2
+                print("GO TO B FROM A")
+            else:
+                self._foraging = False
+                self._forage_id = 0
+                print("START PI FROM A")
+        elif self._foraging and np.linalg.norm(self.agent.xyz - self.route_b[-1, :3]) < .5:
             self.init_inbound('b')
-            self._foraging = False
-            print("START PI FROM B")
-        elif self.d_nest < 0.5:
+            if np.sum('b' == np.array(self._state)) > 1:
+                self._foraging = True
+                self._forage_id = 1
+                print("GO TO A FROM B")
+            else:
+                self._foraging = False
+                self._forage_id = 0
+                print("START PI FROM B")
+        elif not self._foraging and self.d_nest < 0.5 and len(self.stats["L"]) > 1 and self.stats["L"][-1] > self.stats["L"][-2]:
             # self._agent.xyz = self._route_a[0, :3]
             self._foraging = True
-            print("START FORAGING!")
-        if self._foraging:
-            motivation = np.array([0, 1])
-        else:
-            motivation = np.array([1, 0])
+            self._forage_id += 1
+            self._forage_id = 1 + self._forage_id % 2
+            if len(self._state) == 0 or 'n' != self._state[-1]:
+                self._state.append('n')
+            self.agent.central_complex.reset_integrator()
 
-        self._agent(sky=self._sky, act=act, motivation=motivation, callback=self.update_stats)
+            print("START FORAGING!")
+
+        motivation = np.zeros(3, dtype=self.agent.dtype)
+        if self._foraging:
+            motivation[self._forage_id] = 1
+        else:
+            motivation[0] = 1
+
+        self._agent(sky=self._sky, act=act, mbon=motivation, callback=self.update_stats)
 
     def update_stats(self, a):
         """
@@ -2604,6 +2669,8 @@ class TwoSourcePathIntegrationSimulation(Simulation):
         self._stats["CPU1"].append(cx.r_cpu1.copy())
         self._stats["CPU4"].append(cx.r_cpu4.copy())
         self._stats["CPU4mem"].append(cx.cpu4_mem.copy())
+        if hasattr(cx, "r_vec"):
+            self._stats["vec"].append(cx.r_vec.copy())
         self._stats["path"].append([a.x, a.y, a.z, a.yaw])
         self._stats["L"].append(np.linalg.norm(a.xyz - self._route_a[0, :3]))
         c = self._stats["C"][-1] if len(self._stats["C"]) > 0 else 0.
@@ -2757,6 +2824,10 @@ class TwoSourcePathIntegrationSimulation(Simulation):
         """
         return self._cx.cpu4_mem.T.flatten()
 
+    @property
+    def r_vec(self):
+        return self.agent.central_complex.r_vec
+
 
 class NavigationSimulation(Simulation):
 
@@ -2770,7 +2841,7 @@ class NavigationSimulation(Simulation):
         ----------
         route_a: np.ndarray[float]
             N x 4 matrix that holds the 3D position (x, y, z) and 1D orientation (yaw) for each iteration of the route
-        agent: PathIntegrationAgent, optional
+        agent: NavigatingAgent, optional
             the agent that will be used for the path integration. Default is a `PathIntegrationAgent(speed=.01)`
         sky: Sky, optional
             the sky of the environment. Default is a sky with the sun to the South and 30 degrees above the horizon
@@ -2801,7 +2872,7 @@ class NavigationSimulation(Simulation):
         self._world = world
         if odours is None:
             # add odour around the nest
-            odours = [StaticOdour(centre=routes[0][0, :3], spread=.5)]
+            odours = [StaticOdour(centre=routes[0][0, :3], spread=1.)]
             for route in routes:
                 # add odour around the food sources
                 odours.append(StaticOdour(centre=route[-1, :3], spread=1.))
@@ -2819,6 +2890,9 @@ class NavigationSimulation(Simulation):
         self._iter_offset = np.zeros(len(routes), dtype=int)
         self._iter_offset[1:] = -1
         self._current_route_id = 0
+        self._food = np.zeros(2, dtype=self.agent.dtype)
+        self._food_source = np.ones(len(routes), dtype=self.agent.dtype)
+        self._learning_phase = True
 
     def reset(self):
         """
@@ -2836,6 +2910,9 @@ class NavigationSimulation(Simulation):
         self._iter_offset = np.zeros(len(self._routes), dtype=int)
         self._iter_offset[1:] = -1
         self._current_route_id = 0
+        self._food = np.zeros(2, dtype=self.agent.dtype)
+        self._food_source = np.ones(len(self._routes), dtype=self.agent.dtype)
+        self._learning_phase = True
 
         self.agent.reset()
 
@@ -2874,53 +2951,107 @@ class NavigationSimulation(Simulation):
             the iteration ID
         """
         self._iteration = i
-        reinforcement = np.zeros(len(self._routes) + 1, dtype=self._mb.dtype)
+        reinforcement = np.zeros(self._mb.nb_us, dtype=self._mb.dtype)
+
+        if self._learning_phase:
+            vectors = np.eye(self.agent.central_complex.nb_rings)
+            if self._foraging:
+                reinforcement[1:] = vectors[self._current_route_id + 1]
+            else:
+                reinforcement[1:] = vectors[0]
+        elif self.agent.central_complex.v_change:
+            reinforcement[1:] = self.agent.central_complex.r_vec
+
+        print(f"REINFORCEMENT: {reinforcement}")
 
         act = True
-        repeats = 100
-        # if i == 0:
-        #     reinforcement[0] = 1.
+        if np.all(np.isclose(self._food, 0)):
+            self._food[:] = [1., 0.]
 
         if self._foraging:
-            # search for the first unprocessed route that meets the criteria
-            route = self.route_c
+            act = self.forage()
 
-            if self.i_offset < 0:
-                # if the route has not been processed yet, initialise the counting offset
-                self._iter_offset[self._current_route_id] = i
-            i_off = i - self.i_offset
+            # if 0 <= route.shape[0] - i_off < repeats:
+            #     # reward the animal for finding the target source
+            #     reinforcement[1] = 1.
+            # elif np.linalg.norm(route[-1, :3] - self.agent.xyz) < 0.5:
+            #     # if the agent has visited the feeder before, it finds no food there
+            #     reinforcement[0] = 1.
 
-            # if the iteration falls in the range of this route load its position and orientation
-            if i_off < route.shape[0]:
-                x, y, z, yaw = route[i_off]
-                self._agent.xyz = [x, y, z]
-                self._agent.ori = R.from_euler('Z', yaw, degrees=True)
-                act = False
+        elif len(self.stats["L"]) > 1 and self.stats["L"][-2] < self.d_nest < 0.05:
+            # if the agent has moved for more than 1 meter and is less than 5 cm away from the nest
+            # approach the nest
 
-            if np.linalg.norm(self.agent.xyz - route[-1, :3]) < .1:
-                self.init_inbound()
-                self._foraging = False
-                print(f"START PI FROM ROUTE {self._current_route_id + 1}")
-
-            if route.shape[0] - i_off < repeats:
-                # reward the animal for finding the target source
-                reinforcement[self._current_route_id + 1] = 1.
-
-        elif len(self.stats["L"]) > 1 and self.stats["L"][-2] < self.d_nest < 0.5:
             # self._agent.xyz = self._route_a[0, :3]
             self.init_outbound()
-            self._current_route_id = (self._current_route_id + 1) % len(self._routes)
+            self._current_route_id += 1
+            if self._current_route_id >= len(self._routes):
+                self._learning_phase = False
+                self._current_route_id = self._current_route_id % len(self._routes)
+            self._food[:] = [1., 0.]
             self._foraging = True
             print("START FORAGING!")
 
-            # reward the animal for finding the nest
-            reinforcement[0] = 1.
+        elif len(self.stats["L"]) > 1 and self.stats["L"][-2] < self.d_nest < 0.5:
+            # if the agent has moved for more than 1 meter and is less than 50 cm away from the nest
+            # approach the nest
+
+            vel = self.route_c[0, :3] - self.agent.xyz
+            vel = vel / np.linalg.norm(vel)
+            x, y, z = self.agent.xyz + vel * self.agent.step_size
+            yaw = np.arctan2(vel[1], vel[0])
+            self._agent.xyz = [x, y, z]
+            self._agent.ori = R.from_euler('Z', yaw, degrees=False)
+            act = False
+
         # if (len(self.stats["US"]) >= repeats and
         #     np.any(self.stats["US"][-1] > 0) and
         #     np.any(self.stats["US"][-1] != self.stats["US"][-repeats])):
         #     reinforcement[:] = self.stats["US"][-1]
 
-        self._agent(sky=self._sky, odours=self._odours, reinforcement=reinforcement, act=act, callback=self.update_stats)
+        # self._food[:] = 0.
+        self._agent(sky=self._sky, odours=self._odours, food=self._food, reinforcement=reinforcement,
+                    act=act, callback=self.update_stats)
+
+    def forage(self):
+        i = self._iteration
+        act = True
+
+        # search for the first unprocessed route that meets the criteria
+        route = self.route_c
+
+        if self.i_offset < 0:
+            # if the route has not been processed yet, initialise the counting offset
+            self._iter_offset[self._current_route_id] = i
+        i_off = i - self.i_offset
+
+        # if i_off == 0:  # give reinforcement at the start of a new route
+        #     reinforcement[self._current_route_id + 2] = 1.
+
+        # if the iteration falls in the range of this route load its position and orientation
+        if i_off < route.shape[0]:
+            x, y, z, yaw = route[i_off]
+            self._agent.xyz = [x, y, z]
+            self._agent.ori = R.from_euler('Z', yaw, degrees=True)
+            act = False
+
+        if np.linalg.norm(self.agent.xyz - route[-1, :3]) < .1:
+            self.init_inbound()
+            self._foraging = False
+
+            # pick up the food it it's there
+            self._food[:] = [0., self._food_source[self._current_route_id]]
+
+            # deduct the food from the feeder
+            self._food_source[self._current_route_id] = np.maximum(self._food_source[self._current_route_id] - 1, 0)
+
+            if np.isclose(self._food.sum(), 0):
+                self._food[:] = [1., 0.]  # continue searching
+                self._foraging = True
+            else:
+                print(f"START PI FROM ROUTE {self._current_route_id + 1}")
+
+        return act
 
     def update_stats(self, a):
         """
@@ -2961,7 +3092,8 @@ class NavigationSimulation(Simulation):
         d_nest = self.d_nest
         d_trav = (self._stats["C"][-1] if len(self._stats["C"]) > 0
                   else (self._stats["C_out"][-1] if "C_out" in self._stats else 0.))
-        mbon = 0 if np.all(np.isclose(np.diff(self._stats['MBON'][-1]), 0)) else (np.argmax(self.stats['MBON'][-1]) + 1)
+        mbon = np.argmax([self.stats['MBON'][-1][0::2].mean(), self.stats['MBON'][-1][1::2].mean()]) + 1
+        mbon = 0 if np.all(np.isclose(np.diff(self._stats['MBON'][-1]), 0)) else mbon
         pn = 0 if np.all(np.isclose(np.diff(self._stats['PN'][-1]), 0)) else (np.argmax(self.stats['PN'][-1]) + 1)
         us = 0 if np.all(np.isclose(np.diff(self._stats['US'][-1]), 0)) else (np.argmax(self.stats['US'][-1]) + 1)
         return (super().message() + f" - x: {x:.2f}, y: {y:.2f}, z: {z:.2f}, Φ: {phi:.0f}"
@@ -2977,7 +3109,7 @@ class NavigationSimulation(Simulation):
 
         Returns
         -------
-        PathIntegrationAgent
+        NavigatingAgent
         """
         return self._agent
 

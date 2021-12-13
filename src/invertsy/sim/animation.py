@@ -266,8 +266,6 @@ class RouteAnimation(Animation):
         ax_dict = self.fig.subplot_mosaic(
             """
             AB
-            AB
-            AB
             CB
             """
         )
@@ -908,6 +906,14 @@ class PathIntegrationAnimation(Animation):
                 EEEEBBBB
                 FFFFBBBB
                 GGGGBBBB
+                HHHHBBBB
+                """ if isinstance(sim, TwoSourcePathIntegrationSimulation) else
+                """
+                ACCCBBBB
+                DDDDBBBB
+                EEEEBBBB
+                FFFFBBBB
+                GGGGBBBB
                 """
             )
         else:
@@ -934,7 +940,7 @@ class PathIntegrationAnimation(Animation):
 
         line_c, line_b, pos, self._marker = create_map_axis(world=sim.world, ax=ax_dict["B"],
                                                             nest=nest, feeders=feeders)[:4]
-
+        vec = None
         if show_history:
             omm = create_dra_axis(sim.agent.sensors[0], cmap=cmap, ax=ax_dict["A"])
             tb1 = create_tb1_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["C"])
@@ -943,12 +949,16 @@ class PathIntegrationAnimation(Animation):
             cpu4 = create_cpu4_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["F"])
             cpu4mem = create_cpu4_mem_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap,
                                               ax=ax_dict["G"])
+            if isinstance(sim, TwoSourcePathIntegrationSimulation):
+                vec = create_vec_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["H"])
         else:
             omm, tb1, cl1, cpu1, cpu4, cpu4mem = create_bcx_axis(sim.agent, cmap=cmap, ax=ax_dict["A"])
 
         plt.tight_layout()
 
         self._lines.extend([omm, tb1, cl1, cpu1, cpu4, cpu4mem, line_c, line_b, pos])
+        if vec is not None:
+            self._lines.append(vec)
 
         omm.set_array(sim.r_pol)
         self._show_history = show_history
@@ -973,7 +983,7 @@ class PathIntegrationAnimation(Animation):
         if i == 0:
             self.line_b.set_data([], [])
             self.sim.reset()
-        elif i - 1 == route_size:
+        elif "outbound" in self.sim.stats:
             self.line_b.set_data(np.array(self.sim.stats["outbound"])[..., 1],
                                  np.array(self.sim.stats["outbound"])[..., 0])
             # self.sim.init_inbound()
@@ -998,6 +1008,10 @@ class PathIntegrationAnimation(Animation):
             cpu4mem = np.zeros((self.sim.cpu4_mem.shape[0], self.nb_frames), dtype=float)
             cpu4mem[:, :i+1] = np.array(self.sim.stats["CPU4mem"]).T
             self.cpu4mem.set_array(cpu4mem)
+            if self.vec is not None:
+                vec = np.zeros((self.sim.r_vec.shape[0], self.nb_frames), dtype=float)
+                vec[:, :i+1] = np.array(self.sim.stats["vec"]).T
+                self.vec.set_array(vec)
         else:
             self.tb1.set_array(self.sim.r_tb1)
             self.cl1.set_array(self.sim.r_cl1)
@@ -1125,6 +1139,20 @@ class PathIntegrationAnimation(Animation):
         """
         return self._lines[8]
 
+    @property
+    def vec(self):
+        """
+        The history of the Vector neurons in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        if len(self._lines) > 9:
+            return self._lines[9]
+        else:
+            return None
+
 
 class NavigationAnimation(Animation):
 
@@ -1142,8 +1170,8 @@ class NavigationAnimation(Animation):
             the colour map for the responses of the POL neurons. Default is 'coolwarm'
         """
         kwargs.setdefault('fps', 100)
-        kwargs.setdefault('width', 15)
-        kwargs.setdefault('height', 7)
+        # kwargs.setdefault('width', 15)
+        kwargs.setdefault('height', 6)
         super().__init__(sim, *args, **kwargs)
 
         ax_dict = self.fig.subplot_mosaic(
@@ -1182,6 +1210,7 @@ class NavigationAnimation(Animation):
 
         self._lines.extend([omm, tb1, cl1, cpu1, cpu4, cpu4mem, pn, mbon, dan, line_c, line_b, pos])
 
+        self._nb_lines = 0
         omm.set_array(sim.r_pol)
 
     def _animate(self, i: int):
@@ -1194,11 +1223,17 @@ class NavigationAnimation(Animation):
             the current iteration number
         """
 
-        j = i - self.sim.i_offset
+        nb_lines = 0
+        for j in range(len(self.sim.routes)):
+            if f"outbound_{j}" in self.sim.stats:
+                nb_lines += 1
+            if f"inbound_{j}" in self.sim.stats:
+                nb_lines += 1
+
         if i == 0:
             self.line_b.set_data([], [])
             self.sim.reset()
-        elif j == self.sim.route_c.shape[0] or j == 2:
+        elif nb_lines > self._nb_lines:
             xs, ys = [], []
             for j in range(len(self.sim.routes)):
                 if f"outbound_{j}" in self.sim.stats:
@@ -1208,13 +1243,12 @@ class NavigationAnimation(Animation):
                     xs.append(np.array(self.sim.stats[f"inbound_{j}"])[:, 1])
                     ys.append(np.array(self.sim.stats[f"inbound_{j}"])[:, 0])
 
-            print([key for key in self.sim.stats.keys()])
-
             if len(xs) > 0 and len(ys) > 0:
                 xs = np.hstack(xs)
                 ys = np.hstack(ys)
 
             self.line_b.set_data(xs, ys)
+            self._nb_lines = nb_lines
 
         time = self.sim.step(i)
 
