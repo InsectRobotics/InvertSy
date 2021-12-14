@@ -9,10 +9,11 @@ def main(*args):
     print("Ant#: %d, Route#: %d, steps#: %d" % (ant_no, rt_no, rt.shape[0]))
 
     rt = rt[::-1]
-    rt[:, 3] = (rt[:, 3] - 5) % 360 - 180
-    sim = PathIntegrationSimulation(rt, name="pi-ant%d-route%d" % (ant_no, rt_no))
+    rt[:, 3] = (rt[:, 3] - 0) % 360 - 180
+    # rt[:, 3] = (rt[:, 3] - 5) % 360 - 180
+    sim = PathIntegrationSimulation(rt, noise=0., name="pi-ant%d-route%d" % (ant_no, rt_no))
     ani = PathIntegrationAnimation(sim, show_history=True)
-    ani(save=True, show=False, save_type="mp4", save_stats=False)
+    ani(save=False, show=True, save_type="mp4", save_stats=False)
 
 
 if __name__ == '__main__':

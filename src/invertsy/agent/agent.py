@@ -32,7 +32,7 @@ import numpy as np
 
 
 class Agent(object):
-    def __init__(self, xyz=None, ori=None, speed=0.1, delta_time=1., dtype='float32', name='agent', rng=RNG):
+    def __init__(self, xyz=None, ori=None, speed=0.1, delta_time=1., dtype='float32', name='agent', rng=RNG, noise=0.):
         """
         Abstract agent class that holds all the basic methods and attributes of an agent such as:
 
@@ -81,6 +81,7 @@ class Agent(object):
         self.dtype = dtype
 
         self.rng = rng
+        self._noise = noise
 
     def reset(self):
         """
@@ -543,10 +544,12 @@ class PathIntegrationAgent(Agent):
         """
         super().__init__(*args, **kwargs)
 
-        pol_sensor = PolarisationSensor(nb_input=60, field_of_view=56, degrees=True)
-        pol_brain = PolarisationCompass(nb_pol=60, loc_ori=copy(pol_sensor.omm_ori), nb_sol=8, integrated=True)
-        cx = VectorMemoryCX(nb_tb1=8, nb_mbon=nb_feeders + 1, nb_rings=nb_feeders + 1, gain=.05)
-        # cx = StoneCX(nb_tb1=8)
+        pol_sensor = PolarisationSensor(nb_input=60, field_of_view=56, degrees=True, noise=self._noise, rng=self.rng)
+        pol_brain = PolarisationCompass(nb_pol=60, loc_ori=copy(pol_sensor.omm_ori), nb_sol=8, integrated=True,
+                                        noise=self._noise, rng=self.rng)
+        cx = VectorMemoryCX(nb_tb1=8, nb_mbon=nb_feeders + 1, nb_vectors=nb_feeders + 1, gain=.05,
+                            pontine=True, holonomic=True, noise=self._noise, rng=self.rng)
+        # cx = StoneCX(nb_tb1=8, noise=self._noise, rng=self.rng)
 
         self.add_sensor(pol_sensor, local=True)
         self.add_brain_component(pol_brain)
@@ -584,7 +587,8 @@ class PathIntegrationAgent(Agent):
             r = self._pol_sensor(sky=sky, scene=scene)
 
         r_tcl = self._pol_brain(r_pol=r, ori=self._pol_sensor.ori)
-        _, phi = ring2sph(r_tcl)
+        # _, phi = ring2sph(r_tcl)
+        phi = self.yaw
 
         if flow is None:
             if self._p_phi is None:
@@ -593,7 +597,6 @@ class PathIntegrationAgent(Agent):
                 d_phi = (self.yaw - self._p_phi + np.pi) % (2 * np.pi) - np.pi
                 v = self._dx * np.exp(1j * d_phi)
                 flow = self._cx.get_flow(-d_phi, np.array([v.imag, v.real]), 0)
-                print(f"FLOW: {flow}")
 
             self._p_phi = self.yaw
 
@@ -1159,12 +1162,12 @@ class NavigatingAgent(PathIntegrationAgent):
         super().__init__(nb_feeders, *args, **kwargs)
 
         nb_odours = nb_feeders + 1
-        nb_pn = nb_odours + 2  # 2: food-on, food-off
+        nb_pn = 2 * nb_odours  # 2: food on odours, food off nest
         nb_kc = 100
 
         pol_sensor = PolarisationSensor(nb_input=60, field_of_view=56, degrees=True)
         pol_brain = PolarisationCompass(nb_pol=60, loc_ori=copy(self._pol_sensor.omm_ori), nb_sol=8, integrated=True)
-        cx = VectorMemoryCX(nb_tb1=8, nb_mbon=nb_feeders + 1, nb_rings=nb_odours, gain=0.1)
+        cx = VectorMemoryCX(nb_tb1=8, nb_mbon=nb_feeders + 1, nb_vectors=nb_odours, gain=0.1)
 
         antennas = Antennas(nb_tactile=0, nb_chemical=3, nb_chemical_dimensions=nb_odours)
         # mb = IncentiveCircuit(nb_cs=nb_pn, nb_us=2, nb_kc=nb_kc, ltm_charging_speed=0.1)  # IC
@@ -1203,7 +1206,7 @@ class NavigatingAgent(PathIntegrationAgent):
         r_chem = r_chem.reshape(self._antennas.nb_chemical, - 1).mean(axis=0)
 
         if food is None:
-            food = np.zeros(2, dtype=r_chem.dtype)
+            food = np.zeros(self.nb_odours, dtype=r_chem.dtype)
 
         # create PN responses that sum to 1
         r_pn = np.r_[r_chem, food] / (np.sum(r_chem) + np.sum(food) + eps)

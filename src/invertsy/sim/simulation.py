@@ -13,7 +13,7 @@ __maintainer__ = "Evripidis Gkanias"
 
 from ._helpers import col2x, row2y, yaw2ori, x2col, y2row, ori2yaw
 
-from invertsy.__helpers import __data__
+from invertsy.__helpers import __data__, RNG
 from invertsy.env import UniformSky, Sky, Seville2009, WorldBase, StaticOdour
 from invertsy.agent import VisualNavigationAgent, PathIntegrationAgent, NavigatingAgent
 
@@ -37,7 +37,7 @@ if not os.path.isdir(__stat_dir__):
 
 class Simulation(object):
 
-    def __init__(self, nb_iterations, name="simulation"):
+    def __init__(self, nb_iterations, noise=0., rng=RNG, name="simulation"):
         """
         Abstract class that runs a simulation for a fixed number of iterations and logs statistics.
 
@@ -45,6 +45,10 @@ class Simulation(object):
         ----------
         nb_iterations: int
             the number of iterations to run the simulation
+        noise : float
+            the noise amplitude in the system
+        rng : np.random.RandomState
+            the random number generator
         name: str, optional
             a unique name for the simulation. Default is 'simulation'
         """
@@ -52,6 +56,8 @@ class Simulation(object):
         self._iteration = 0
         self._message_intervals = 1
         self._stats = {}
+        self._noise = noise
+        self.rng = rng
         self._name = name
 
     def reset(self):
@@ -2219,7 +2225,7 @@ class PathIntegrationSimulation(Simulation):
         self._route = route
 
         if agent is None:
-            agent = PathIntegrationAgent(nb_feeders=1, speed=.01)
+            agent = PathIntegrationAgent(nb_feeders=1, speed=.01, rng=self.rng, noise=self._noise)
         self._agent = agent
 
         if sky is None:
@@ -2611,7 +2617,7 @@ class TwoSourcePathIntegrationSimulation(Simulation):
                 act = False
                 self._forage_id = 2
 
-        if self._foraging and np.linalg.norm(self.agent.xyz - self.route_a[-1, :3]) < .5:
+        if self._foraging and self.distance_from(self.route_a[-1, :3]) < .1:
             self.init_inbound('a')
             if np.sum('b' == np.array(self._state)) > 0:
                 self._foraging = True
@@ -2621,7 +2627,7 @@ class TwoSourcePathIntegrationSimulation(Simulation):
                 self._foraging = False
                 self._forage_id = 0
                 print("START PI FROM A")
-        elif self._foraging and np.linalg.norm(self.agent.xyz - self.route_b[-1, :3]) < .5:
+        elif self._foraging and self.distance_from(self.route_b[-1, :3]) < .1:
             self.init_inbound('b')
             if np.sum('b' == np.array(self._state)) > 1:
                 self._foraging = True
@@ -2631,16 +2637,28 @@ class TwoSourcePathIntegrationSimulation(Simulation):
                 self._foraging = False
                 self._forage_id = 0
                 print("START PI FROM B")
-        elif not self._foraging and self.d_nest < 0.5 and len(self.stats["L"]) > 1 and self.stats["L"][-1] > self.stats["L"][-2]:
-            # self._agent.xyz = self._route_a[0, :3]
-            self._foraging = True
-            self._forage_id += 1
-            self._forage_id = 1 + self._forage_id % 2
-            if len(self._state) == 0 or 'n' != self._state[-1]:
-                self._state.append('n')
-            self.agent.central_complex.reset_integrator()
+        elif self._foraging and act and self._state[-1] != 'a' and self.distance_from(self.route_a[-1, :3]) < .5:
+            self.approach_point(self.route_a[-1, :3])
+            act = False
+        elif self._foraging and act and self._state[-1] != 'b' and self.distance_from(self.route_b[-1, :3]) < .5:
+            self.approach_point(self.route_b[-1, :3])
+            act = False
 
-            print("START FORAGING!")
+        elif not self._foraging:
+
+            if self.d_nest < 0.1 and len(self.stats["L"]) > 1 and self.stats["L"][-1] > self.stats["L"][-2]:
+                self._foraging = True
+                self._forage_id += 1
+                self._forage_id = 1 + self._forage_id % 2
+                if len(self._state) == 0 or 'n' != self._state[-1]:
+                    self._state.append('n')
+                self.agent.central_complex.reset_integrator()
+
+                print("START FORAGING!")
+
+            elif self.d_nest < 0.5 and len(self.stats["L"]) > 1 and self.stats["L"][-1] > self.stats["L"][-2]:
+                self.approach_point(self._route_a[0, :3])
+                act = False
 
         motivation = np.zeros(3, dtype=self.agent.dtype)
         if self._foraging:
@@ -2649,6 +2667,23 @@ class TwoSourcePathIntegrationSimulation(Simulation):
             motivation[0] = 1
 
         self._agent(sky=self._sky, act=act, mbon=motivation, callback=self.update_stats)
+
+    def approach_point(self, xyz):
+        v = xyz - self.agent.xyz
+        v[2] = 0.
+        v = v * self.agent.step_size / np.linalg.norm(v[:2])
+        if len(self.stats["path"]) > 1:
+            v0 = np.array(self.stats["path"][-1])[:3] - np.array(self.stats["path"][-2])[:3]
+            v0 = v0 * self.agent.step_size / np.linalg.norm(v0[:2])
+            p = 0.3
+            v = p * v + (1 - p) * v0
+
+        yaw = np.arctan2(v[1] / self.agent.step_size, v[0] / self.agent.step_size)
+        self._agent.translate(v)
+        self._agent.ori = R.from_euler('Z', yaw, degrees=False)
+
+    def distance_from(self, xyz):
+        return np.linalg.norm(self.agent.xyz - xyz)
 
     def update_stats(self, a):
         """
@@ -2890,7 +2925,7 @@ class NavigationSimulation(Simulation):
         self._iter_offset = np.zeros(len(routes), dtype=int)
         self._iter_offset[1:] = -1
         self._current_route_id = 0
-        self._food = np.zeros(2, dtype=self.agent.dtype)
+        self._food = np.zeros(len(odours), dtype=self.agent.dtype)
         self._food_source = np.ones(len(routes), dtype=self.agent.dtype)
         self._learning_phase = True
 
@@ -2910,8 +2945,9 @@ class NavigationSimulation(Simulation):
         self._iter_offset = np.zeros(len(self._routes), dtype=int)
         self._iter_offset[1:] = -1
         self._current_route_id = 0
-        self._food = np.zeros(2, dtype=self.agent.dtype)
+        self._food = np.zeros(len(self._odours), dtype=self.agent.dtype)
         self._food_source = np.ones(len(self._routes), dtype=self.agent.dtype)
+        self._food_source[0] = 2
         self._learning_phase = True
 
         self.agent.reset()
@@ -2954,7 +2990,7 @@ class NavigationSimulation(Simulation):
         reinforcement = np.zeros(self._mb.nb_us, dtype=self._mb.dtype)
 
         if self._learning_phase:
-            vectors = np.eye(self.agent.central_complex.nb_rings)
+            vectors = np.eye(self.agent.central_complex.nb_vectors)
             if self._foraging:
                 reinforcement[1:] = vectors[self._current_route_id + 1]
             else:
@@ -2966,7 +3002,7 @@ class NavigationSimulation(Simulation):
 
         act = True
         if np.all(np.isclose(self._food, 0)):
-            self._food[:] = [1., 0.]
+            self._food[:] = np.eye(len(self._odours))[0]
 
         if self._foraging:
             act = self.forage()
@@ -2988,7 +3024,7 @@ class NavigationSimulation(Simulation):
             if self._current_route_id >= len(self._routes):
                 self._learning_phase = False
                 self._current_route_id = self._current_route_id % len(self._routes)
-            self._food[:] = [1., 0.]
+            self._food[:] = np.eye(self.agent.nb_odours)[self._current_route_id + 1]
             self._foraging = True
             print("START FORAGING!")
 
@@ -3019,6 +3055,7 @@ class NavigationSimulation(Simulation):
 
         # search for the first unprocessed route that meets the criteria
         route = self.route_c
+        self._food[:] = np.eye(len(self._odours))[self._current_route_id + 1]
 
         if self.i_offset < 0:
             # if the route has not been processed yet, initialise the counting offset
@@ -3040,13 +3077,17 @@ class NavigationSimulation(Simulation):
             self._foraging = False
 
             # pick up the food it it's there
-            self._food[:] = [0., self._food_source[self._current_route_id]]
+            stock = self._food_source[self._current_route_id]
+            if stock > 0:
+                self._food[:] = np.eye(self.agent.nb_odours)[0]
+            else:
+                self._current_route_id = (self._current_route_id + 1) % len(self._routes)
 
             # deduct the food from the feeder
             self._food_source[self._current_route_id] = np.maximum(self._food_source[self._current_route_id] - 1, 0)
 
             if np.isclose(self._food.sum(), 0):
-                self._food[:] = [1., 0.]  # continue searching
+                self._food[0] = 1.  # continue searching
                 self._foraging = True
             else:
                 print(f"START PI FROM ROUTE {self._current_route_id + 1}")

@@ -32,7 +32,7 @@ def main(*args):
 
     sim = NavigationSimulation(routes, name=f"vector-memory-routes{nb_routes:02d}")
     ani = NavigationAnimation(sim)
-    ani(save=False, show=True, save_type="mp4", save_stats=False)
+    ani(save=True, show=False, save_type="mp4", save_stats=False)
 
 
 if __name__ == '__main__':

@@ -762,7 +762,7 @@ def create_vec_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111,
     matplotlib.image.AxesImage
         the image of the CPU4 history responses
     """
-    nb_vec = agent.central_complex.nb_rings
+    nb_vec = agent.central_complex.nb_vectors
     return create_image_history(nb_vec, nb_frames, sep=sep, title="vectors", cmap=cmap, vmin=-1, vmax=1,
                                 subplot=subplot, ax=ax)
 

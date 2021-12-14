@@ -41,7 +41,7 @@ def main(*args):
 
     sim = TwoSourcePathIntegrationSimulation(rtb, rta, name="vmpi-ant%d-route%d" % (ant_no, rt_no))
     ani = PathIntegrationAnimation(sim, show_history=True)
-    ani(save=True, show=False, save_type="mp4", save_stats=False)
+    ani(save=False, show=True, save_type="mp4", save_stats=False)
 
 
 if __name__ == '__main__':
