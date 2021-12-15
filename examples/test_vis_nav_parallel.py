@@ -37,7 +37,7 @@ def main(*args):
     else:
         whitening = pca if calibrate else None
         # nb_white = nb_ommatidia
-        nb_white = nb_ommatidia
+        nb_white = 600
         nb_input = nb_white
 
     print("Heatmap simulation from data")
@@ -51,13 +51,17 @@ def main(*args):
     elif model in ["infomax"]:
         mem = Infomax(nb_input=nb_input, eligibility_trace=0., dims=ms)
     else:
-        nb_sparse = 40 * nb_input  # the sparse code should be 40 times larger that the input
+        # the sparse code should be 40 times larger that the input
+        nb_sparse = 10 * nb_white
+        # nb_sparse = 4000  # fixed number for the KCs
         if zernike:
             nb_sparse = 4000  # The same number as Xuelong Sun uses
         sparseness = 10 / nb_sparse  # force 10 sparse neurons to be active (new)
         # sparseness = 5 / nb_sparse  # force 5 sparse neurons to be active
         mem = WillshawNetwork(nb_input=nb_input, nb_sparse=nb_sparse,
                               sparseness=sparseness, eligibility_trace=0., dims=ms)
+        mem.reset()
+
     # mem.novelty_mode = "%s%s%s" % ("zernike" if zernike else "",
     #                                "-" if zernike and whitening is not None else "",
     #                                "" if whitening is None else f"{whitening.__name__}")

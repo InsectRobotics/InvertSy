@@ -24,12 +24,20 @@ def main(*args):
     data = np.load(os.path.join(__stat_dir__, "%s.npz" % filename), allow_pickle=True)
     print([k for k in data.keys()])
 
+    pn = data["input_layer"]
+    pn_std = np.std(pn, axis=0)
+    print(pn.shape)
+    print(pn_std.shape, pn_std.min(), pn_std.max())
+    print(np.sum(pn_std > .15))
+
+    # sys.exit()
+
     fammap = data["familiarity_par"]
     fammap = np.hstack([fammap[:, -2::-2], fammap[:, ::2]])
     print(fammap.min(), fammap.max(), fammap.shape)
     # lenmap, angmap = compose_fammap(fammap, method="angles")
-    fammap = np.power(fammap, 8)
-    print(fammap.min(), fammap.max(), fammap.shape)
+    # fammap = np.power(fammap, 8)
+    # print(fammap.min(), fammap.max(), fammap.shape)
 
     fig = plt.figure(filename + "-onroute", figsize=(17, 8))
     for i in range(fammap.shape[1]):
