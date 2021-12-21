@@ -18,10 +18,11 @@ def main(*args):
     # model = "perfectmemory"
     model = "willshawnetwork"
     # model = "infomax"
-    lateral_inhibition = True
+    lateral_inhibition = False
     calibrate = True
     zernike = False
     ms = 1  # mental scanning
+    percentile_omm = .05
 
     details = re.match(pattern, data_filename)
     nb_scans = int(details.group(1))
@@ -36,8 +37,8 @@ def main(*args):
         nb_input = ZernikeMoments.get_nb_coeff(16)
     else:
         whitening = pca if calibrate else None
-        # nb_white = nb_ommatidia
-        nb_white = 600
+        nb_white = int(nb_ommatidia * percentile_omm)
+        # nb_white = 600
         nb_input = nb_white
 
     print("Heatmap simulation from data")
@@ -52,10 +53,10 @@ def main(*args):
         mem = Infomax(nb_input=nb_input, eligibility_trace=0., dims=ms)
     else:
         # the sparse code should be 40 times larger that the input
-        nb_sparse = 10 * nb_white
+        nb_sparse = 40 * nb_input
         # nb_sparse = 4000  # fixed number for the KCs
-        if zernike:
-            nb_sparse = 4000  # The same number as Xuelong Sun uses
+        # if zernike:
+        #     nb_sparse = 4000  # The same number as Xuelong Sun uses
         sparseness = 10 / nb_sparse  # force 10 sparse neurons to be active (new)
         # sparseness = 5 / nb_sparse  # force 5 sparse neurons to be active
         mem = WillshawNetwork(nb_input=nb_input, nb_sparse=nb_sparse,
@@ -70,7 +71,7 @@ def main(*args):
     agent_name = "heatmap-%s%s%s%s-scan%d-par%d-ant%d-route%d-%s" % (
         mem.__class__.__name__.lower(),
         "-zernike" if zernike else "",
-        "" if whitening is None else f"-{whitening.__name__}",
+        "" if whitening is None else f"-{whitening.__name__}{int(percentile_omm * 100):03d}",
         "-li" if lateral_inhibition else "",
         nb_scans, nb_parallel, ant_no, rt_no, world_name)
     agent_name += ("-omm%d" % nb_ommatidia) if nb_ommatidia is not None else ""
@@ -81,7 +82,7 @@ def main(*args):
                       omm_res=10., c_sensitive=[0, 0., 1., 0., 0.])
     agent = VisualNavigationAgent(eye, mem, nb_visual=nb_white, nb_scans=1, speed=.01, mental_scanning=ms,
                                   whitening=whitening, zernike=zernike, lateral_inhibition=lateral_inhibition)
-    sim = VisualFamiliarityParallelExplorationSimulation(data_filename, parallel=nb_parallel, nb_oris=nb_scans,
+    sim = VisualFamiliarityParallelExplorationSimulation(data_filename, nb_par=nb_parallel, nb_oris=nb_scans,
                                                          agent=agent, calibrate=calibrate, name=agent_name)
     sim.message_intervals = 80
     # ani = VisualFamiliarityAnimation(sim)
