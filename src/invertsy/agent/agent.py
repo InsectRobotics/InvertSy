@@ -1163,7 +1163,7 @@ class NavigatingAgent(PathIntegrationAgent):
 
         nb_odours = nb_feeders + 1
         nb_pn = 2 * nb_odours  # 2: food on odours, food off nest
-        nb_kc = 100
+        nb_kc = 10
 
         pol_sensor = PolarisationSensor(nb_input=60, field_of_view=56, degrees=True)
         pol_brain = PolarisationCompass(nb_pol=60, loc_ori=copy(self._pol_sensor.omm_ori), nb_sol=8, integrated=True)
@@ -1171,7 +1171,7 @@ class NavigatingAgent(PathIntegrationAgent):
 
         antennas = Antennas(nb_tactile=0, nb_chemical=3, nb_chemical_dimensions=nb_odours)
         # mb = IncentiveCircuit(nb_cs=nb_pn, nb_us=2, nb_kc=nb_kc, ltm_charging_speed=0.1)  # IC
-        mb = VectorMemoryMB(nb_cs=nb_pn, nb_us=nb_feeders + 2, nb_kc=nb_kc, ltm_charging_speed=0.05)  # vMB
+        mb = VectorMemoryMB(nb_cs=nb_pn, nb_us=nb_feeders + 2, nb_kc=nb_kc)  # vMB
 
         self._sensors = []
         self._brain = []
@@ -1209,6 +1209,7 @@ class NavigatingAgent(PathIntegrationAgent):
             food = np.zeros(self.nb_odours, dtype=r_chem.dtype)
 
         # create PN responses that sum to 1
+        r_chem[:] = 0.
         r_pn = np.r_[r_chem, food] / (np.sum(r_chem) + np.sum(food) + eps)
 
         self._reinforcement *= self._reinforcement_gamma
@@ -1230,11 +1231,11 @@ class NavigatingAgent(PathIntegrationAgent):
         # STM MBONs are used for write of vector memories
         # LTM MBONs are used for read of vector memories
         # mbon = mbon[:, 2]  # LTM reads the motivations from the MB
-        mbon = np.mean(mbon, axis=1)
+        mbon = np.mean(mbon, axis=1) / np.mean(mbon, axis=1).max()
 
         if mbon is None:
             mbon = np.array([1] + [0] * self.nb_vectors)
-        mbon[:] = reinforcement[1:]
+        # mbon[:] = reinforcement[1:]
 
         return super(NavigatingAgent, self)._sense(sky=sky, scene=scene, flow=flow, mbon=mbon, **kwargs)
 

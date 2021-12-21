@@ -16,8 +16,7 @@ from invertsy.__helpers import __root__
 from ._helpers import *
 from .simulation import RouteSimulation, NavigationSimulation, Simulation
 from .simulation import PathIntegrationSimulation, TwoSourcePathIntegrationSimulation
-from .simulation import VisualNavigationSimulation, VisualFamiliaritySimulation
-from .simulation import VisualFamiliarityGridExplorationSimulation
+from .simulation import VisualNavigationSimulation
 
 from scipy.spatial.transform import Rotation as R
 from matplotlib import animation
@@ -426,12 +425,12 @@ class VisualNavigationAnimation(Animation):
             if xyzs is not None:
                 self.cal.set_offsets(np.array(xyzs)[:, [1, 0]])
         elif i == self.sim.route.shape[0]:
-            self.line_b.set_data(np.array(self.sim.stats["path"])[..., 1], np.array(self.sim.stats["path"])[..., 0])
+            self.line_b.set_data(np.array(self.sim.stats["xyz"])[..., 1], np.array(self.sim.stats["xyz"])[..., 0])
 
         time = self.sim.step(i)
 
         r = self.sim.stats["ommatidia"][-1].mean(axis=1)
-        x, y = np.array(self.sim.stats["path"])[..., :2].T
+        x, y = np.array(self.sim.stats["xyz"])[..., :2].T
 
         self.omm.set_array(r.T.flatten())
         self.line_c.set_data(y, x)
@@ -661,7 +660,7 @@ class VisualFamiliarityAnimation(Animation):
 
         Parameters
         ----------
-        sim: VisualFamiliaritySimulation | VisualFamiliarityGridExplorationSimulation
+        sim: VisualFamiliarityTestSimulation | VisualFamiliarityGridExplorationSimulation
             the visual navigation simulation instance
         cmap: str, optional
             the colour map to be used for the responses from the ommatidia. Default is 'Greens_r'
@@ -757,7 +756,7 @@ class VisualFamiliarityAnimation(Animation):
 
         Returns
         -------
-        VisualFamiliaritySimulation
+        VisualFamiliarityTestSimulation
         """
         return self._sim
 
@@ -925,14 +924,15 @@ class PathIntegrationAnimation(Animation):
                 """
             )
 
-        if isinstance(sim, PathIntegrationSimulation):
-            nest = sim.route[0, :2]
-            feeders = [sim.route[-1, :2]]
-            route = sim.route
-        elif isinstance(sim, TwoSourcePathIntegrationSimulation):
-            nest = sim.route_a[0, :2]
-            feeders = [sim.route_a[-1, :2], sim.route_b[-1, :2]]
+        if isinstance(sim, TwoSourcePathIntegrationSimulation):
+            nest = sim.central_point[:2]
+            feeders = [sim.feeder_a[:2], sim.feeder_b[:2]]
             route = sim.route_a
+            print(feeders)
+        elif isinstance(sim, PathIntegrationSimulation):
+            nest = sim.central_point[:2]
+            feeders = [sim.distant_point[:2]]
+            route = sim.route
         else:
             nest = None
             feeders = None
@@ -942,7 +942,7 @@ class PathIntegrationAnimation(Animation):
                                                             nest=nest, feeders=feeders)[:4]
         vec = None
         if show_history:
-            omm = create_dra_axis(sim.agent.sensors[0], cmap=cmap, ax=ax_dict["A"])
+            omm = create_dra_axis(sim.compass_sensor, cmap=cmap, ax=ax_dict["A"])
             tb1 = create_tb1_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["C"])
             cl1 = create_cl1_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["D"])
             cpu1 = create_cpu1_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["E"])
@@ -983,9 +983,9 @@ class PathIntegrationAnimation(Animation):
         if i == 0:
             self.line_b.set_data([], [])
             self.sim.reset()
-        elif "outbound" in self.sim.stats:
-            self.line_b.set_data(np.array(self.sim.stats["outbound"])[..., 1],
-                                 np.array(self.sim.stats["outbound"])[..., 0])
+        elif "xyz_out" in self.sim.stats:
+            self.line_b.set_data(np.array(self.sim.stats["xyz_out"])[..., 1],
+                                 np.array(self.sim.stats["xyz_out"])[..., 0])
             # self.sim.init_inbound()
 
         time = self.sim.step(i)
@@ -1019,7 +1019,7 @@ class PathIntegrationAnimation(Animation):
             self.cpu4.set_array(self.sim.r_cpu4)
             self.cpu4mem.set_array(self.sim.cpu4_mem)
 
-        x, y = np.array(self.sim.stats["path"])[..., :2].T
+        x, y = np.array(self.sim.stats["xyz"])[..., :2].T
         self.line_c.set_data(y, x)
         self.pos.set_offsets(np.array([y[-1], x[-1]]))
 
@@ -1185,9 +1185,9 @@ class NavigationAnimation(Animation):
             JJKKBBBBBB
             """
         )
-        nest = sim.route_c[0, :2]
+        nest = sim.route[0, :2]
         feeders = [route[-1, :2] for route in sim.routes]
-        route = sim.route_c
+        route = sim.route
         odour_spread = []
         for odour in sim.odours:
             odour_spread.append(odour.spread)
@@ -1225,23 +1225,21 @@ class NavigationAnimation(Animation):
 
         nb_lines = 0
         for j in range(len(self.sim.routes)):
-            if f"outbound_{j}" in self.sim.stats:
-                nb_lines += 1
-            if f"inbound_{j}" in self.sim.stats:
-                nb_lines += 1
+            for suf in ["in", "out"]:
+                if f"xyz_{suf}_{j}" in self.sim.stats:
+                    nb_lines += 1
 
         if i == 0:
             self.line_b.set_data([], [])
             self.sim.reset()
+            self._nb_lines = 0
         elif nb_lines > self._nb_lines:
             xs, ys = [], []
             for j in range(len(self.sim.routes)):
-                if f"outbound_{j}" in self.sim.stats:
-                    xs.append(np.array(self.sim.stats[f"outbound_{j}"])[:, 1])
-                    ys.append(np.array(self.sim.stats[f"outbound_{j}"])[:, 0])
-                if f"inbound_{j}" in self.sim.stats:
-                    xs.append(np.array(self.sim.stats[f"inbound_{j}"])[:, 1])
-                    ys.append(np.array(self.sim.stats[f"inbound_{j}"])[:, 0])
+                for suf in ["in", "out"]:
+                    if f"xyz_{suf}_{j}" in self.sim.stats:
+                        xs.append(np.array(self.sim.stats[f"xyz_{suf}_{j}"])[:, 1])
+                        ys.append(np.array(self.sim.stats[f"xyz_{suf}_{j}"])[:, 0])
 
             if len(xs) > 0 and len(ys) > 0:
                 xs = np.hstack(xs)
@@ -1279,7 +1277,7 @@ class NavigationAnimation(Animation):
         dan[:, :i+1] = np.array(self.sim.stats["DAN"]).T
         self.dan.set_array(dan)
 
-        x, y = np.array(self.sim.stats["path"])[..., :2].T
+        x, y = np.array(self.sim.stats["xyz"])[..., :2].T
         self.line_c.set_data(y, x)
         self.pos.set_offsets(np.array([y[-1], x[-1]]))
 

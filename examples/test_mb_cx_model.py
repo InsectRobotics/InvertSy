@@ -13,7 +13,7 @@ def main(*args):
 
     print("Mushroom Body and Central Complex simulation for vector memory.")
 
-    default_directions = 2 * np.pi * RNG.rand(nb_routes)
+    default_directions = np.linspace(0, 2 * np.pi, nb_routes, endpoint=False) + np.pi/4
     routes = []
     for i in range(nb_routes):
         distances = route_max_distance * RNG.rand(nb_points)
@@ -32,7 +32,7 @@ def main(*args):
 
     sim = NavigationSimulation(routes, name=f"vector-memory-routes{nb_routes:02d}")
     ani = NavigationAnimation(sim)
-    ani(save=True, show=False, save_type="mp4", save_stats=False)
+    ani(save=False, show=True, save_type="mp4", save_stats=False)
 
 
 if __name__ == '__main__':

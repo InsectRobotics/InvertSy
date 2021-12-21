@@ -4,6 +4,7 @@ from invertsy.sim.simulation import __stat_dir__
 from invertpy.brain.compass import ring2complex
 
 from scipy.stats.stats import pearsonr
+from scipy.special import expit
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,11 +16,15 @@ def main(*args):
         filename = args[1]
     else:
         # filename = "heatmap-perfectmemory-pca-scan16-par21-ant1-route1-seville2009-omm1000"
+        # filename = "heatmap-perfectmemory-pca01-scan16-par21-ant1-route1-seville2009-omm1000"
+        # filename = "heatmap-perfectmemory-pca01-li-scan16-par21-ant1-route1-seville2009-omm1000"
         # filename = "heatmap-infomax-pca-scan16-par21-ant1-route1-seville2009-omm1000"
-        # filename = "heatmap-willshawnetwork-pca-scan16-par21-ant1-route1-seville2009-omm1000"
-        # filename = "heatmap-infomax-pca-li-scan16-par21-ant1-route1-seville2009-omm1000"
-        filename = "heatmap-willshawnetwork-pca-li-scan16-par21-ant1-route1-seville2009-omm1000"
-        # filename = "heatmap-willshawnetwork-zernike-zca-scan16-par21-ant1-route1-seville2009-omm1000"
+        # filename = "heatmap-infomax-pca01-scan16-par21-ant1-route1-seville2009-omm1000"
+        # filename = "heatmap-infomax-pca01-li-scan16-par21-ant1-route1-seville2009-omm1000"
+        filename = "heatmap-willshawnetwork-pca005-scan16-par21-ant1-route1-seville2009-omm1000"
+        # filename = "heatmap-willshawnetwork-pca-li-scan16-par21-ant1-route1-seville2009-omm1000"
+        # filename = "heatmap-willshawnetwork-zernike-scan16-par21-ant1-route1-seville2009-omm1000"
+        # filename = "heatmap-willshawnetwork-zernike-li-scan16-par21-ant1-route1-seville2009-omm1000"
 
     data = np.load(os.path.join(__stat_dir__, "%s.npz" % filename), allow_pickle=True)
     print([k for k in data.keys()])
@@ -36,8 +41,9 @@ def main(*args):
     fammap = np.hstack([fammap[:, -2::-2], fammap[:, ::2]])
     print(fammap.min(), fammap.max(), fammap.shape)
     # lenmap, angmap = compose_fammap(fammap, method="angles")
-    # fammap = np.power(fammap, 8)
-    # print(fammap.min(), fammap.max(), fammap.shape)
+    # fammap = expit(40 * (fammap - 0.85))
+    fammap = np.power(fammap, 8)
+    print(fammap.min(), fammap.max(), fammap.shape)
 
     fig = plt.figure(filename + "-onroute", figsize=(17, 8))
     for i in range(fammap.shape[1]):

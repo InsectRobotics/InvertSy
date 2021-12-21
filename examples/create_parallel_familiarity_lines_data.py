@@ -12,10 +12,8 @@ def main(*args):
     # world = SimpleWorld()
     world = Seville2009()
 
-    nb_scans = 16
-    nb_rows = 100
-    nb_cols = 100
-    nb_parallel = 21
+    nb_scans = 180
+    nb_parallel = 1
     nb_ommatidia = 1000
 
     print("Create familiarity map data simulation")
