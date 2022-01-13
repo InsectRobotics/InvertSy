@@ -5,7 +5,6 @@ from invertsy.sim.animation import PathIntegrationAnimation
 from scipy.spatial.transform import Rotation as R
 
 import numpy as np
-import sys
 
 
 def main(*args):

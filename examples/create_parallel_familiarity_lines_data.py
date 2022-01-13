@@ -12,7 +12,7 @@ def main(*args):
     # world = SimpleWorld()
     world = Seville2009()
 
-    nb_scans = 180
+    nb_scans = 360
     nb_parallel = 1
     nb_ommatidia = 1000
 

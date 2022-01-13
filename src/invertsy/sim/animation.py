@@ -990,7 +990,7 @@ class PathIntegrationAnimation(Animation):
 
         time = self.sim.step(i)
 
-        self.omm.set_array(self.sim.r_pol)
+        self.omm.set_array(np.array(self.sim.stats["POL"][-1]))
 
         if self._show_history:
             tb1 = np.zeros((self.sim.r_tb1.shape[0], self.nb_frames), dtype=float)
@@ -1192,9 +1192,10 @@ class NavigationAnimation(Animation):
         for odour in sim.odours:
             odour_spread.append(odour.spread)
 
-        line_c, line_b, pos, self._marker = create_map_axis(world=sim.world, ax=ax_dict["B"],
-                                                            nest=nest, feeders=feeders,
-                                                            odour_spread=odour_spread)[:4]
+        all_lines = create_map_axis(world=sim.world, ax=ax_dict["B"],
+                                    nest=nest, feeders=feeders, odour_spread=odour_spread)
+        line_c, line_b, pos, self._marker = all_lines[:4]
+        feeders_text = all_lines[-1]
 
         omm = create_dra_axis(sim.agent.pol_sensor, cmap=cmap, ax=ax_dict["A"])
         tb1 = create_tb1_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["C"])
@@ -1208,7 +1209,7 @@ class NavigationAnimation(Animation):
 
         plt.tight_layout()
 
-        self._lines.extend([omm, tb1, cl1, cpu1, cpu4, cpu4mem, pn, mbon, dan, line_c, line_b, pos])
+        self._lines.extend([omm, tb1, cl1, cpu1, cpu4, cpu4mem, pn, mbon, dan, line_c, line_b, pos] + feeders_text)
 
         self._nb_lines = 0
         omm.set_array(sim.r_pol)
@@ -1224,10 +1225,11 @@ class NavigationAnimation(Animation):
         """
 
         nb_lines = 0
-        for j in range(len(self.sim.routes)):
-            for suf in ["in", "out"]:
-                if f"xyz_{suf}_{j}" in self.sim.stats:
-                    nb_lines += 1
+        for suf in ["in", "out"]:
+            j = 0
+            while f"xyz_{suf}_{j}" in self.sim.stats:
+                j += 1
+            nb_lines += j
 
         if i == 0:
             self.line_b.set_data([], [])
@@ -1235,11 +1237,12 @@ class NavigationAnimation(Animation):
             self._nb_lines = 0
         elif nb_lines > self._nb_lines:
             xs, ys = [], []
-            for j in range(len(self.sim.routes)):
-                for suf in ["in", "out"]:
-                    if f"xyz_{suf}_{j}" in self.sim.stats:
-                        xs.append(np.array(self.sim.stats[f"xyz_{suf}_{j}"])[:, 1])
-                        ys.append(np.array(self.sim.stats[f"xyz_{suf}_{j}"])[:, 0])
+            for suf in ["in", "out"]:
+                j = 0
+                while f"xyz_{suf}_{j}" in self.sim.stats:
+                    xs.append(np.r_[np.array(self.sim.stats[f"xyz_{suf}_{j}"])[:, 1], np.nan])
+                    ys.append(np.r_[np.array(self.sim.stats[f"xyz_{suf}_{j}"])[:, 0], np.nan])
+                    j += 1
 
             if len(xs) > 0 and len(ys) > 0:
                 xs = np.hstack(xs)
@@ -1250,7 +1253,7 @@ class NavigationAnimation(Animation):
 
         time = self.sim.step(i)
 
-        self.omm.set_array(self.sim.r_pol)
+        self.omm.set_array(np.array(self.sim.stats["POL"][-1]))
 
         tb1 = np.zeros((self.sim.r_tb1.shape[0], self.nb_frames), dtype=float)
         tb1[:, :i+1] = np.array(self.sim.stats["TB1"]).T
@@ -1284,6 +1287,9 @@ class NavigationAnimation(Animation):
         vert, codes = self._marker
         vertices = R.from_euler('Z', -self.sim.agent.ori.as_euler('ZYX', degrees=True)[0], degrees=True).apply(vert)
         self.pos.set_paths((Path(vertices[:, :2], codes),))
+
+        for i, feeder_text in enumerate(self.feeders_text):
+            feeder_text.set_text(f"Crumbs: {self.sim.food_supply[i]}")
 
         return time
 
@@ -1429,3 +1435,14 @@ class NavigationAnimation(Animation):
         matplotlib.collections.PathCollection
         """
         return self._lines[11]
+
+    @property
+    def feeders_text(self):
+        """
+        The text next to each feeder in the map.
+
+        Returns
+        -------
+        list[matplotlib.text.Text]
+        """
+        return self._lines[12:]

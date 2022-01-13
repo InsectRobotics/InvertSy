@@ -587,7 +587,7 @@ class PathIntegrationAgent(Agent):
             r = self._pol_sensor(sky=sky, scene=scene)
 
         r_tcl = self._pol_brain(r_pol=r, ori=self._pol_sensor.ori)
-        # _, phi = ring2sph(r_tcl)
+        _, phi = ring2sph(r_tcl)
         phi = self.yaw
 
         if flow is None:
@@ -1158,20 +1158,24 @@ class VisualNavigationAgent(Agent):
 
 
 class NavigatingAgent(PathIntegrationAgent):
-    def __init__(self, nb_feeders=1, *args, **kwargs):
+    def __init__(self, nb_feeders=1, nb_odours=None, *args, **kwargs):
         super().__init__(nb_feeders, *args, **kwargs)
 
-        nb_odours = nb_feeders + 1
-        nb_pn = 2 * nb_odours  # 2: food on odours, food off nest
-        nb_kc = 10
+        if nb_odours is None:
+            # by default all feeders and the nest have different odours
+            nb_odours = nb_feeders + 1  # +1 for the nest
+
+        # odour IDs: 1 PN/odour, motivation IDs: 1 PN/vector (= nb_feeders + 1)
+        nb_pn = nb_odours + nb_feeders + 1
+        nb_kc = 20
 
         pol_sensor = PolarisationSensor(nb_input=60, field_of_view=56, degrees=True)
         pol_brain = PolarisationCompass(nb_pol=60, loc_ori=copy(self._pol_sensor.omm_ori), nb_sol=8, integrated=True)
-        cx = VectorMemoryCX(nb_tb1=8, nb_mbon=nb_feeders + 1, nb_vectors=nb_odours, gain=0.1)
+        cx = VectorMemoryCX(nb_tb1=8, nb_mbon=nb_odours, nb_vectors=nb_odours, gain=0.1, noise=0.)
 
         antennas = Antennas(nb_tactile=0, nb_chemical=3, nb_chemical_dimensions=nb_odours)
         # mb = IncentiveCircuit(nb_cs=nb_pn, nb_us=2, nb_kc=nb_kc, ltm_charging_speed=0.1)  # IC
-        mb = VectorMemoryMB(nb_cs=nb_pn, nb_us=nb_feeders + 2, nb_kc=nb_kc)  # vMB
+        mb = VectorMemoryMB(nb_cs=nb_pn, nb_us=2 * nb_odours, nb_kc=nb_kc)  # vMB
 
         self._sensors = []
         self._brain = []
@@ -1190,7 +1194,7 @@ class NavigatingAgent(PathIntegrationAgent):
         self._mb = mb
 
         self._reinforcement_gamma = 0.99
-        self._reinforcement = np.zeros(nb_feeders + 2, dtype=self.dtype)
+        self._reinforcement = np.zeros(nb_odours * 2, dtype=self.dtype)
 
         self._nb_feeders = nb_feeders
         self._nb_odours = nb_odours
@@ -1209,7 +1213,7 @@ class NavigatingAgent(PathIntegrationAgent):
             food = np.zeros(self.nb_odours, dtype=r_chem.dtype)
 
         # create PN responses that sum to 1
-        r_chem[:] = 0.
+        # r_chem[:] = 0.  # erase odour information for testing the effect of motivation
         r_pn = np.r_[r_chem, food] / (np.sum(r_chem) + np.sum(food) + eps)
 
         self._reinforcement *= self._reinforcement_gamma
@@ -1221,17 +1225,17 @@ class NavigatingAgent(PathIntegrationAgent):
         r_mbon = self._mb(cs=r_pn, us=us)
 
         # mbon = [r_mbon[0::2], r_mbon[1::2]]  # IC
-        mbon = []  # vMB
-        for i in range(self.nb_vectors):  # vMB
-            # specific vector familiarity - general novelty
-            mbon.append(r_mbon[i+1::self._mb.nb_us] - r_mbon[0::self._mb.nb_us])
-        mbon = np.array(mbon)
+        # mbon = []  # vMB
+        # for i in range(self.nb_vectors):  # vMB
+        #     # specific vector familiarity - general novelty
+        #     mbon.append(r_mbon[i+1::self._mb.nb_us] - r_mbon[0::self._mb.nb_us])
+        mbon = np.reshape(r_mbon[0::2] - r_mbon[1::2], (3, -1)).mean(axis=0)
 
         # Susceptible/LTM MBONs are used for read/write of visual memories (?)
         # STM MBONs are used for write of vector memories
         # LTM MBONs are used for read of vector memories
         # mbon = mbon[:, 2]  # LTM reads the motivations from the MB
-        mbon = np.mean(mbon, axis=1) / np.mean(mbon, axis=1).max()
+        mbon = mbon / (mbon.max() + eps)
 
         if mbon is None:
             mbon = np.array([1] + [0] * self.nb_vectors)

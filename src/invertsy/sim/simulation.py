@@ -436,18 +436,46 @@ class NavigationSimulationBase(Simulation, ABC):
         self._assert_agent(a)
         self._stats["xyz"].append([a.x, a.y, a.z, a.yaw])
 
-    def approach_point(self, xyz):
-        v = xyz - self.agent.xyz
-        v[2] = 0.
-        v = v * self.agent.step_size / np.linalg.norm(v[:2])
+    def approach_point(self, xyz, acceleration=0.0055):
+        """
+        Forces the agent to move towards the given point.
+
+        Parameters
+        ----------
+        xyz : np.ndarray[float]
+            the attraction point.
+        acceleration : float, optional
+            the acceleration of the agent. Default is 0.0055
+        """
+        # the attractive force
+        f = xyz - self.agent.xyz
+
+        # z-axis has 0 force
+        f[2] = 0.
+
+        # the magnitude of the attractive force
+        f = f / np.linalg.norm(f[:2])
+
         if len(self.stats["xyz"]) > 1:
             v0 = np.array(self.stats["xyz"][-1])[:3] - np.array(self.stats["xyz"][-2])[:3]
-            v0 = v0 * self.agent.step_size / np.linalg.norm(v0[:2])
-            p = 0.3
-            v = p * v + (1 - p) * v0
 
-        yaw = np.arctan2(v[1] / self.agent.step_size, v[0] / self.agent.step_size)
+            # the updated acceleration
+            a = acceleration * f
+
+            # updated velocity direction
+            v = v0 + a
+            v = v / np.linalg.norm(v[:2])
+        else:
+            v = f
+
+        # update the velocity magnitude
+        v = self.agent.step_size * v
+
+        # move the agent to the new position
         self._agent.translate(v)
+
+        # rotate the agent accordingly
+        yaw = np.arctan2(v[1] / self.agent.step_size, v[0] / self.agent.step_size)
         self._agent.ori = R.from_euler('Z', yaw, degrees=False)
 
     def distance_from(self, xyz):
@@ -540,7 +568,7 @@ class CentralPointNavigationSimulationBase(NavigationSimulationBase, ABC):
     def update_stats(self, a):
         super().update_stats(a)
 
-        self._stats["L"].append(np.linalg.norm(a.xyz - self._central_point))
+        self._stats["L"].append(self.d_central_point)
         c = self._stats["C"][-1] if len(self._stats["C"]) > 0 else 0.
         if len(self._stats["xyz"]) > 1:
             step = np.linalg.norm(np.array(self._stats["xyz"][-1])[:3] - np.array(self._stats["xyz"][-2])[:3])
@@ -1115,7 +1143,7 @@ class NavigationSimulation(PathIntegrationSimulation):
 
         agent = kwargs.get('agent', None)
         kwargs.setdefault('route', routes[0])
-        kwargs.setdefault('nb_iterations', int(np.sum([3 * route.shape[0] for route in routes])))
+        kwargs.setdefault('nb_iterations', int(np.sum([5 * route.shape[0] for route in routes])))
         super().__init__(*args, **kwargs)
 
         self._route = routes
@@ -1139,7 +1167,7 @@ class NavigationSimulation(PathIntegrationSimulation):
         self._iter_offset[1:] = -1
         self._current_route_id = 0
         self._food = np.zeros(len(odours), dtype=self.agent.dtype)
-        self._food_source = np.ones(len(routes), dtype=self.agent.dtype)
+        self._food_supply = np.ones(len(routes), dtype=int)
         self._learning_phase = True
 
     def reset(self):
@@ -1152,17 +1180,39 @@ class NavigationSimulation(PathIntegrationSimulation):
         self._iter_offset[1:] = -1
         self._current_route_id = 0
         self._food = np.zeros(len(self._odours), dtype=self.agent.dtype)
-        self._food_source = np.ones(len(self._route), dtype=self.agent.dtype)
-        self._food_source[0] = 2
+        self._food_supply = np.ones(len(self._route), dtype=int)
+        self._food_supply[0] = 3
         self._learning_phase = True
 
     def init_stats(self):
         super().init_stats()
+
+        for i in range(len(self._route)):
+            self._stats[f"L_{i}"] = []
+
         self._stats["MBON"] = []
         self._stats["DAN"] = []
         self._stats["KC"] = []
         self._stats["PN"] = []
         self._stats["US"] = []
+
+    def update_stats(self, a):
+        """
+        Updates the logged statistics of the agent.
+
+        Parameters
+        ----------
+        a: NavigatingAgent
+        """
+        super().update_stats(a)
+
+        self._stats[f"L_{self._current_route_id}"].append(self.d_distant_point)
+
+        self._stats["MBON"].append(a.mushroom_body.r_mbon[0].copy())
+        self._stats["DAN"].append(a.mushroom_body.r_dan[0].copy())
+        self._stats["KC"].append(a.mushroom_body.r_kc[0].copy())
+        self._stats["PN"].append(a.mushroom_body.r_cs[0].copy())
+        self._stats["US"].append(a.mushroom_body.r_us[0].copy())
 
     def init_outbound(self):
         self.init_outbound_stats()
@@ -1174,14 +1224,18 @@ class NavigationSimulation(PathIntegrationSimulation):
         self.__init_bound_stats("in")
 
     def __init_bound_stats(self, inout="out"):
-        if f"xyz_{inout}_{self._current_route_id}" not in self._stats:
-            self._stats[f"xyz_{inout}_{self._current_route_id}"] = []
-            self._stats[f"L_{inout}_{self._current_route_id}"] = []
-            self._stats[f"C_{inout}_{self._current_route_id}"] = []
+        i = 0
+        while f"xyz_{inout}_{i}" in self._stats:
+            i += 1
 
-        self._stats[f"xyz_{inout}_{self._current_route_id}"].extend(copy(self._stats["xyz"]))
-        self._stats[f"L_{inout}_{self._current_route_id}"].extend(copy(self._stats["L"]))
-        self._stats[f"C_{inout}_{self._current_route_id}"].extend(copy(self._stats["C"]))
+        if f"xyz_{inout}_{i}" not in self._stats:
+            self._stats[f"xyz_{inout}_{i}"] = []
+            self._stats[f"L_{inout}_{i}"] = []
+            self._stats[f"C_{inout}_{i}"] = []
+
+        self._stats[f"xyz_{inout}_{i}"].extend(copy(self._stats["xyz"]))
+        self._stats[f"L_{inout}_{i}"].extend(copy(self._stats["L"]))
+        self._stats[f"C_{inout}_{i}"].extend(copy(self._stats["C"]))
         self._stats["xyz"] = []
         self._stats["L"] = []
         self._stats["C"] = []
@@ -1196,18 +1250,16 @@ class NavigationSimulation(PathIntegrationSimulation):
         i: int
             the iteration ID
         """
-        reinforcement = np.zeros(self._mb.nb_us, dtype=self._mb.dtype)
+        reinforcement = np.zeros(self.agent.mushroom_body.nb_us, dtype=self._mb.dtype)
 
         if self._learning_phase:
-            vectors = np.eye(self.agent.central_complex.nb_vectors)
+            vectors = np.eye(self.agent.mushroom_body.nb_us)
             if self._foraging and i - self.i_offset < 20:
-                reinforcement[1:] = vectors[self._current_route_id + 1]
+                reinforcement[:] = vectors[(self._current_route_id + 1) * 2]
             elif not self._foraging and i - self.i_offset < self.route.shape[0] + 20:
-                reinforcement[1:] = vectors[0]
-        elif self.agent.central_complex.v_change:
-            reinforcement[1:] = self.agent.central_complex.r_vec
-
-        print(f"REINFORCEMENT: {reinforcement}")
+                reinforcement[:] = vectors[0]
+        # elif self.agent.central_complex.v_change:
+        #     reinforcement[::2] = self.agent.central_complex.r_vec
 
         if np.all(np.isclose(self._food, 0)):
             self._food[:] = np.eye(len(self._odours))[0]
@@ -1251,18 +1303,18 @@ class NavigationSimulation(PathIntegrationSimulation):
             self._agent.ori = R.from_euler('Z', yaw, degrees=True)
             act = False
 
-        elif self.distance_from(self.distant_point) < .1:
+        elif self.is_approaching_distant(tol=0.1):
             self.init_inbound()
             self._foraging = False
 
             # pick up the food if it's there and go home
-            stock = self._food_source[self._current_route_id]
+            stock = self._food_supply[self._current_route_id]
             if stock > 0 and self._food[0] < 1:
                 # change the food state
                 self._food[:] = np.eye(self.agent.nb_odours)[0]
 
                 # deduct the food from the feeder
-                self._food_source[self._current_route_id] = self._food_source[self._current_route_id] - 1
+                self._food_supply[self._current_route_id] = self._food_supply[self._current_route_id] - 1
             elif stock == 0:
                 # if there is no food in the feeder move to the next feeder
                 self._current_route_id = (self._current_route_id + 1) % len(self.routes)
@@ -1273,7 +1325,7 @@ class NavigationSimulation(PathIntegrationSimulation):
                 self._foraging = True
             else:
                 print(f"START PI FROM ROUTE {self._current_route_id + 1}")
-        elif self.distance_from(self.distant_point) < .5:
+        elif self.is_approaching_distant(tol=0.5):
             self.approach_point(self.distant_point)
             act = False
 
@@ -1282,7 +1334,7 @@ class NavigationSimulation(PathIntegrationSimulation):
     def home(self):
         act = True
 
-        if len(self.stats["L"]) > 1 and self.stats["L"][-2] < self.stats["L"][-1] < 0.1:
+        if self.is_approaching_central(tol=0.1):
             # if the agent has moved for more than 1 meter and is less than 5 cm away from the nest
             # approach the nest
 
@@ -1299,7 +1351,7 @@ class NavigationSimulation(PathIntegrationSimulation):
 
             print("START FORAGING!")
 
-        elif len(self.stats["L"]) > 1 and self.stats["L"][-2] < self.stats["L"][-1] < 0.5:
+        elif self.is_approaching_central(tol=0.5):
             # if the agent has moved for more than 1 meter and is less than 50 cm away from the nest
             # approach the nest
             self.approach_point(self.central_point)
@@ -1307,21 +1359,12 @@ class NavigationSimulation(PathIntegrationSimulation):
 
         return act
 
-    def update_stats(self, a):
-        """
-        Updates the logged statistics of the agent.
+    def is_approaching_central(self, tol=0.):
+        return len(self.stats["L"]) > 1 and self.stats["L"][-2] < self.stats["L"][-1] < tol
 
-        Parameters
-        ----------
-        a: NavigatingAgent
-        """
-        super().update_stats(a)
-
-        self._stats["MBON"].append(a.mushroom_body.r_mbon[0].copy())
-        self._stats["DAN"].append(a.mushroom_body.r_dan[0].copy())
-        self._stats["KC"].append(a.mushroom_body.r_kc[0].copy())
-        self._stats["PN"].append(a.mushroom_body.r_cs[0].copy())
-        self._stats["US"].append(a.mushroom_body.r_us[0].copy())
+    def is_approaching_distant(self, tol=0.):
+        return (len(self.stats[f"L_{self._current_route_id}"]) > 1 and
+                self.stats[f"L_{self._current_route_id}"][-2] < self.stats[f"L_{self._current_route_id}"][-1] < tol)
 
     def message(self):
         mbon = np.argmax([self.stats['MBON'][-1][0::2].mean(), self.stats['MBON'][-1][1::2].mean()]) + 1
@@ -1365,6 +1408,10 @@ class NavigationSimulation(PathIntegrationSimulation):
         return self._distant_point[self._current_route_id]
 
     @property
+    def d_distant_point(self):
+        return self.distance_from(self.distant_point)
+
+    @property
     def odours(self):
         """
         A list with all the odours in the simulation.
@@ -1384,24 +1431,35 @@ class NavigationSimulation(PathIntegrationSimulation):
         self._iter_offset[self._current_route_id] = v
 
     @property
+    def food_supply(self):
+        """
+        The number of crumbs left in each food source.
+
+        Returns
+        -------
+        np.ndarray[int]
+        """
+        return self._food_supply
+
+    @property
     def r_mbon(self):
-        return self._mb.r_mbon[0].T.flatten()
+        return self.agent.mushroom_body.r_mbon[0].T.flatten()
 
     @property
     def r_dan(self):
-        return self._mb.r_dan[0].T.flatten()
+        return self.agent.mushroom_body.r_dan[0].T.flatten()
 
     @property
     def r_kc(self):
-        return self._mb.r_kc[0].T.flatten()
+        return self.agent.mushroom_body.r_kc[0].T.flatten()
 
     @property
     def r_pn(self):
-        return self._mb.r_cs[0].T.flatten()
+        return self.agent.mushroom_body.r_cs[0].T.flatten()
 
     @property
     def r_us(self):
-        return self._mb.r_us[0].T.flatten()
+        return self.agent.mushroom_body.r_us[0].T.flatten()
 
 
 class VisualNavigationSimulation(NavigationSimulationBase):

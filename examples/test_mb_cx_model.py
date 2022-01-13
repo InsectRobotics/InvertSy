@@ -1,36 +1,46 @@
-from invertsy.env.world import create_route_from_points, RNG
+from invertsy.env.world import Seville2009
 from invertsy.sim.simulation import NavigationSimulation
 from invertsy.sim.animation import NavigationAnimation
+
+from scipy.spatial.transform import Rotation as R
 
 import numpy as np
 
 
 def main(*args):
-    nb_routes = 2
-    nb_points = 10
-    route_max_distance = 4.  # meters
-    route_range = np.pi / 12
-
     print("Mushroom Body and Central Complex simulation for vector memory.")
+    routes = Seville2009.load_routes(degrees=True)
+    ant_no, rt_no, rta = routes['ant_no'][0], routes['route_no'][0], routes['path'][0]
+    print("Ant#: %d, Route#: %d, steps#: %d" % (ant_no, rt_no, rta.shape[0]))
 
-    default_directions = np.linspace(0, 2 * np.pi, nb_routes, endpoint=False) + np.pi/4
-    routes = []
-    for i in range(nb_routes):
-        distances = route_max_distance * RNG.rand(nb_points)
-        angles = 2 * route_range * RNG.rand(nb_points) - route_range + default_directions[i]
-        j = np.argsort(distances)
-        route_complex = 5 + 5j + (distances * np.exp(1j * angles))[j]
-        route_complex = np.insert(route_complex, 0, 5 + 5j)
-        x = route_complex.real
-        y = route_complex.imag
-        z = np.full_like(x, 0.01)
-        points = np.array([x, y, z]).T
-        route = create_route_from_points(*points, step_size=0.01)
-        routes.append(route)
+    nb_routes = 2
+    shift = 20
 
-        print(f"Route#: {i+1:d}, steps#: {route.shape[0]:d}")
+    rta = rta[::-1]  # inverse route A
 
-    sim = NavigationSimulation(routes, name=f"vector-memory-routes{nb_routes:02d}")
+    rta[:, :2] -= rta[0, :2]  # modify to fit two routes
+    rta[:, :3] = R.from_euler("Z", shift, degrees=True).apply(rta[:, :3]) + np.array([1., 5., 0.])
+    rta[:, 3] = (rta[:, 3] + shift) % 360 - 180
+
+    d = np.diff(rta[:, :2], axis=0)
+    phi = np.rad2deg(np.arctan2(d[:, 1], d[:, 0]))
+    phi = (np.insert(phi, -1, phi[-1]) + 180) % 360 - 180
+    rta[:, 3] = phi
+    # print(d.shape, phi.shape)
+    # print(phi[:10])
+    # print(rta[:10, 3])
+    #
+    # sys.exit()
+
+    rtb = rta.copy()  # mirror route A and create route B
+    rtb[:, [1, 3]] = -rtb[:, [1, 3]]
+    rtb[:, :3] += rta[0, :3] - rtb[0, :3]
+
+    # correct for the drift
+    rtb[:, 3] = (rtb[:, 3] + 180) % 360 - 180
+    rta[:, 3] = (rta[:, 3] + 180) % 360 - 180
+
+    sim = NavigationSimulation([rta, rtb], name=f"vector-memory-routes{nb_routes:02d}")
     ani = NavigationAnimation(sim)
     ani(save=False, show=True, save_type="mp4", save_stats=False)
 

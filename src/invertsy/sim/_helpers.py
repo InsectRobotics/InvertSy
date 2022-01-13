@@ -75,6 +75,7 @@ def create_map_axis(world=None, nest=None, feeders=None, odour_spread=None, subp
         ax.scatter([nest[1]], [nest[0]], marker='o', s=50, c='black')
         ax.text(nest[1] - .5, nest[0] + .2, "Nest")
 
+    feeders_text = []
     if feeders is not None:
         if not isinstance(feeders, list):
             feeders = [feeders]
@@ -82,6 +83,8 @@ def create_map_axis(world=None, nest=None, feeders=None, odour_spread=None, subp
             ax.scatter([feeder[1]], [feeder[0]], marker='o', s=50, c='black')
             feeder_name = "Feeder" if len(feeders) < 2 else f"{chr(ord('A') + i)}"
             ax.text(feeder[1] + .2, feeder[0] + .2, feeder_name)
+            text = ax.text(feeder[1] - .7, feeder[0] + .5, "", ha='left', va='bottom')
+            feeders_text.append(text)
 
     ax.set_ylim(0, 10)
     ax.set_xlim(0, 10)
@@ -101,7 +104,7 @@ def create_map_axis(world=None, nest=None, feeders=None, odour_spread=None, subp
     codes = pos.get_paths()[0].codes[points]
     vert = np.hstack([vert, np.zeros((vert.shape[0], 1))])
 
-    return line_c, line_b, pos, (vert, codes), cal, poi
+    return line_c, line_b, pos, (vert, codes), cal, poi, feeders_text
 
 
 def create_side_axis(world=None, subplot=111, ax=None):

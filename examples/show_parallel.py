@@ -21,21 +21,15 @@ def main(*args):
         # filename = "heatmap-infomax-pca-scan16-par21-ant1-route1-seville2009-omm1000"
         # filename = "heatmap-infomax-pca01-scan16-par21-ant1-route1-seville2009-omm1000"
         # filename = "heatmap-infomax-pca01-li-scan16-par21-ant1-route1-seville2009-omm1000"
-        filename = "heatmap-willshawnetwork-pca005-scan16-par21-ant1-route1-seville2009-omm1000"
+        # filename = "heatmap-willshawnetwork-pca005-scan16-par21-ant1-route1-seville2009-omm1000"
+        # filename = "heatmap-willshawnetwork-pca005-scan180-par1-ant1-route1-seville2009-omm1000"
+        filename = "heatmap-willshawnetwork-pca050-li-scan180-par1-ant1-route1-seville2009-omm1000"
         # filename = "heatmap-willshawnetwork-pca-li-scan16-par21-ant1-route1-seville2009-omm1000"
         # filename = "heatmap-willshawnetwork-zernike-scan16-par21-ant1-route1-seville2009-omm1000"
         # filename = "heatmap-willshawnetwork-zernike-li-scan16-par21-ant1-route1-seville2009-omm1000"
 
     data = np.load(os.path.join(__stat_dir__, "%s.npz" % filename), allow_pickle=True)
     print([k for k in data.keys()])
-
-    pn = data["input_layer"]
-    pn_std = np.std(pn, axis=0)
-    print(pn.shape)
-    print(pn_std.shape, pn_std.min(), pn_std.max())
-    print(np.sum(pn_std > .15))
-
-    # sys.exit()
 
     fammap = data["familiarity_par"]
     fammap = np.hstack([fammap[:, -2::-2], fammap[:, ::2]])
@@ -45,78 +39,100 @@ def main(*args):
     fammap = np.power(fammap, 8)
     print(fammap.min(), fammap.max(), fammap.shape)
 
-    fig = plt.figure(filename + "-onroute", figsize=(17, 8))
-    for i in range(fammap.shape[1]):
-        plt.subplot(2, fammap.shape[1], i + 1)
-        plt.title(f"{np.linspace(-20, 20, fammap.shape[1], endpoint=True)[i]:.0f}cm", fontsize=8)
-        plt.imshow(np.roll(fammap[:, i], fammap.shape[2] // 2, axis=1), cmap="RdPu", vmin=0, vmax=1, aspect="auto")
-        plt.xticks([4, 8, 12], [r"$-90^\circ$", "", r"$+90^\circ$"], fontsize=8)
-        plt.yticks([0, fammap.shape[0] / 2, fammap.shape[0] - 1],
-                   ["0.0", f"{0.01 * (fammap.shape[0] - 1) / 2:.1f}", f"{0.01 * (fammap.shape[0] - 1):.1f}"],
-                   fontsize=8)
-        if i > 0:
-            plt.yticks([])
-        else:
-            plt.ylabel("position on route (m)", fontsize=8)
-        if i == fammap.shape[1] // 2:
-            plt.xlabel("parallel disposition (m)", fontsize=8)
-    cbar = plt.colorbar()
-    cbar.ax.tick_params(labelsize=8)
+    figsize = (4, 4) if fammap.shape[1] == 1 or fammap.shape[2] == 1 else (17, 8)
 
-    for i in range(fammap.shape[2]):
-        j = (i + fammap.shape[2] // 2) % fammap.shape[2]
-        plt.subplot(2, fammap.shape[2], j + fammap.shape[2] + 1)
-        plt.title(f"{np.linspace(-180, 180, fammap.shape[2], endpoint=False)[j]:.1f}$^\circ$", fontsize=8)
-        plt.imshow(fammap[..., i], cmap="RdPu", vmin=0, vmax=1, aspect="auto")
-        plt.xticks([5, 10, 15], [-.1, "", .1], fontsize=8)
-        plt.yticks([0, fammap.shape[0] / 2, fammap.shape[0] - 1],
-                   ["0.0", f"{0.01 * (fammap.shape[0] - 1) / 2:.1f}", f"{0.01 * (fammap.shape[0] - 1):.1f}"], fontsize=8)
-        if j > 0:
-            plt.yticks([])
-        else:
-            plt.ylabel("position on route (m)", fontsize=8)
-        if j == fammap.shape[2] - 1:
-            cbar = plt.colorbar()
-            cbar.ax.tick_params(labelsize=8)
-        if i == 0:
-            plt.xlabel("rotation on the spot", fontsize=8)
+    fig = plt.figure(filename + "-onroute", figsize=figsize)
+    if fammap.shape[2] > 1 or fammap.shape[1] == 1 and fammap.shape[2] == 1:
+        nb_rows = 1 + int(fammap.shape[1] > 1)
+        for i in range(fammap.shape[1]):
+            plt.subplot(nb_rows, fammap.shape[1], i + 1)
+            if fammap.shape[1] > 1:
+                offset = np.linspace(-20, 20, fammap.shape[1], endpoint=True)[i]
+            else:
+                offset = 0
+            plt.title(f"{offset:.0f}cm", fontsize=8)
+            plt.imshow(np.roll(fammap[:, i], fammap.shape[2] // 2, axis=1), cmap="RdPu", vmin=0, vmax=1, aspect="auto")
+            plt.xticks([.25 * fammap.shape[2], .5 * fammap.shape[2], .75 * fammap.shape[2]],
+                       [r"$-90^\circ$", "", r"$+90^\circ$"], fontsize=8)
+            plt.yticks([0, fammap.shape[0] / 2, fammap.shape[0] - 1],
+                       ["0.0", f"{0.01 * (fammap.shape[0] - 1) / 2:.1f}", f"{0.01 * (fammap.shape[0] - 1):.1f}"],
+                       fontsize=8)
+            if i > 0:
+                plt.yticks([])
+            else:
+                plt.ylabel("position on route (m)", fontsize=8)
+            if i == fammap.shape[1] // 2:
+                plt.xlabel("parallel disposition (m)", fontsize=8)
+        cbar = plt.colorbar()
+        cbar.ax.tick_params(labelsize=8)
+
+    if fammap.shape[1] > 1:
+        nb_rows = 1 + int(fammap.shape[2] > 1)
+        for i in range(fammap.shape[2]):
+            j = (i + fammap.shape[2] // 2) % fammap.shape[2]
+            plt.subplot(nb_rows, fammap.shape[2], j + fammap.shape[2] * (nb_rows - 1) + 1)
+            plt.title(f"{np.linspace(-180, 180, fammap.shape[2], endpoint=False)[j]:.1f}$^\circ$", fontsize=8)
+            plt.imshow(fammap[..., i], cmap="RdPu", vmin=0, vmax=1, aspect="auto")
+            plt.xticks([.25 * fammap.shape[1], .5 * fammap.shape[1], .75 * fammap.shape[1]],
+                       [-.1, "", .1], fontsize=8)
+            plt.yticks([0, fammap.shape[0] / 2, fammap.shape[0] - 1],
+                       ["0.0", f"{0.01 * (fammap.shape[0] - 1) / 2:.1f}", f"{0.01 * (fammap.shape[0] - 1):.1f}"], fontsize=8)
+            if j > 0:
+                plt.yticks([])
+            else:
+                plt.ylabel("position on route (m)", fontsize=8)
+            if j == fammap.shape[2] - 1:
+                cbar = plt.colorbar()
+                cbar.ax.tick_params(labelsize=8)
+            if i == 0:
+                plt.xlabel("rotation on the spot", fontsize=8)
     fig.tight_layout()
 
-    fig = plt.figure(filename + "-valley", figsize=(17, 8))
-    for i in range(fammap.shape[1]):
-        fam = np.roll(fammap[:, i], fammap.shape[2] // 2, axis=1)
-        plt.subplot(2, fammap.shape[1], i + 1)
-        plt.title(f"{np.linspace(-20, 20, fammap.shape[1], endpoint=True)[i]:.0f}cm", fontsize=8)
-        plt.plot(fam.T, 'grey', lw=.5, alpha=.2)
-        plt.plot(np.mean(fam, axis=0), 'k', lw=1)
-        plt.xticks([4, 8, 12], [r"$-90^\circ$", "", r"$+90^\circ$"], fontsize=8)
-        plt.yticks([0, 1], fontsize=8)
-        plt.xlim([0, 15])
-        plt.ylim([0, 1])
-        if i > 0:
-            plt.yticks([])
-        else:
-            plt.ylabel("familiarity", fontsize=8)
-        if i == fammap.shape[1] // 2:
-            plt.xlabel("parallel disposition (m)", fontsize=8)
+    fig = plt.figure(filename + "-valley", figsize=figsize)
+    if fammap.shape[2] > 1 or fammap.shape[1] == 1 and fammap.shape[2] == 1:
+        nb_rows = 1 + int(fammap.shape[1] > 1)
+        for i in range(fammap.shape[1]):
+            fam = np.roll(fammap[:, i], fammap.shape[2] // 2, axis=1)
+            plt.subplot(nb_rows, fammap.shape[1], i + 1)
+            if fammap.shape[1] > 1:
+                offset = np.linspace(-20, 20, fammap.shape[1], endpoint=True)[i]
+            else:
+                offset = 0
+            plt.title(f"{offset:.0f}cm", fontsize=8)
+            plt.plot(fam.T, 'grey', lw=.5, alpha=.2)
+            plt.plot(np.mean(fam, axis=0), 'k', lw=1)
+            plt.xticks([.25 * fammap.shape[2], .5 * fammap.shape[2], .75 * fammap.shape[2]],
+                       [r"$-90^\circ$", "", r"$+90^\circ$"], fontsize=8)
+            plt.yticks([0, 1], fontsize=8)
+            plt.xlim([0, fammap.shape[2]-1])
+            plt.ylim([0, 1])
+            if i > 0:
+                plt.yticks([])
+            else:
+                plt.ylabel("familiarity", fontsize=8)
+            if i == fammap.shape[1] // 2:
+                plt.xlabel("parallel disposition (m)", fontsize=8)
 
-    for i in range(fammap.shape[2]):
-        j = (i + fammap.shape[2] // 2) % fammap.shape[2]
-        fam = fammap[..., i]
-        plt.subplot(2, fammap.shape[2], j + fammap.shape[2] + 1)
-        plt.title(f"{np.linspace(-180, 180, fammap.shape[2], endpoint=False)[j]:.1f}$^\circ$", fontsize=8)
-        plt.plot(fam.T, 'grey', lw=.5, alpha=.2)
-        plt.plot(np.mean(fam, axis=0), 'k', lw=1)
-        plt.xticks([5, 10, 15], [-.1, "", .1], fontsize=8)
-        plt.yticks([0, 1], fontsize=8)
-        plt.xlim([0, 20])
-        plt.ylim([0, 1])
-        if j > 0:
-            plt.yticks([])
-        else:
-            plt.ylabel("familiarity", fontsize=8)
-        if i == 0:
-            plt.xlabel("rotation on the spot", fontsize=8)
+    if fammap.shape[1] > 1:
+        nb_rows = 1 + int(fammap.shape[2] > 1)
+        for i in range(fammap.shape[2]):
+            j = (i + fammap.shape[2] // 2) % fammap.shape[2]
+            fam = fammap[..., i]
+            plt.subplot(nb_rows, fammap.shape[2], j + fammap.shape[2] * (nb_rows - 1) + 1)
+            plt.title(f"{np.linspace(-180, 180, fammap.shape[2], endpoint=False)[j]:.1f}$^\circ$", fontsize=8)
+            plt.plot(fam.T, 'grey', lw=.5, alpha=.2)
+            plt.plot(np.mean(fam, axis=0), 'k', lw=1)
+            plt.xticks([.25 * fammap.shape[1], .5 * fammap.shape[1], .75 * fammap.shape[1]],
+                       [-.1, "", .1], fontsize=8)
+            plt.yticks([0, 1], fontsize=8)
+            plt.xlim([0, fammap.shape[1] - 1])
+            plt.ylim([0, 1])
+            if j > 0:
+                plt.yticks([])
+            else:
+                plt.ylabel("familiarity", fontsize=8)
+            if i == 0:
+                plt.xlabel("rotation on the spot", fontsize=8)
     fig.tight_layout()
 
     # plt.imshow(lenmap.T, cmap="RdPu", vmin=0, vmax=1, aspect="auto")

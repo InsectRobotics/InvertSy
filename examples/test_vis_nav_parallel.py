@@ -12,7 +12,8 @@ import re
 
 def main(*args):
     pattern = r"dataset-scan([0-9]+)-parallel([0-9]+)-ant([0-9]+)-route([0-9]+)-([a-zA-Z0-9]+)-omm([0-9]+).npz"
-    data_filename = "dataset-scan16-parallel21-ant1-route1-seville2009-omm1000.npz"
+    # data_filename = "dataset-scan16-parallel21-ant1-route1-seville2009-omm1000.npz"
+    data_filename = "dataset-scan180-parallel1-ant1-route1-seville2009-omm1000.npz"
 
     save = True
     # model = "perfectmemory"
@@ -22,7 +23,7 @@ def main(*args):
     calibrate = True
     zernike = False
     ms = 1  # mental scanning
-    percentile_omm = .05
+    percentile_omm = 1.
 
     details = re.match(pattern, data_filename)
     nb_scans = int(details.group(1))
@@ -84,7 +85,7 @@ def main(*args):
                                   whitening=whitening, zernike=zernike, lateral_inhibition=lateral_inhibition)
     sim = VisualFamiliarityParallelExplorationSimulation(data_filename, nb_par=nb_parallel, nb_oris=nb_scans,
                                                          agent=agent, calibrate=calibrate, name=agent_name)
-    sim.message_intervals = 80
+    sim.message_intervals = 180
     # ani = VisualFamiliarityAnimation(sim)
     # ani(save=save, show=not save, save_type="mp4", save_stats=save)
     sim(save=save)
