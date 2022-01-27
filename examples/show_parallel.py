@@ -23,10 +23,12 @@ def main(*args):
         # filename = "heatmap-infomax-pca01-li-scan16-par21-ant1-route1-seville2009-omm1000"
         # filename = "heatmap-willshawnetwork-pca005-scan16-par21-ant1-route1-seville2009-omm1000"
         # filename = "heatmap-willshawnetwork-pca005-scan180-par1-ant1-route1-seville2009-omm1000"
-        filename = "heatmap-willshawnetwork-pca050-li-scan180-par1-ant1-route1-seville2009-omm1000"
+        # filename = "heatmap-willshawnetwork-pca050-li-scan180-par1-ant1-route1-seville2009-omm1000"
         # filename = "heatmap-willshawnetwork-pca-li-scan16-par21-ant1-route1-seville2009-omm1000"
         # filename = "heatmap-willshawnetwork-zernike-scan16-par21-ant1-route1-seville2009-omm1000"
         # filename = "heatmap-willshawnetwork-zernike-li-scan16-par21-ant1-route1-seville2009-omm1000"
+        filename = "heatmap-incentivecircuitmemory-pca010-scan16-par21-ant1-route1-seville2009-omm1000"
+        # filename = "heatmap-incentivecircuitmemory-pca010-li-scan16-par21-ant1-route1-seville2009-omm1000"
 
     data = np.load(os.path.join(__stat_dir__, "%s.npz" % filename), allow_pickle=True)
     print([k for k in data.keys()])
@@ -36,6 +38,7 @@ def main(*args):
     print(fammap.min(), fammap.max(), fammap.shape)
     # lenmap, angmap = compose_fammap(fammap, method="angles")
     # fammap = expit(40 * (fammap - 0.85))
+    # fammap = expit(10 * (fammap - .7))
     fammap = np.power(fammap, 8)
     print(fammap.min(), fammap.max(), fammap.shape)
 

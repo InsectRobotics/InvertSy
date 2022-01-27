@@ -1,4 +1,4 @@
-from invertpy.brain.mushroombody import PerfectMemory, WillshawNetwork
+from invertpy.brain.memory import PerfectMemory, WillshawNetwork
 from invertpy.sense import CompoundEye
 
 from invertsy.agent import VisualNavigationAgent

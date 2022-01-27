@@ -17,7 +17,7 @@ def main(*args):
     eye = CompoundEye(nb_input=2000, omm_pol_op=0, noise=0., omm_rho=np.deg2rad(10), omm_res=10.,
                       c_sensitive=[0., 0., 1., 0., 0.])
     sim = RouteSimulation(rt, eye=eye, world=Seville2009(),
-                          preprocessing=[LateralInhibition(copy(eye.omm_ori), radius=10)],
+                          # preprocessing=[LateralInhibition(copy(eye.omm_ori))],
                           name="seville-ant%d-route%d" % (ant_no, rt_no))
     ani = RouteAnimation(sim)
     ani(save=False, show=True, save_type="mp4", save_stats=False)

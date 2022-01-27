@@ -12,6 +12,7 @@ __version__ = "v1.0.0-alpha"
 __maintainer__ = "Evripidis Gkanias"
 
 import numbers
+from abc import ABC
 
 from ._helpers import eps, RNG
 
@@ -535,6 +536,258 @@ class Agent(object):
         return self._dt_default
 
 
+class VisualProcessingAgent(Agent, ABC):
+
+    def __init__(self, eye=None, saturation=10, nb_scans=1, nb_visual=None,
+                 lateral_inhibition=True, mental_scanning=0, zernike=False, whitening=pca,
+                 *args, **kwargs):
+        """
+        Agent specialised in the visual navigation task. It contains the CompoundEye as a sensor and the mushroom body
+        as the brain component.
+
+        Parameters
+        ----------
+        eye: CompoundEye, optional
+            instance of the compound eye of the agent. Default is a compound eye with 5000 ommatidia, with 15 deg
+            acceptance angle each, sensitive to green only and not sensitive to polarised light.
+        memory: MemoryComponent, optional
+            instance of a mushroom body model as a processing component. Default is the WillshawNetwork with #PN equal
+            to the number of ommatidia, #KC equal to 40 x #PN, sparseness is 1%, and eligibility trace (lambda) is 0.1
+        saturation: float, optional
+            the maximum radiation level that the eye can handle, anything above this threshold will be saturated.
+            Default is 1.5
+        nb_scans: int, optional
+            the number of scans during the route following task. Default is 7
+        zernike: bool, optional
+            whether to transform the visual input into the frequency domain by using the DCT method. Default is False
+        """
+        super().__init__(*args, **kwargs)
+
+        if eye is None:
+            eye = CompoundEye(nb_input=1000, omm_pol_op=0, noise=0., omm_rho=np.deg2rad(4), omm_res=saturation,
+                              c_sensitive=[0, 0., 1., 0., 0.])
+
+        nb_input = eye.nb_ommatidia
+        if nb_visual is None:
+            nb_visual = nb_input
+
+        self.add_sensor(eye)
+
+        self._eye = eye  # type: CompoundEye
+
+        self._pref_angles = None
+        """
+        The preferred angles for scanning
+        """
+
+        if nb_scans <= 1 and mental_scanning <= 1:
+            self._pref_angles = np.array([0], dtype=self.dtype)
+        elif mental_scanning == 2:
+            self._pref_angles = np.array([-45, 45], dtype=self.dtype)
+        elif nb_scans > 1:
+            self._pref_angles = np.linspace(-60, 60, nb_scans)
+        elif mental_scanning > 1:
+            self._pref_angles = np.linspace(0, 360, mental_scanning, endpoint=False)
+
+        self._preprocessing = []
+        """
+        List of the preprocessing components
+        """
+
+        if lateral_inhibition:
+            self._preprocessing.append(LateralInhibition(ori=eye.omm_ori, nb_neighbours=6))
+
+        if mental_scanning > 1:
+            self._preprocessing.append(MentalRotation(eye=eye, pref_angles=np.deg2rad(self._pref_angles)))
+
+        if whitening is not None:
+            self._preprocessing.append(Whitening(nb_input=nb_input, nb_output=nb_visual,
+                                                 w_method=whitening, dtype=eye.dtype))
+            nb_input = nb_visual
+        if zernike:
+            self._preprocessing.append(ZernikeMoments(nb_input=nb_input, ori=eye.omm_ori, dtype=eye.dtype))
+
+        self.reset()
+
+    def reset(self):
+        super().reset()
+
+        for process in self._preprocessing:
+            process.reset()
+
+    def calibrate(self, sky=None, scene=None, omm_responses=None, nb_samples=32, radius=2.):
+        """
+        Approximates the calibration of the optic lobes of the agent.
+        In this case, it randomly collects a number of samples (in different positions and direction) in a radius
+        around the nest. These samples are used in order to build a PCA whitening map, that transforms the visual
+        input from the ommatidia to a white signal thying to maximise its information.
+
+        Parameters
+        ----------
+        sky: Sky, optional
+            the sky instance. Default is None
+        scene: Seville2009, optional
+            the world instance. Default is None
+        omm_responses: np.ndarray[float]
+            the pre-rendered ommatidia responses. Default is None
+        nb_samples: int, optional
+            the number of samples to use
+        radius: float, optional
+            the radius around the nest from where the samples will be taken
+
+        Returns
+        -------
+        xyz: list[np.ndarray[float]]
+            the positions of the agent for every sample
+        ori: list[R]
+            the orientations of the agent for every sample
+        """
+        xyz = copy(self.xyz)
+        ori = copy(self.ori)
+
+        if omm_responses is not None:
+            nb_samples = omm_responses.shape[0]
+
+        nb_ms = self.nb_mental_rotations
+
+        samples = np.zeros((nb_samples * nb_ms, self._eye.nb_ommatidia), dtype=self.dtype)
+        xyzs, oris = [], []
+        for i in range(nb_samples):
+            if omm_responses is None:
+                self.xyz = xyz + self.rng.uniform(-radius, radius, 3) * np.array([1., 1., 0])
+                self.ori = R.from_euler("Z", self.rng.uniform(-180, 180), degrees=True)
+                xyzs.append(copy(self.xyz))
+                oris.append(copy(self.ori))
+
+            print("Calibration: %d/%d - x: %.2f, y: %.2f, z: %.2f, yaw: %d" % (
+                i + 1, nb_samples, self.x, self.y, self.z, self.yaw_deg))
+            samples[i*nb_ms:(i+1)*nb_ms] = self.get_pn_responses(
+                sky, scene, omm_responses[i] if omm_responses is not None else None, pre_whitened=True)
+
+        for p in self._preprocessing:
+            if isinstance(p, Whitening):
+                p.reset(samples)
+
+        self.xyz = xyz
+        self.ori = ori
+
+        print("Calibration: DONE!")
+
+        return xyzs, oris
+
+    def get_pn_responses(self, sky=None, scene=None, omm_responses=None, pre_whitened=False, raw=False):
+        """
+        Transforms the current snapshot of the environment into the PN responses.
+
+        - Apply DCT (if applicable)
+        - Apply PCA whitening (if applicable)
+
+        Parameters
+        ----------
+        sky: Sky, optional
+            the sky instance. Default is None
+        scene: Seville2009, optional
+            the world instance. Default is None
+        omm_responses: np.ndarray[float]
+            the pre-rendered ommatidia responses. Default is None
+        pre_whitened: bool
+        raw : bool
+
+        Returns
+        -------
+        r: np.ndarray[float]
+            the responses of the PNs
+        """
+        if omm_responses is None:  # if rendered ommatidia responses are provided, use them
+            omm_responses = self._eye(sky=sky, scene=scene)
+
+        r = np.clip(omm_responses.mean(axis=1), 0, 1)
+        if raw:
+            pass
+        elif pre_whitened:
+            i = 0
+            while not isinstance(self._preprocessing[i], Whitening) and i < len(self._preprocessing):
+                r = self._preprocessing[i](r)
+                i += 1
+        else:
+            for process in self._preprocessing:
+                r = process(r)
+
+        if r.ndim < 2:
+            r = r[np.newaxis, :]
+
+        if self.is_calibrated and False:
+            import matplotlib.pyplot as plt
+
+            plt.figure("preprocessing", figsize=(10, 10))
+
+            yaw, pitch, _ = self._eye.omm_ori.as_euler('ZYX', degrees=True).T
+            for i in range(r.shape[0]):
+                plt.subplot(4, 4, i + 1)
+                plt.scatter(yaw, -pitch, s=20, c=r[i], cmap='coolwarm', vmin=-1, vmax=1)
+
+            plt.show()
+        return r
+
+    def get_omm_responses(self, sky=None, scene=None):
+        """
+        Generates the current snapshot of the environement.
+
+        Parameters
+        ----------
+        sky: Sky, optional
+            the sky instance. Default is None
+        scene: Seville2009, optional
+            the world instance. Default is None
+
+        Returns
+        -------
+        r: np.ndarray[float]
+            the responses of the ommatidia
+        """
+        return np.clip(self._eye(sky=sky, scene=scene).mean(axis=1), 0, 1)
+
+    @property
+    def nb_mental_rotations(self):
+        return len(self._pref_angles)
+
+    @property
+    def preprocessing(self):
+        return self._preprocessing
+
+    @property
+    def pref_angles(self):
+        """
+        The preferred angles of the agent, where it will look at when scanning
+        """
+        return self._pref_angles
+
+    @property
+    def nb_scans(self):
+        """
+        The number of scans to be applied
+        """
+        return self._pref_angles.shape[0]
+
+    @property
+    def nb_visual_cues(self):
+        return self.preprocessing[-1].nb_output
+
+    @property
+    def is_calibrated(self):
+        """
+        Indicates if calibration has been completed
+        """
+        for p in self._preprocessing:
+            if isinstance(p, Whitening):
+                return p.calibrated
+        return False
+
+    @property
+    def eye(self):
+        return self._eye
+
+
 class PathIntegrationAgent(Agent):
 
     def __init__(self, nb_feeders=1, *args, **kwargs):
@@ -547,7 +800,7 @@ class PathIntegrationAgent(Agent):
         pol_sensor = PolarisationSensor(nb_input=60, field_of_view=56, degrees=True, noise=self._noise, rng=self.rng)
         pol_brain = PolarisationCompass(nb_pol=60, loc_ori=copy(pol_sensor.omm_ori), nb_sol=8, integrated=True,
                                         noise=self._noise, rng=self.rng)
-        cx = VectorMemoryCX(nb_tb1=8, nb_mbon=nb_feeders + 1, nb_vectors=nb_feeders + 1, gain=.05,
+        cx = VectorMemoryCX(nb_tb1=8, nb_mbon=6, nb_vectors=nb_feeders + 1, gain=.05,
                             pontine=True, holonomic=True, noise=self._noise, rng=self.rng)
         # cx = StoneCX(nb_tb1=8, noise=self._noise, rng=self.rng)
 
@@ -562,7 +815,7 @@ class PathIntegrationAgent(Agent):
 
         self._default_flow = self._dx * np.ones(2) / np.sqrt(2)
 
-    def _sense(self, sky=None, scene=None, flow=None, mbon=None, **kwargs):
+    def _sense(self, sky=None, scene=None, flow=None, mbon=None, vec=None, **kwargs):
         """
         Using its only sensor (the dorsal rim area) it senses the radiation from the sky which is interrupted by the
         given scene, and the optic flow for self motion calculation.
@@ -607,9 +860,8 @@ class PathIntegrationAgent(Agent):
 
         if isinstance(self._cx, VectorMemoryCX):
             if mbon is None:
-                mbon = np.array([1] + [0] * (self._cx.nb_mbon - 1))
-
-            return self._cx(phi=phi, flow=flow, mbon=mbon)
+                mbon = np.array([0] * self._cx.nb_mbon)
+            return self._cx(phi=phi, flow=flow, mbon=mbon, vec=vec)
         elif isinstance(self._cx, StoneCX):
             return self._cx(phi=phi, flow=flow)
 
@@ -678,11 +930,9 @@ class PathIntegrationAgent(Agent):
         return output
 
 
-class VisualNavigationAgent(Agent):
+class VisualNavigationAgent(VisualProcessingAgent):
 
-    def __init__(self, eye=None, memory=None, saturation=1.5, nb_scans=7, nb_visual=None,
-                 lateral_inhibition=True, mental_scanning=0, zernike=False, whitening=pca,
-                 *args, **kwargs):
+    def __init__(self, memory=None, *args, **kwargs):
         """
         Agent specialised in the visual navigation task. It contains the CompoundEye as a sensor and the mushroom body
         as the brain component.
@@ -705,59 +955,18 @@ class VisualNavigationAgent(Agent):
         """
         super().__init__(*args, **kwargs)
 
-        if eye is None:
-            eye = CompoundEye(nb_input=1000, omm_pol_op=0, noise=0., omm_rho=np.deg2rad(15), omm_res=saturation,
-                              c_sensitive=[0, 0., 1., 0., 0.])
-
-        nb_input = eye.nb_ommatidia
-        if nb_visual is None:
-            nb_visual = nb_input
-
         if memory is None:
+            nb_visual = self.preprocessing[-1].nb_output
             # #KC = 40 * #PN
-            memory = WillshawNetwork(nb_input=nb_visual, nb_sparse=eye.nb_ommatidia * 40, sparseness=0.01,
-                                     eligibility_trace=.1)
-
-        self.add_sensor(eye)
+            memory = WillshawNetwork(nb_input=nb_visual, nb_sparse=4000, sparseness=0.01, eligibility_trace=.1)
         self.add_brain_component(memory)
 
-        self._eye = eye  # type: CompoundEye
         self._mem = memory  # type: MemoryComponent
-
-        self._pref_angles = None
-        """
-        The preferred angles for scanning
-        """
-        
-        if nb_scans <= 1 and mental_scanning <= 1:
-            self._pref_angles = np.array([0], dtype=self.dtype)
-        elif nb_scans > 1:
-            self._pref_angles = np.linspace(-60, 60, nb_scans)
-        elif mental_scanning > 1:
-            self._pref_angles = np.linspace(0, 360, mental_scanning, endpoint=False)
 
         self._familiarity = np.zeros_like(self._pref_angles)
         """
         The familiarity of each preferred angle
         """
-
-        self._preprocessing = []
-        """
-        List of the preprocessing components
-        """
-
-        if lateral_inhibition:
-            self._preprocessing.append(LateralInhibition(ori=eye.omm_ori, nb_neighbours=6))
-
-        if mental_scanning > 1:
-            self._preprocessing.append(MentalRotation(eye=eye, pref_angles=np.deg2rad(self._pref_angles)))
-
-        if whitening is not None:
-            self._preprocessing.append(Whitening(nb_input=nb_input, nb_output=nb_visual,
-                                                 w_method=whitening, dtype=eye.dtype))
-            nb_input = nb_visual
-        if zernike:
-            self._preprocessing.append(ZernikeMoments(nb_input=nb_input, ori=eye.omm_ori, dtype=eye.dtype))
 
         self.reset()
 
@@ -765,9 +974,6 @@ class VisualNavigationAgent(Agent):
         super().reset()
 
         self._familiarity = np.zeros_like(self._pref_angles)
-
-        for process in self._preprocessing:
-            process.reset()
 
     def _sense(self, sky=None, scene=None, omm_responses=None, **kwargs):
         """
@@ -861,162 +1067,12 @@ class VisualNavigationAgent(Agent):
         self.rotate(R.from_euler('Z', steer, degrees=True))
         self.move_forward()
 
-    def calibrate(self, sky=None, scene=None, omm_responses=None, nb_samples=32, radius=2.):
-        """
-        Approximates the calibration of the optic lobes of the agent.
-        In this case, it randomly collects a number of samples (in different positions and direction) in a radius
-        around the nest. These samples are used in order to build a PCA whitening map, that transforms the visual
-        input from the ommatidia to a white signal thying to maximise its information.
-
-        Parameters
-        ----------
-        sky: Sky, optional
-            the sky instance. Default is None
-        scene: Seville2009, optional
-            the world instance. Default is None
-        omm_responses: np.ndarray[float]
-            the pre-rendered ommatidia responses. Default is None
-        nb_samples: int, optional
-            the number of samples to use
-        radius: float, optional
-            the radius around the nest from where the samples will be taken
-
-        Returns
-        -------
-        xyz: list[np.ndarray[float]]
-            the positions of the agent for every sample
-        ori: list[R]
-            the orientations of the agent for every sample
-        """
-        xyz = copy(self.xyz)
-        ori = copy(self.ori)
-
-        if omm_responses is not None:
-            nb_samples = omm_responses.shape[0]
-
-        nb_ms = self.nb_mental_rotations
-
-        samples = np.zeros((nb_samples * nb_ms, self._eye.nb_ommatidia), dtype=self.dtype)
-        xyzs, oris = [], []
-        for i in range(nb_samples):
-            if omm_responses is None:
-                self.xyz = xyz + self.rng.uniform(-radius, radius, 3) * np.array([1., 1., 0])
-                self.ori = R.from_euler("Z", self.rng.uniform(-180, 180), degrees=True)
-                xyzs.append(copy(self.xyz))
-                oris.append(copy(self.ori))
-
-            print("Calibration: %d/%d - x: %.2f, y: %.2f, z: %.2f, yaw: %d" % (
-                i + 1, nb_samples, self.x, self.y, self.z, self.yaw_deg))
-            samples[i*nb_ms:(i+1)*nb_ms] = self.get_pn_responses(sky, scene, omm_responses[i], pre_whitened=True)
-        self._preprocessing[-1].reset(samples)
-
-        self.xyz = xyz
-        self.ori = ori
-
-        print("Calibration: DONE!")
-
-        return xyzs, oris
-
-    def get_pn_responses(self, sky=None, scene=None, omm_responses=None, pre_whitened=False, raw=False):
-        """
-        Transforms the current snapshot of the environment into the PN responses.
-
-        - Apply DCT (if applicable)
-        - Apply PCA whitening (if applicable)
-
-        Parameters
-        ----------
-        sky: Sky, optional
-            the sky instance. Default is None
-        scene: Seville2009, optional
-            the world instance. Default is None
-        omm_responses: np.ndarray[float]
-            the pre-rendered ommatidia responses. Default is None
-        pre_whitened: bool
-        raw : bool
-
-        Returns
-        -------
-        r: np.ndarray[float]
-            the responses of the PNs
-        """
-        if omm_responses is None:  # if rendered ommatidia responses are provided, use them
-            omm_responses = self._eye(sky=sky, scene=scene)
-
-        r = np.clip(omm_responses.mean(axis=1), 0, 1)
-        if raw:
-            pass
-        elif pre_whitened:
-            i = 0
-            while not isinstance(self._preprocessing[i], Whitening) and i < len(self._preprocessing):
-                r = self._preprocessing[i](r)
-                i += 1
-        else:
-            for process in self._preprocessing:
-                r = process(r)
-
-        if r.ndim < 2:
-            r = r[np.newaxis, :]
-
-        if self.is_calibrated and False:
-            import matplotlib.pyplot as plt
-
-            plt.figure("preprocessing", figsize=(10, 10))
-
-            yaw, pitch, _ = self._eye.omm_ori.as_euler('ZYX', degrees=True).T
-            for i in range(r.shape[0]):
-                plt.subplot(4, 4, i + 1)
-                plt.scatter(yaw, -pitch, s=20, c=r[i], cmap='coolwarm', vmin=-1, vmax=1)
-
-            plt.show()
-        return r
-
-    def get_omm_responses(self, sky=None, scene=None):
-        """
-        Generates the current snapshot of the environement.
-
-        Parameters
-        ----------
-        sky: Sky, optional
-            the sky instance. Default is None
-        scene: Seville2009, optional
-            the world instance. Default is None
-
-        Returns
-        -------
-        r: np.ndarray[float]
-            the responses of the ommatidia
-        """
-        return np.clip(self._eye(sky=sky, scene=scene).mean(axis=1), 0, 1)
-
-    @property
-    def nb_mental_rotations(self):
-        return self._mem.neuron_dims
-
-    @property
-    def preprocessing(self):
-        return self._preprocessing
-
     @property
     def familiarity(self):
         """
         The familiarity of the latest snapshot per preferred angle
         """
         return self._familiarity
-
-    @property
-    def pref_angles(self):
-        """
-        The preferred angles of the agent, where it will look at when scanning
-        """
-        return self._pref_angles
-
-    @property
-    def nb_scans(self):
-        """
-        The number of scans to be applied
-        """
-        return self._pref_angles.shape[0]
 
     @property
     def update(self):
@@ -1036,20 +1092,6 @@ class VisualNavigationAgent(Agent):
             memory updates
         """
         self._mem.update = v
-
-    @property
-    def is_calibrated(self):
-        """
-        Indicates if calibration has been completed
-        """
-        for p in self._preprocessing:
-            if isinstance(p, Whitening):
-                return p.calibrated
-        return False
-
-    @property
-    def eye(self):
-        return self._eye
 
     @property
     def memory_component(self):
@@ -1157,28 +1199,28 @@ class VisualNavigationAgent(Agent):
         return steer
 
 
-class NavigatingAgent(PathIntegrationAgent):
+class NavigatingAgent(PathIntegrationAgent, VisualProcessingAgent):
     def __init__(self, nb_feeders=1, nb_odours=None, *args, **kwargs):
         super().__init__(nb_feeders, *args, **kwargs)
+        PathIntegrationAgent.__init__(self, nb_feeders, *args, **kwargs)
+        VisualProcessingAgent.__init__(self, *args, **kwargs)
 
         if nb_odours is None:
             # by default all feeders and the nest have different odours
             nb_odours = nb_feeders + 1  # +1 for the nest
 
-        # odour IDs: 1 PN/odour, motivation IDs: 1 PN/vector (= nb_feeders + 1)
-        nb_pn = nb_odours + nb_feeders + 1
-        nb_kc = 20
+        # odour IDs: 1 PN/odour
+        nb_pn = 1 * nb_odours + self.nb_visual_cues
+        nb_kc = 4000
 
         pol_sensor = PolarisationSensor(nb_input=60, field_of_view=56, degrees=True)
         pol_brain = PolarisationCompass(nb_pol=60, loc_ori=copy(self._pol_sensor.omm_ori), nb_sol=8, integrated=True)
-        cx = VectorMemoryCX(nb_tb1=8, nb_mbon=nb_odours, nb_vectors=nb_odours, gain=0.1, noise=0.)
+        cx = VectorMemoryCX(nb_tb1=8, nb_mbon=6, nb_vectors=nb_odours, gain=0.1, noise=0.)
 
         antennas = Antennas(nb_tactile=0, nb_chemical=3, nb_chemical_dimensions=nb_odours)
         # mb = IncentiveCircuit(nb_cs=nb_pn, nb_us=2, nb_kc=nb_kc, ltm_charging_speed=0.1)  # IC
-        mb = VectorMemoryMB(nb_cs=nb_pn, nb_us=2 * nb_odours, nb_kc=nb_kc)  # vMB
 
-        self._sensors = []
-        self._brain = []
+        mb = VectorMemoryMB(nb_cs=nb_pn, nb_us=2, nb_kc=nb_kc)  # vMB
 
         self.add_sensor(pol_sensor, local=True)
         self.add_sensor(antennas, local=True)
@@ -1193,14 +1235,19 @@ class NavigatingAgent(PathIntegrationAgent):
         self._cx = cx
         self._mb = mb
 
-        self._reinforcement_gamma = 0.99
-        self._reinforcement = np.zeros(nb_odours * 2, dtype=self.dtype)
+        # self._reinforcement_gamma = 0.997
+        self._reinforcement_gamma = .5
+        self._reinforcement = np.zeros(self._mb.nb_us, dtype=self.dtype)
 
         self._nb_feeders = nb_feeders
         self._nb_odours = nb_odours
 
     def _sense(self, sky=None, scene=None, odours=None, food=None, flow=None, reinforcement=None, **kwargs):
 
+        r_vpn = VisualProcessingAgent.get_pn_responses(self, sky=sky, scene=scene)
+
+        r_chem_pre = copy(self._antennas.responses[:, self._antennas.nb_tactile:]).mean(axis=0).reshape(
+            self._antennas.nb_chemical, - 1).mean(axis=0)
         r_antenna = self._antennas(odours=odours)
         r_chem = r_antenna[:, self._antennas.nb_tactile:]
 
@@ -1208,13 +1255,22 @@ class NavigatingAgent(PathIntegrationAgent):
         r_chem = r_chem.mean(axis=0)
         # ignore the multiple sensors on the antenna
         r_chem = r_chem.reshape(self._antennas.nb_chemical, - 1).mean(axis=0)
+        # # augment by using the gradient instead of the actual responses
+        # r_chem_diff = np.r_[np.maximum(r_chem - r_chem_pre, 0), np.maximum(r_chem_pre - r_chem, 0)]
+        # # normalise
+        # r_chem_diff = r_chem_diff / np.maximum(r_chem_diff.sum(), eps)
+        # # augment with actual odour identity
+        # # r_chem_all = np.r_[r_chem, r_chem_diff]
+        # # r_chem_all = r_chem_diff
+        r_opn = r_chem
 
         if food is None:
-            food = np.zeros(self.nb_odours, dtype=r_chem.dtype)
+            food = np.zeros(self.nb_odours, dtype=r_opn.dtype)
 
         # create PN responses that sum to 1
-        # r_chem[:] = 0.  # erase odour information for testing the effect of motivation
-        r_pn = np.r_[r_chem, food] / (np.sum(r_chem) + np.sum(food) + eps)
+        # r_chem_all[:] = 0.  # erase odour information for testing the effect of motivation
+        # r_pn = np.r_[r_chem_all, food] / (np.sum(r_chem_all) + np.sum(food) + eps)
+        r_pn = np.r_[r_vpn.flatten(), r_opn.flatten()] / (np.sum(np.r_[r_vpn.flatten(), r_opn.flatten()]) + eps)
 
         self._reinforcement *= self._reinforcement_gamma
         if reinforcement is not None:
@@ -1224,24 +1280,7 @@ class NavigatingAgent(PathIntegrationAgent):
         us = copy(self._reinforcement)  # vMB
         r_mbon = self._mb(cs=r_pn, us=us)
 
-        # mbon = [r_mbon[0::2], r_mbon[1::2]]  # IC
-        # mbon = []  # vMB
-        # for i in range(self.nb_vectors):  # vMB
-        #     # specific vector familiarity - general novelty
-        #     mbon.append(r_mbon[i+1::self._mb.nb_us] - r_mbon[0::self._mb.nb_us])
-        mbon = np.reshape(r_mbon[0::2] - r_mbon[1::2], (3, -1)).mean(axis=0)
-
-        # Susceptible/LTM MBONs are used for read/write of visual memories (?)
-        # STM MBONs are used for write of vector memories
-        # LTM MBONs are used for read of vector memories
-        # mbon = mbon[:, 2]  # LTM reads the motivations from the MB
-        mbon = mbon / (mbon.max() + eps)
-
-        if mbon is None:
-            mbon = np.array([1] + [0] * self.nb_vectors)
-        # mbon[:] = reinforcement[1:]
-
-        return super(NavigatingAgent, self)._sense(sky=sky, scene=scene, flow=flow, mbon=mbon, **kwargs)
+        return super(NavigatingAgent, self)._sense(sky=sky, scene=scene, flow=flow, mbon=r_mbon, **kwargs)
 
     @property
     def mushroom_body(self):

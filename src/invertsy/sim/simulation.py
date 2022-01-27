@@ -148,10 +148,12 @@ class Simulation(object):
         try:
             self.reset()
 
-            for self._iteration in range(self._iteration, self.nb_frames):
+            while self._iteration < self.nb_frames:
                 dt = self.step(self._iteration)
                 if self._iteration % self.message_intervals == 0:
                     print(self.message() + " - time: %.2f sec" % dt)
+
+                self._iteration += 1
         except KeyboardInterrupt:
             print("Simulation interrupted by keyboard!")
         finally:
@@ -714,7 +716,7 @@ class PathIntegrationSimulation(CentralPointNavigationSimulationBase):
         else:
             motivation = np.array([1, 0])
 
-        self._agent(sky=self._sky, act=act, motivation=motivation, callback=self.update_stats)
+        self._agent(sky=self._sky, act=act, vec=motivation, callback=self.update_stats)
 
     def update_stats(self, a):
         """
@@ -954,6 +956,8 @@ class TwoSourcePathIntegrationSimulation(PathIntegrationSimulation):
             self._state.append(route_name)
             print(f"STATE: {self._state}")
 
+            self.central_complex.reset_current_memory()
+
     def _step(self, i):
         """
         Runs one iteration of the simulation. If the iteration is less than the maximum number of iterations in the
@@ -969,9 +973,9 @@ class TwoSourcePathIntegrationSimulation(PathIntegrationSimulation):
         else:
             act = self.home()
 
-        motivation = self.get_motivation()
+        vector = self.get_vector()
 
-        self.agent(sky=self._sky, act=act, mbon=motivation, callback=self.update_stats)
+        self.agent(sky=self._sky, act=act, vec=vector, callback=self.update_stats)
 
     def forage(self):
         i = self._iteration
@@ -1043,13 +1047,13 @@ class TwoSourcePathIntegrationSimulation(PathIntegrationSimulation):
 
         return act
 
-    def get_motivation(self):
-        motivation = np.zeros(3, dtype=self.agent.dtype)
+    def get_vector(self):
+        vector = np.zeros(3, dtype=self.agent.dtype)
         if self._foraging:
-            motivation[self._forage_id] = 1
+            vector[self._forage_id] = 1
         else:
-            motivation[0] = 1
-        return  motivation
+            vector[0] = 1
+        return vector
 
     def update_stats(self, a):
         """
@@ -1072,6 +1076,16 @@ class TwoSourcePathIntegrationSimulation(PathIntegrationSimulation):
                   else (self._stats["C_out"][-1] if "C_out" in self._stats else 0.))
         return (super().message() + " - x: %.2f, y: %.2f, z: %.2f, Φ: %.0f - L: %.2fm, C: %.2fm") % (
             x, y, z, phi, d_nest, d_trav)
+
+    @property
+    def central_complex(self):
+        """
+
+        Returns
+        -------
+        VectorMemoryCX
+        """
+        return self.agent.central_complex
 
     @property
     def route_a(self):
@@ -1143,6 +1157,7 @@ class NavigationSimulation(PathIntegrationSimulation):
 
         agent = kwargs.get('agent', None)
         kwargs.setdefault('route', routes[0])
+        kwargs.setdefault('world', Seville2009())
         kwargs.setdefault('nb_iterations', int(np.sum([5 * route.shape[0] for route in routes])))
         super().__init__(*args, **kwargs)
 
@@ -1170,6 +1185,8 @@ class NavigationSimulation(PathIntegrationSimulation):
         self._food_supply = np.ones(len(routes), dtype=int)
         self._learning_phase = True
 
+        self._calibration_xyz = None
+
     def reset(self):
         """
         Resets the agent anf the logged statistics.
@@ -1183,6 +1200,8 @@ class NavigationSimulation(PathIntegrationSimulation):
         self._food_supply = np.ones(len(self._route), dtype=int)
         self._food_supply[0] = 3
         self._learning_phase = True
+
+        return self.calibration()
 
     def init_stats(self):
         super().init_stats()
@@ -1251,13 +1270,19 @@ class NavigationSimulation(PathIntegrationSimulation):
             the iteration ID
         """
         reinforcement = np.zeros(self.agent.mushroom_body.nb_us, dtype=self._mb.dtype)
+        vec = np.zeros(self.agent.central_complex.nb_vectors, dtype=self._mb.dtype)
 
         if self._learning_phase:
             vectors = np.eye(self.agent.mushroom_body.nb_us)
-            if self._foraging and i - self.i_offset < 20:
-                reinforcement[:] = vectors[(self._current_route_id + 1) * 2]
-            elif not self._foraging and i - self.i_offset < self.route.shape[0] + 20:
-                reinforcement[:] = vectors[0]
+            # if self._foraging and i - self.i_offset < 20:
+            if self._foraging:
+                reinforcement[:] = [1, 0]
+                # reinforcement[:] = vectors[(self._current_route_id + 1) * 2]
+                # reinforcement[:] += vectors[1]
+            # elif not self._foraging and i - self.i_offset < self.route.shape[0] + 20:
+            elif not self._foraging:
+                reinforcement[:] = [0, 1]
+                # reinforcement[:] += vectors[(self._current_route_id + 1) * 2 + 1]
         # elif self.agent.central_complex.v_change:
         #     reinforcement[::2] = self.agent.central_complex.r_vec
 
@@ -1266,8 +1291,10 @@ class NavigationSimulation(PathIntegrationSimulation):
 
         if self._foraging:
             act = self.forage()
+            vec[self._current_route_id + 1] = 1
         else:
             act = self.home()
+            vec[0] = 1
 
         # if (len(self.stats["US"]) >= repeats and
         #     np.any(self.stats["US"][-1] > 0) and
@@ -1275,8 +1302,8 @@ class NavigationSimulation(PathIntegrationSimulation):
         #     reinforcement[:] = self.stats["US"][-1]
 
         # self._food[:] = 0.
-        self.agent(sky=self._sky, odours=self._odours, food=self._food, reinforcement=reinforcement,
-                   act=act, callback=self.update_stats)
+        self.agent(sky=self._sky, world=self._world, odours=self._odours, food=self._food, reinforcement=reinforcement,
+                   vec=vec, act=act, callback=self.update_stats)
 
     def forage(self):
         i = self._iteration
@@ -1304,8 +1331,7 @@ class NavigationSimulation(PathIntegrationSimulation):
             act = False
 
         elif self.is_approaching_distant(tol=0.1):
-            self.init_inbound()
-            self._foraging = False
+            self.agent.central_complex.reset_memory(self._current_route_id + 1)
 
             # pick up the food if it's there and go home
             stock = self._food_supply[self._current_route_id]
@@ -1314,7 +1340,11 @@ class NavigationSimulation(PathIntegrationSimulation):
                 self._food[:] = np.eye(self.agent.nb_odours)[0]
 
                 # deduct the food from the feeder
-                self._food_supply[self._current_route_id] = self._food_supply[self._current_route_id] - 1
+                self._food_supply[self._current_route_id] -= 1
+
+                self.init_inbound()
+                self._foraging = False
+
             elif stock == 0:
                 # if there is no food in the feeder move to the next feeder
                 self._current_route_id = (self._current_route_id + 1) % len(self.routes)
@@ -1322,7 +1352,6 @@ class NavigationSimulation(PathIntegrationSimulation):
 
             if np.isclose(self._food.sum(), 0):
                 self._food[1] = 1.  # continue searching towards the first source
-                self._foraging = True
             else:
                 print(f"START PI FROM ROUTE {self._current_route_id + 1}")
         elif self.is_approaching_distant(tol=0.5):
@@ -1339,6 +1368,7 @@ class NavigationSimulation(PathIntegrationSimulation):
             # approach the nest
 
             # self._agent.xyz = self._route_a[0, :3]
+            self.agent.central_complex.reset_memory(0)
             self.init_outbound()
             self._foraging = True
 
@@ -1358,6 +1388,22 @@ class NavigationSimulation(PathIntegrationSimulation):
             act = False
 
         return act
+
+    def calibration(self):
+        # the number of samples must be at least the same number as the dimensions of the input
+        nb_samples = self.agent.eye.nb_ommatidia
+
+        if not self.agent.is_calibrated:
+            self.agent.xyz = self.route[0, :3]
+            self.agent.ori = R.from_euler('Z', self.route[-1, 3], degrees=True)
+            self.agent.update = False
+            self._calibration_xyz, _ = self.agent.calibrate(self.sky, self._world, nb_samples=nb_samples, radius=2.)
+
+        self.agent.xyz = self.route[0, :3]
+        self.agent.ori = R.from_euler('Z', self.route[0, 3], degrees=True)
+        self.agent.update = True
+
+        return self._calibration_xyz
 
     def is_approaching_central(self, tol=0.):
         return len(self.stats["L"]) > 1 and self.stats["L"][-2] < self.stats["L"][-1] < tol
@@ -2225,7 +2271,7 @@ class VisualFamiliarityParallelExplorationSimulation(Simulation):
         views_par = data["ommatidia"]
         route_par = data[f"{xyz}"]
 
-        kwargs.setdefault('nb_iterations', int(route.shape[0]) * (1 + int(pre_training)) + int(route_par.shape[0]))
+        kwargs.setdefault('nb_iterations', int(route.shape[0]) + int(route_par.shape[0]))
         kwargs.setdefault('name', 'vfpe-simulation')
         super().__init__(**kwargs)
 
@@ -2242,6 +2288,9 @@ class VisualFamiliarityParallelExplorationSimulation(Simulation):
         self._views = np.concatenate([views_route, views_par], axis=0)
         self._route = np.concatenate([route, route_par], axis=0)
         self._route_length = route.shape[0]
+        self._indices = np.arange(self.nb_frames)
+        # self._order = "random"
+        self._order = "rpo"
 
         self._eye = agent.sensors[0]
         self._mem = agent.brain[0]
@@ -2254,6 +2303,7 @@ class VisualFamiliarityParallelExplorationSimulation(Simulation):
         self.__nb_oris = nb_oris
         self.__ndindex = [index for index in np.ndindex(self._familiarity_par.shape[:3])]
         self.__pre_training = pre_training
+        self.__pre_training_count = 0
 
         self._stats = {
             "familiarity_par": self._familiarity_par,
@@ -2287,6 +2337,29 @@ class VisualFamiliarityParallelExplorationSimulation(Simulation):
         self._agent.update = True
 
         self._familiarity_par[:] = 0.
+        self._indices[:] = np.arange(self.nb_frames)
+
+        # default order is to rotate in each position before the agent moves to the next
+        # default order: (x11, y11, r1), ..., (x11, y11, rN),
+        #                (x12, y12, r1), ..., (x12, y12, rN),
+        if "random" in self._order:
+            # randomise the order of indices to remove order bias
+            self._indices[self._route_length:] = self.rng.permutation(self._indices[self._route_length:])
+        elif "r" in self._order and "p" in self._order and "o" in self._order:
+            r = self._order.index("r")  # the route order
+            p = self._order.index("p")  # parallel disposition
+            o = self._order.index("o")  # rotation disposition
+            order = [0, 0, 0]
+            order[r] = 0
+            order[p] = 1
+            order[o] = 2
+            order = tuple(order[::-1])
+
+            # follow the route before changing to another route
+            indices = self._indices[self._route_length:].reshape(-1, self.nb_par, self.nb_orientations)
+            self._indices[self._route_length:] = np.transpose(indices, order).flatten()
+        else:
+            pass  # use the default order
 
         self._stats["ommatidia"] = []
         self._stats["input_layer"] = []
@@ -2326,12 +2399,13 @@ class VisualFamiliarityParallelExplorationSimulation(Simulation):
         i: int
             the iteration ID to run
         """
-        if self.__pre_training and i == self._route_length:
+        if self.__pre_training and self.__pre_training_count < int(self.__pre_training) and i % self._route_length == 0:
             self.reset()
-        elif i == self._route_length:  # initialise route following
+            self.__pre_training_count += 1
+        elif i >= self._route_length and self._agent.update:  # initialise route following
             self.init_grid()
-        elif self.__pre_training and i == 2 * self._route_length:
-            self.init_grid()
+
+        i = self._indices[i]
 
         x, y, z, yaw = self._route[i]
 
@@ -2390,7 +2464,7 @@ class VisualFamiliarityParallelExplorationSimulation(Simulation):
         #     row, col, ori = -1, -1, -1
         # else:
         #     row, col, ori = self.__ndindex[i]
-        return (super().message() +
+        return (super().message() +  # f" {self.mem._ic.r_mbon[0, [2, 3]]}" +
                 " - x: %.2f (x': %.2f), y: %.2f (y': %.2f), z: %.2f, Φ: % 4d (Φ': % 4d)"
                 " - input (change): %.2f%%, hidden (change): %.2f%%, familiarity: %.2f%%,"
                 " capacity: %.2f%%") % (

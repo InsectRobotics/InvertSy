@@ -1194,7 +1194,7 @@ class NavigationAnimation(Animation):
 
         all_lines = create_map_axis(world=sim.world, ax=ax_dict["B"],
                                     nest=nest, feeders=feeders, odour_spread=odour_spread)
-        line_c, line_b, pos, self._marker = all_lines[:4]
+        line_c, line_b, pos, self._marker, cal = all_lines[:5]
         feeders_text = all_lines[-1]
 
         omm = create_dra_axis(sim.agent.pol_sensor, cmap=cmap, ax=ax_dict["A"])
@@ -1209,7 +1209,7 @@ class NavigationAnimation(Animation):
 
         plt.tight_layout()
 
-        self._lines.extend([omm, tb1, cl1, cpu1, cpu4, cpu4mem, pn, mbon, dan, line_c, line_b, pos] + feeders_text)
+        self._lines.extend([omm, tb1, cl1, cpu1, cpu4, cpu4mem, pn, mbon, dan, line_c, line_b, pos, cal] + feeders_text)
 
         self._nb_lines = 0
         omm.set_array(sim.r_pol)
@@ -1235,6 +1235,11 @@ class NavigationAnimation(Animation):
             self.line_b.set_data([], [])
             self.sim.reset()
             self._nb_lines = 0
+
+            xyzs = self.sim.reset()
+
+            if xyzs is not None:
+                self.cal.set_offsets(np.array(xyzs)[:, [1, 0]])
         elif nb_lines > self._nb_lines:
             xs, ys = [], []
             for suf in ["in", "out"]:
@@ -1437,6 +1442,10 @@ class NavigationAnimation(Animation):
         return self._lines[11]
 
     @property
+    def cal(self):
+        return self._lines[12]
+
+    @property
     def feeders_text(self):
         """
         The text next to each feeder in the map.
@@ -1445,4 +1454,4 @@ class NavigationAnimation(Animation):
         -------
         list[matplotlib.text.Text]
         """
-        return self._lines[12:]
+        return self._lines[13:]
