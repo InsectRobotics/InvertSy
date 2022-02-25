@@ -15,12 +15,14 @@ import numbers
 from abc import ABC
 
 from ._helpers import eps, RNG
+from ..__helpers import __data__
 
 from invertpy.sense import PolarisationSensor, CompoundEye, Antennas, Sensor
 from invertpy.brain import WillshawNetwork, PolarisationCompass, Component
-from invertpy.brain.centralcomplex import StoneCX, VectorMemoryCX
+from invertpy.brain.centralcomplex import StoneCX, VectorMemoryCX, CentralComplexBase
+from invertpy.brain.centralcomplex.familiarity import FamiliarityIntegratorCX, FamiliarityCX
 from invertpy.brain.centralcomplex.vectormemory import mem2vector
-from invertpy.brain.mushroombody import VectorMemoryMB, IncentiveCircuit
+from invertpy.brain.mushroombody import VectorMemoryMB, IncentiveCircuit, VisualIncentiveCircuit
 from invertpy.brain.memory import MemoryComponent
 from invertpy.brain.activation import winner_takes_all, relu
 from invertpy.brain.compass import ring2sph
@@ -31,9 +33,14 @@ from copy import copy
 
 import numpy as np
 
+import os
+
+__data_calibrate__ = os.path.join(__data__, "calibration")
+
 
 class Agent(object):
-    def __init__(self, xyz=None, ori=None, speed=0.1, delta_time=1., dtype='float32', name='agent', rng=RNG, noise=0.):
+    def __init__(self, xyz=None, ori=None, speed=0.1, delta_time=1., dtype='float32', name='agent', rng=RNG, noise=0.,
+                 **kwargs):
         """
         Abstract agent class that holds all the basic methods and attributes of an agent such as:
 
@@ -66,14 +73,20 @@ class Agent(object):
         if ori is None:
             ori = R.from_euler('Z', 0)
 
-        self._sensors = []  # type: list[Sensor]
-        self._brain = []  # type: list[Component]
+        if not hasattr(self, "_sensors"):
+            self._sensors = []  # type: list[Sensor]
+        if not hasattr(self, "_brain"):
+            self._brain = []  # type: list[Component]
 
-        self._xyz = np.array(xyz, dtype=dtype)
-        self._ori = ori
+        if not hasattr(self, "_xyz"):
+            self._xyz = np.array(xyz, dtype=dtype)
+        if not hasattr(self, "_ori"):
+            self._ori = ori
 
-        self._xyz_init = self._xyz.copy()
-        self._ori_init = copy(self._ori)
+        if not hasattr(self, "_xyz_init"):
+            self._xyz_init = self._xyz.copy()
+        if not hasattr(self, "_ori_init"):
+            self._ori_init = copy(self._ori)
 
         self._dt_default = delta_time  # seconds
         self._dx = speed  # meters / second
@@ -538,8 +551,8 @@ class Agent(object):
 
 class VisualProcessingAgent(Agent, ABC):
 
-    def __init__(self, eye=None, saturation=10, nb_scans=1, nb_visual=None,
-                 lateral_inhibition=True, mental_scanning=0, zernike=False, whitening=pca,
+    def __init__(self, eye=None, saturation=10., nb_scans=1, nb_visual=None,
+                 lateral_inhibition=False, mental_scanning=0, zernike=False, whitening=pca,
                  *args, **kwargs):
         """
         Agent specialised in the visual navigation task. It contains the CompoundEye as a sensor and the mushroom body
@@ -561,10 +574,10 @@ class VisualProcessingAgent(Agent, ABC):
         zernike: bool, optional
             whether to transform the visual input into the frequency domain by using the DCT method. Default is False
         """
-        super().__init__(*args, **kwargs)
+        Agent.__init__(self, *args, **kwargs)
 
         if eye is None:
-            eye = CompoundEye(nb_input=1000, omm_pol_op=0, noise=0., omm_rho=np.deg2rad(4), omm_res=saturation,
+            eye = CompoundEye(nb_input=1000, omm_pol_op=0, noise=0., omm_rho=np.deg2rad(10), omm_res=saturation,
                               c_sensitive=[0, 0., 1., 0., 0.])
 
         nb_input = eye.nb_ommatidia
@@ -582,8 +595,6 @@ class VisualProcessingAgent(Agent, ABC):
 
         if nb_scans <= 1 and mental_scanning <= 1:
             self._pref_angles = np.array([0], dtype=self.dtype)
-        elif mental_scanning == 2:
-            self._pref_angles = np.array([-45, 45], dtype=self.dtype)
         elif nb_scans > 1:
             self._pref_angles = np.linspace(-60, 60, nb_scans)
         elif mental_scanning > 1:
@@ -607,7 +618,8 @@ class VisualProcessingAgent(Agent, ABC):
         if zernike:
             self._preprocessing.append(ZernikeMoments(nb_input=nb_input, ori=eye.omm_ori, dtype=eye.dtype))
 
-        self.reset()
+        if self.__class__ == VisualProcessingAgent:
+            self.reset()
 
     def reset(self):
         super().reset()
@@ -615,7 +627,10 @@ class VisualProcessingAgent(Agent, ABC):
         for process in self._preprocessing:
             process.reset()
 
-    def calibrate(self, sky=None, scene=None, omm_responses=None, nb_samples=32, radius=2.):
+    def _sense(self, sky=None, scene=None, omm_responses=None):
+        return self.get_pn_responses(sky=sky, scene=scene, omm_responses=omm_responses)
+
+    def calibrate(self, sky=None, scene=None, omm_responses=None, nb_samples=None, radius=2.):
         """
         Approximates the calibration of the optic lobes of the agent.
         In this case, it randomly collects a number of samples (in different positions and direction) in a radius
@@ -631,7 +646,7 @@ class VisualProcessingAgent(Agent, ABC):
         omm_responses: np.ndarray[float]
             the pre-rendered ommatidia responses. Default is None
         nb_samples: int, optional
-            the number of samples to use
+            the number of samples to use. Default is the number of ommatidia
         radius: float, optional
             the radius around the nest from where the samples will be taken
 
@@ -648,30 +663,42 @@ class VisualProcessingAgent(Agent, ABC):
         if omm_responses is not None:
             nb_samples = omm_responses.shape[0]
 
-        nb_ms = self.nb_mental_rotations
+        cal_file = os.path.join(__data_calibrate__, f"calibration_{nb_samples}.npz")
+        if os.path.exists(cal_file):
+            data = np.load(cal_file, allow_pickle=True)
 
-        samples = np.zeros((nb_samples * nb_ms, self._eye.nb_ommatidia), dtype=self.dtype)
-        xyzs, oris = [], []
-        for i in range(nb_samples):
-            if omm_responses is None:
-                self.xyz = xyz + self.rng.uniform(-radius, radius, 3) * np.array([1., 1., 0])
-                self.ori = R.from_euler("Z", self.rng.uniform(-180, 180), degrees=True)
-                xyzs.append(copy(self.xyz))
-                oris.append(copy(self.ori))
+            print(f"Calibration data loaded from: '{cal_file}'")
 
-            print("Calibration: %d/%d - x: %.2f, y: %.2f, z: %.2f, yaw: %d" % (
-                i + 1, nb_samples, self.x, self.y, self.z, self.yaw_deg))
-            samples[i*nb_ms:(i+1)*nb_ms] = self.get_pn_responses(
-                sky, scene, omm_responses[i] if omm_responses is not None else None, pre_whitened=True)
+            samples = data["samples"]
+            xyzs = data["xyz"]
+            oris = data["ori"]
+        else:
+            nb_ms = self.nb_mental_rotations
+
+            samples = np.zeros((nb_samples * nb_ms, self._eye.nb_ommatidia), dtype=self.dtype)
+            xyzs, oris = [], []
+            for i in range(nb_samples):
+                if omm_responses is None:
+                    self.xyz = xyz + self.rng.uniform(-radius, radius, 3) * np.array([1., 1., 0])
+                    self.ori = R.from_euler("Z", self.rng.uniform(-180, 180), degrees=True)
+                    xyzs.append(copy(self.xyz))
+                    oris.append(copy(self.ori))
+
+                print("Calibration: %d/%d - x: %.2f, y: %.2f, z: %.2f, yaw: %d" % (
+                    i + 1, nb_samples, self.x, self.y, self.z, self.yaw_deg))
+                samples[i*nb_ms:(i+1)*nb_ms] = self.get_pn_responses(
+                    sky, scene, omm_responses[i] if omm_responses is not None else None, pre_whitened=True)
+
+            np.savez(cal_file, samples=samples, xyz=xyzs, ori=oris)
+            print(f"Calibration data saved in: '{cal_file}'")
 
         for p in self._preprocessing:
             if isinstance(p, Whitening):
                 p.reset(samples)
+                print("Calibration: DONE!")
 
         self.xyz = xyz
         self.ori = ori
-
-        print("Calibration: DONE!")
 
         return xyzs, oris
 
@@ -788,34 +815,33 @@ class VisualProcessingAgent(Agent, ABC):
         return self._eye
 
 
-class PathIntegrationAgent(Agent):
-
-    def __init__(self, nb_feeders=1, *args, **kwargs):
-        """
-        Agent specialised in the path integration task. It contains the Dorsal Rim Area as a sensor, the polarised
-        light compass and the central complex as brain components.
-        """
-        super().__init__(*args, **kwargs)
+class CentralComplexAgent(Agent, ABC):
+    def __init__(self, cx_class=StoneCX, cx_params=None, *args, **kwargs):
+        Agent.__init__(self, *args, **kwargs)
 
         pol_sensor = PolarisationSensor(nb_input=60, field_of_view=56, degrees=True, noise=self._noise, rng=self.rng)
-        pol_brain = PolarisationCompass(nb_pol=60, loc_ori=copy(pol_sensor.omm_ori), nb_sol=8, integrated=True,
-                                        noise=self._noise, rng=self.rng)
-        cx = VectorMemoryCX(nb_tb1=8, nb_mbon=6, nb_vectors=nb_feeders + 1, gain=.05,
-                            pontine=True, holonomic=True, noise=self._noise, rng=self.rng)
-        # cx = StoneCX(nb_tb1=8, noise=self._noise, rng=self.rng)
+        pol_compass = PolarisationCompass(nb_pol=60, loc_ori=copy(pol_sensor.omm_ori), nb_sol=8, integrated=True,
+                                          noise=self._noise, rng=self.rng)
+        if cx_params is None:
+            cx_params = {}
+        cx_params.setdefault('nb_tb1', 8)
+        cx_params.setdefault('noise', self._noise)
+        cx_params.setdefault('rng', self.rng)
+
+        cx = cx_class(**cx_params)
 
         self.add_sensor(pol_sensor, local=True)
-        self.add_brain_component(pol_brain)
+        self.add_brain_component(pol_compass)
         self.add_brain_component(cx)
 
         self._pol_sensor = pol_sensor
-        self._pol_brain = pol_brain
+        self._pol_compass = pol_compass
         self._cx = cx
         self._p_phi = None
 
         self._default_flow = self._dx * np.ones(2) / np.sqrt(2)
 
-    def _sense(self, sky=None, scene=None, flow=None, mbon=None, vec=None, **kwargs):
+    def _sense(self, sky=None, scene=None, flow=None, **kwargs):
         """
         Using its only sensor (the dorsal rim area) it senses the radiation from the sky which is interrupted by the
         given scene, and the optic flow for self motion calculation.
@@ -837,9 +863,9 @@ class PathIntegrationAgent(Agent):
         if sky is None:
             r = 0.
         else:
-            r = self._pol_sensor(sky=sky, scene=scene)
+            r = self.pol_sensor(sky=sky, scene=scene)
 
-        r_tcl = self._pol_brain(r_pol=r, ori=self._pol_sensor.ori)
+        r_tcl = self.compass(r_pol=r, ori=self._pol_sensor.ori)
         _, phi = ring2sph(r_tcl)
         phi = self.yaw
 
@@ -858,12 +884,7 @@ class PathIntegrationAgent(Agent):
             # else:
             #     flow = optic_flow(world, self._dx)
 
-        if isinstance(self._cx, VectorMemoryCX):
-            if mbon is None:
-                mbon = np.array([0] * self._cx.nb_mbon)
-            return self._cx(phi=phi, flow=flow, mbon=mbon, vec=vec)
-        elif isinstance(self._cx, StoneCX):
-            return self._cx(phi=phi, flow=flow)
+        return self._cx(phi=phi, flow=flow, **kwargs)
 
     def _act(self):
         """
@@ -904,7 +925,7 @@ class PathIntegrationAgent(Agent):
         -------
         CelestialCompass
         """
-        return self._pol_brain
+        return self._pol_compass
 
     @staticmethod
     def get_steering(cx):
@@ -913,7 +934,7 @@ class PathIntegrationAgent(Agent):
 
         Parameters
         ----------
-        cx: StoneCX
+        cx: CentralComplexBase
             the central complex instance of the agent
 
         Returns
@@ -922,12 +943,136 @@ class PathIntegrationAgent(Agent):
             the angle of steering in radians
         """
 
-        cpu1a = cx.r_cpu1[1:-1]
-        cpu1b = np.array([cx.r_cpu1[-1], cx.r_cpu1[0]])
-        motor = np.dot(cpu1a, cx.w_cpu1a2motor) + np.dot(cpu1b, cx.w_cpu1b2motor)
+        motor = cx.r_motor
+        motor += 1. * (cx.rng.rand() - 0.5)
+
         # output = (motor[0] - motor[1]) * .25  # to kill the noise a bit!
         output = (motor[0] - motor[1]) * 1.
         return output
+
+
+class PathIntegrationAgent(CentralComplexAgent):
+    pass
+
+
+class VectorMemoryAgent(CentralComplexAgent):
+
+    def __init__(self, nb_feeders=1, *args, **kwargs):
+        """
+        Agent specialised in the path integration task. It contains the Dorsal Rim Area as a sensor, the polarised
+        light compass and the central complex as brain components.
+        """
+
+        cx_params = {
+            "nb_mbon": 6,
+            "nb_vectors": nb_feeders+1
+        }
+        super().__init__(cx=VectorMemoryCX, cx_params=cx_params, *args, **kwargs)
+
+        # cx = FamiliarityCX(nb_tb1=8, nb_mbon=6, noise=self._noise, rng=self.rng)
+
+    def _sense(self, mbon=None, vec=None, **kwargs):
+        """
+        Using its only sensor (the dorsal rim area) it senses the radiation from the sky which is interrupted by the
+        given scene, and the optic flow for self motion calculation.
+
+        Parameters
+        ----------
+        sky: Sky, optional
+            the sky instance. Default is None
+        scene: Seville2009, optional
+            the world instance. Default is None
+        flow: np.ndarray[float], optional
+            the optic flow. Default is the preset optic flow
+
+        Returns
+        -------
+        out: np.ndarray[float]
+            the output of the central complex
+        """
+
+        if mbon is None:
+            mbon = np.array([0] * self.central_complex.nb_mbon)
+        return super()._sense(mbon=mbon, vec=vec, **kwargs)
+
+    @property
+    def central_complex(self):
+        """
+        The central complex model of the agent.
+
+        Returns
+        -------
+        VectorMemoryCX
+        """
+        return self._cx
+
+
+class RouteFollowingAgent(VisualProcessingAgent, CentralComplexAgent):
+
+    def __init__(self, mb_class=None, mb_params=None, *args, **kwargs):
+
+        VisualProcessingAgent.__init__(self, *args, **kwargs)
+
+        if mb_class is None:
+            mb_class = WillshawNetwork
+        if mb_params is None:
+            mb_params = {}
+        mb_params.setdefault("nb_input", self.preprocessing[-1].nb_output)
+        mb_params.setdefault("nb_sparse", 40 * mb_params["nb_input"])
+        mb_params.setdefault("sparseness", 10 / mb_params["nb_sparse"])
+        mb_params.setdefault("eligibility_trace", 0.)
+
+        self._mem = mb_class(**mb_params)
+
+        cx_params = {
+            "nb_mbon": self._mem.nb_output,
+            "gain": .5
+        }
+        # vis_sensors = self.sensors
+        # CentralComplexAgent.__init__(self, cx_class=FamiliarityCX, cx_params=cx_params, *args, **kwargs)
+        CentralComplexAgent.__init__(self, cx_class=FamiliarityIntegratorCX, cx_params=cx_params, *args, **kwargs)
+        # self._sensors = vis_sensors + self.sensors
+
+        self._mem.reset()
+
+        if self.__class__ == RouteFollowingAgent:
+            self.reset()
+
+    def reset(self):
+        CentralComplexAgent.reset(self)
+        VisualProcessingAgent.reset(self)
+
+        # self._mem.reset()
+
+    def _sense(self, sky=None, scene=None, flow=None, **kwargs):
+        omm_responses = kwargs.pop("omm_responses", None)
+        r_pn = VisualProcessingAgent._sense(self, sky=sky, scene=scene, omm_responses=omm_responses)
+        r_mbon = self._mem(cs=r_pn, us=np.array([self.update, 0], dtype=self.dtype))
+
+        return CentralComplexAgent._sense(self, sky=sky, scene=scene, flow=flow, mbon=r_mbon, **kwargs)
+
+    @property
+    def mushroom_body(self):
+        return self._mem
+
+    @property
+    def update(self):
+        """
+        Whether the memory will be updated or not
+        """
+        return self._mem.update
+
+    @update.setter
+    def update(self, v):
+        """
+        Enables (True) or disables (False) the memory updates.
+
+        Parameters
+        ----------
+        v: bool
+            memory updates
+        """
+        self._mem.update = v
 
 
 class VisualNavigationAgent(VisualProcessingAgent):
@@ -1002,28 +1147,32 @@ class VisualNavigationAgent(VisualProcessingAgent):
             r = self.get_pn_responses(sky=sky, scene=scene, omm_responses=omm_responses)
             # us = np.zeros_like(self.pref_angles)
             # us[0] = 1.
-            us = np.power((np.cos(np.deg2rad(self.pref_angles)) + 1) / 2, 32)
-            if len(us) > 1:
-                us -= np.mean(us)
-            us /= np.max(us)
-            # us = np.maximum(us, 0)
-            self._mem(inp=r, reinforcement=us)
-            if isinstance(self._mem.familiarity, numbers.Number):
-                fam_raw = np.array([self._mem.familiarity])
+            us = np.cos(np.deg2rad(self.pref_angles))
+            self._mem(cs=r, us=us)
+            if isinstance(self._mem, VisualIncentiveCircuit):
+                fam = np.mean(self._mem.familiarity[0], axis=-1)
             else:
-                fam_raw = self._mem.familiarity
-            if self._mem.neuron_dims > 1 or self._mem.nb_output > 1:
+                fam = self._mem.familiarity
+            if isinstance(fam, numbers.Number):
+                fam_raw = np.array([fam])
+            else:
+                fam_raw = fam
+            if self._mem.ndim > 1 or self._mem.nb_output > 1:
                 self._familiarity[:] = fam_raw.flatten()
             else:
                 self._familiarity[0] = fam_raw[0].flatten()
         else:
             inp, hid, out = [], [], []
 
-            if self._mem.neuron_dims > 1 or self._mem.nb_output > 1:
+            if self._mem.ndim > 1 or self._mem.nb_output > 1:
 
                 r = self.get_pn_responses(sky=sky, scene=scene, omm_responses=omm_responses)
-                self._mem(inp=r)
-                self._familiarity[:] = self._mem.familiarity.flatten()
+                self._mem(cs=r)
+                if isinstance(self._mem, VisualIncentiveCircuit):
+                    fam = np.mean(self._mem.familiarity[0], axis=-1)
+                else:
+                    fam = self._mem.familiarity
+                self._familiarity[:] = fam.flatten()
 
                 inp.extend(self._mem.r_inp)
                 hid.extend(self._mem.r_hid)
@@ -1042,8 +1191,12 @@ class VisualNavigationAgent(VisualProcessingAgent):
 
                     self.ori = ori * R.from_euler('Z', angle, degrees=True)
                     r = self.get_pn_responses(sky=sky, scene=scene, omm_responses=omm_responses)
-                    self._mem(inp=r)
-                    self._familiarity[i] = self._mem.familiarity[0].flatten()
+                    self._mem(cs=r)
+                    if isinstance(self._mem, VisualIncentiveCircuit):
+                        fam = np.mean(self._mem.familiarity[0], axis=-1)
+                    else:
+                        fam = self._mem.familiarity
+                    self._familiarity[i] = fam[0].flatten()
 
                     inp.append(copy(self._mem.r_inp))
                     hid.append(copy(self._mem.r_hid))
@@ -1199,10 +1352,9 @@ class VisualNavigationAgent(VisualProcessingAgent):
         return steer
 
 
-class NavigatingAgent(PathIntegrationAgent, VisualProcessingAgent):
+class NavigatingAgent(VectorMemoryAgent, VisualProcessingAgent):
     def __init__(self, nb_feeders=1, nb_odours=None, *args, **kwargs):
-        super().__init__(nb_feeders, *args, **kwargs)
-        PathIntegrationAgent.__init__(self, nb_feeders, *args, **kwargs)
+        VectorMemoryAgent.__init__(self, nb_feeders, *args, **kwargs)
         VisualProcessingAgent.__init__(self, *args, **kwargs)
 
         if nb_odours is None:

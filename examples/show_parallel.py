@@ -27,8 +27,10 @@ def main(*args):
         # filename = "heatmap-willshawnetwork-pca-li-scan16-par21-ant1-route1-seville2009-omm1000"
         # filename = "heatmap-willshawnetwork-zernike-scan16-par21-ant1-route1-seville2009-omm1000"
         # filename = "heatmap-willshawnetwork-zernike-li-scan16-par21-ant1-route1-seville2009-omm1000"
-        filename = "heatmap-incentivecircuitmemory-pca010-scan16-par21-ant1-route1-seville2009-omm1000"
-        # filename = "heatmap-incentivecircuitmemory-pca010-li-scan16-par21-ant1-route1-seville2009-omm1000"
+        # filename = "heatmap-incentivecircuitmemory-pca080-scan16-par21-ant1-route1-seville2009-omm1000"
+        filename = "heatmap-visualincentivecircuit-pca080-scan16-par21-ant1-route1-seville2009-omm1000"
+        # filename = "heatmap-incentivecircuitmemory-pca010-scan16-par21-rand-ant1-route1-seville2009-omm1000"
+        # filename = "heatmap-incentivecircuitmemory-pca010-li-scan16-par21-rand-ant1-route1-seville2009-omm1000"
 
     data = np.load(os.path.join(__stat_dir__, "%s.npz" % filename), allow_pickle=True)
     print([k for k in data.keys()])

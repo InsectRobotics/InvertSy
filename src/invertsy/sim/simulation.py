@@ -17,7 +17,8 @@ from ._helpers import col2x, row2y, yaw2ori, x2col, y2row, ori2yaw
 
 from invertsy.__helpers import __data__, RNG
 from invertsy.env import UniformSky, Sky, Seville2009, WorldBase, StaticOdour
-from invertsy.agent import VisualNavigationAgent, PathIntegrationAgent, NavigatingAgent, Agent
+from invertsy.agent import VisualNavigationAgent, VectorMemoryAgent, NavigatingAgent, RouteFollowingAgent, Agent
+from invertsy.agent.agent import VisualProcessingAgent
 
 from invertpy.sense import CompoundEye
 from invertpy.sense.polarisation import PolarisationSensor
@@ -25,6 +26,7 @@ from invertpy.brain.preprocessing import Preprocessing
 from invertpy.brain.compass import PolarisationCompass
 from invertpy.brain.memory import MemoryComponent
 from invertpy.brain.centralcomplex import CentralComplexBase
+from invertpy.brain.preprocessing import MentalRotation
 
 from scipy.spatial.transform import Rotation as R
 
@@ -36,8 +38,11 @@ from copy import copy
 import os
 
 __stat_dir__ = os.path.abspath(os.path.join(__data__, "animation", "stats"))
+__outb_dir__ = os.path.abspath(os.path.join(__data__, "animation", "outbounds"))
 if not os.path.isdir(__stat_dir__):
     os.makedirs(__stat_dir__)
+if not os.path.isdir(__outb_dir__):
+    os.makedirs(__outb_dir__)
 
 
 class Simulation(object):
@@ -561,6 +566,31 @@ class CentralPointNavigationSimulationBase(NavigationSimulationBase, ABC):
         """
         super().__init__(*args, **kwargs)
         self._central_point = xyz
+        self._calibration_xyz = None
+
+    def reset(self, nb_samples_calibrate=None):
+        super().reset()
+
+        self.agent.xyz = copy(self.central_point)
+        self.calibration(nb_samples=nb_samples_calibrate)
+
+    def calibration(self, nb_samples=None):
+        if self.needs_calibration and hasattr(self.agent, "calibrate"):
+            if hasattr(self.agent, "eye") and nb_samples is None:
+                # the number of samples must be at least the same number as the dimensions of the input
+                nb_samples = self.agent.eye.nb_ommatidia
+            elif nb_samples is None:
+                nb_samples = 1000
+
+            self.agent.xyz = copy(self.central_point)
+            self.agent.update = False
+
+            self._calibration_xyz, _ = self.agent.calibrate(self.sky, self._world, nb_samples=nb_samples, radius=2.)
+
+            self.agent.xyz = copy(self.central_point)
+            self.agent.update = True
+
+        return self._calibration_xyz
 
     def init_stats(self):
         super().init_stats()
@@ -604,11 +634,30 @@ class CentralPointNavigationSimulationBase(NavigationSimulationBase, ABC):
                   else (self._stats["C_out"][-1] if "C_out" in self._stats else 0.))
 
         message = super().message()
-        return f"{message} - L: {self.d_central_point:.2f}m, C: {d_trav:.2f}m"
+        mb_message = ""
+        if hasattr(self.agent, 'mushroom_body'):
+            mb = self.agent.mushroom_body
+            mb_message = f" - reward: {mb.r_us[0].max():.0f}, "
+            mb_message += f"KC: {mb.r_kc[0].max():.2f}, "
+            mb_message += f"free-space: {mb.free_space*100:.2f}%, "
+            fam = np.power(mb.familiarity[0, 0, ::2].mean(), 8) * 100
+            mb_message += f"familiarity: {fam:.2f}%"
+
+        cx_message = ""
+        if hasattr(self.agent, 'central_complex'):
+            cx = self.agent.central_complex
+            if hasattr(cx.memory, "r_tn1"):
+                cx_message = f" - Nod: {cx.memory.r_tn1[0]:2f}, {cx.memory.r_tn1[1]:2f}"
+
+        return f"{message} - L: {self.d_central_point:.2f}m, C: {d_trav:.2f}m{cx_message}{mb_message}"
 
     @property
     def central_point(self):
         return self._central_point
+
+    @property
+    def distant_point(self):
+        raise NotImplementedError()
 
     @property
     def d_central_point(self):
@@ -621,10 +670,14 @@ class CentralPointNavigationSimulationBase(NavigationSimulationBase, ABC):
         """
         return np.linalg.norm(self.agent.xyz - self._central_point)
 
+    @property
+    def needs_calibration(self):
+        return hasattr(self.agent, "is_calibrated") and not self.agent.is_calibrated
+
 
 class PathIntegrationSimulation(CentralPointNavigationSimulationBase):
 
-    def __init__(self, route, *args, **kwargs):
+    def __init__(self, route, zero_vector=False, *args, **kwargs):
         """
         Runs the path integration task.
         An agent equipped with a compass and the central complex is forced to follow a route and then it is asked to
@@ -656,19 +709,30 @@ class PathIntegrationSimulation(CentralPointNavigationSimulationBase):
         self._route = route
 
         if self.agent is None:
-            self._agent = PathIntegrationAgent(nb_feeders=1, speed=.01, rng=self.rng, noise=self._noise)
+            self._agent = VectorMemoryAgent(nb_feeders=1, speed=.01, rng=self.rng, noise=self._noise)
 
-        self._compass_sensor = self.agent.sensors[0]
+        self._compass_sensor = None
+        for sensor in self.agent.sensors:
+            if isinstance(sensor, PolarisationSensor):
+                self._compass_sensor = sensor
         self._compass_model, self._cx = self.agent.brain[:2]
 
         self._foraging = True
         self._distant_point = route[-1, :3]
+        self._zero_vector = zero_vector
 
-    def reset(self):
-        super().reset()
+        self.__file_data = None
 
-        self._foraging = True
+        if not isinstance(self._agent, RouteFollowingAgent):
+            delattr(self, 'r_mbon')
+
+    def reset(self, **kwargs):
+        super().reset(**kwargs)
+
+        self.__file_data = None
+
         self.agent.ori = R.from_euler("Z", self.route[0, 3], degrees=True)
+        self._foraging = True
 
     def init_stats(self):
         super().init_stats()
@@ -679,6 +743,35 @@ class PathIntegrationSimulation(CentralPointNavigationSimulationBase):
         self._stats["CPU1"] = []
         self._stats["CPU4"] = []
         self._stats["CPU4mem"] = []
+
+        if hasattr(self.agent, "eye"):
+            self._stats["ommatidia"] = []
+
+        if hasattr(self.agent, 'mushroom_body'):
+            self._stats["PN"] = []
+            self._stats["KC"] = []
+            self._stats["MBON"] = []
+            self._stats["DAN"] = []
+            self._stats["familiarity"] = []
+            self._stats["capacity"] = []
+            self._stats["replace"] = []
+
+    def init_inbound(self):
+        """
+        Sets up the inbound phase.
+        Changes the labels of the logged stats to their outbound equivalent and resets them for the new phase to come.
+        """
+        CentralPointNavigationSimulationBase.init_inbound(self)
+
+        if self._zero_vector:
+            self.agent.xyz = self.route[0, :3]
+            self.agent.ori = R.from_euler("Z", self.route[0, 3], degrees=True)
+            self.agent.central_complex.reset_integrator()
+
+        file_path = os.path.join(__outb_dir__, f"{self.name}.npz")
+        if not os.path.exists(file_path):
+            np.savez(file_path, **self.stats)
+            print(f"Outbound stats are saved in: '{file_path}'")
 
     def _step(self, i):
         """
@@ -691,32 +784,63 @@ class PathIntegrationSimulation(CentralPointNavigationSimulationBase):
             the iteration ID
         """
         act = True
+        omm_responses = None
         if i < self._route.shape[0]:  # outbound
             x, y, z, yaw = self._route[i]
             self._agent.xyz = [x, y, z]
             self._agent.ori = R.from_euler('Z', yaw, degrees=True)
             act = False
+            # for process in self.agent.preprocessing:
+            #     if isinstance(process, MentalRotation):
+            #         process.pref_angles[:] = np.pi
+
+            file_path = os.path.join(__outb_dir__, f"{self.name}.npz")
+            if os.path.exists(file_path) and self.__file_data is None:
+                print(f"Loading outbound stats from: '{file_path}'")
+                data = np.load(file_path, allow_pickle=True)
+                self.__file_data = {
+                    "ommatidia": data["ommatidia"]
+                }
+            if self.__file_data is not None:
+                omm_responses = self.__file_data["ommatidia"][i]
+
             self._foraging = True
         elif i == self._route.shape[0]:
             self.init_inbound()
             self._foraging = False
+            # for process in self.agent.preprocessing:
+            #     if isinstance(process, MentalRotation):
+            #         process.pref_angles[:] = 0.
         elif self._foraging and self.distance_from(self.distant_point) < 0.5:
             self.approach_point(self.distant_point)
-        elif not self._foraging and self.d_nest < 0.5:
+        elif not self._foraging and not self._zero_vector and self.d_nest < 0.5:
             self.approach_point(self.central_point)
         elif self._foraging and self.distance_from(self.distant_point) < 0.2:
             self._foraging = False
             print("START PI FROM FEEDER")
-        elif not self._foraging and self.d_nest < 0.2:
+        elif not self._foraging and not self._zero_vector and self.d_nest < 0.2:
             self._foraging = True
             print("START FORAGING!")
 
-        if self._foraging:
-            motivation = np.array([0, 1])
-        else:
-            motivation = np.array([1, 0])
+        # if self._foraging:
+        #     motivation = np.array([0, 1])
+        # else:
+        #     motivation = np.array([1, 0])
 
-        self._agent(sky=self._sky, act=act, vec=motivation, callback=self.update_stats)
+        if hasattr(self.agent, "mushroom_body"):
+            self.agent.mushroom_body.update = self._foraging
+        self._agent(sky=self._sky, scene=self._world, act=act, callback=self.update_stats, omm_responses=omm_responses)
+
+        if i > self.route.shape[0] and "replace" in self._stats:
+            d_route = np.linalg.norm(self.route[:, :3] - self._agent.xyz, axis=1)
+            point = np.argmin(d_route)
+            if d_route[point] > 0.2:  # move for more than 20cm away from the route
+                self.agent.xyz = self.route[point, :3]
+                self.agent.ori = R.from_euler('Z', self.route[point, 3], degrees=True)
+                self._stats["replace"].append(True)
+                print(" ~ REPLACE ~")
+            else:
+                self._stats["replace"].append(False)
 
     def update_stats(self, a):
         """
@@ -737,6 +861,20 @@ class PathIntegrationSimulation(CentralPointNavigationSimulationBase):
         self._stats["CPU4"].append(cx.r_cpu4.copy())
         self._stats["CPU1"].append(cx.r_cpu1.copy())
         self._stats["CPU4mem"].append(cx.cpu4_mem.copy())
+
+        if hasattr(a, "eye"):
+            if self.__file_data is not None and self._iteration < len(self.__file_data["ommatidia"]):
+                self._stats["ommatidia"].append(self.__file_data["ommatidia"][self._iteration])
+            else:
+                self._stats["ommatidia"].append(a.eye.responses.copy())
+
+        if hasattr(a, 'mushroom_body'):
+            self._stats["PN"].append(a.mushroom_body.r_cs[0, 0].copy())
+            self._stats["KC"].append(a.mushroom_body.r_kc[0, 0].copy())
+            self._stats["MBON"].append(a.mushroom_body.r_mbon[0, 0].copy())
+            self._stats["DAN"].append(a.mushroom_body.r_dan[0, 0].copy())
+            self._stats["familiarity"].append(np.power(a.mushroom_body.familiarity[0, 0, ::2].mean(), 8) * 100)
+            self._stats["capacity"].append(a.mushroom_body.free_space * 100)
 
     @property
     def agent(self):
@@ -864,6 +1002,13 @@ class PathIntegrationSimulation(CentralPointNavigationSimulationBase):
         return self._cx.r_cpu4.T.flatten()
 
     @property
+    def r_mbon(self):
+        if hasattr(self.agent, "mushroom_body"):
+            return self.agent.mushroom_body.r_mbon[0]
+        else:
+            return None
+
+    @property
     def cpu4_mem(self):
         """
         The CPU4 memory of the central complex of the agent.
@@ -916,7 +1061,7 @@ class TwoSourcePathIntegrationSimulation(PathIntegrationSimulation):
         self._distant_point_b = route_b[-1, :3]
 
         if agent is None:
-            self._agent = PathIntegrationAgent(nb_feeders=2, speed=.01, rng=self.rng, noise=self._noise)
+            self._agent = VectorMemoryAgent(nb_feeders=2, speed=.01, rng=self.rng, noise=self._noise)
 
         self._forage_id = 0
         self._b_iter_offset = None
@@ -1185,8 +1330,6 @@ class NavigationSimulation(PathIntegrationSimulation):
         self._food_supply = np.ones(len(routes), dtype=int)
         self._learning_phase = True
 
-        self._calibration_xyz = None
-
     def reset(self):
         """
         Resets the agent anf the logged statistics.
@@ -1389,22 +1532,6 @@ class NavigationSimulation(PathIntegrationSimulation):
 
         return act
 
-    def calibration(self):
-        # the number of samples must be at least the same number as the dimensions of the input
-        nb_samples = self.agent.eye.nb_ommatidia
-
-        if not self.agent.is_calibrated:
-            self.agent.xyz = self.route[0, :3]
-            self.agent.ori = R.from_euler('Z', self.route[-1, 3], degrees=True)
-            self.agent.update = False
-            self._calibration_xyz, _ = self.agent.calibrate(self.sky, self._world, nb_samples=nb_samples, radius=2.)
-
-        self.agent.xyz = self.route[0, :3]
-        self.agent.ori = R.from_euler('Z', self.route[0, 3], degrees=True)
-        self.agent.update = True
-
-        return self._calibration_xyz
-
     def is_approaching_central(self, tol=0.):
         return len(self.stats["L"]) > 1 and self.stats["L"][-2] < self.stats["L"][-1] < tol
 
@@ -1522,7 +1649,7 @@ class VisualNavigationSimulation(NavigationSimulationBase):
         route: np.ndarray[float]
             N x 4 matrix that contains the 3D positions and 1D orientation (yaw) of the agent for the route it has to
             follow
-        agent: VisualNavigationAgent, optional
+        agent: VisualProcessingAgent
             the agent that contains the compound eye and the memory component. Default is the an agent with an eye of
             nb_ommatidia ommatidia, sensitive to green and 15 degrees acceptance angle
         sky: Sky, optional
@@ -1572,10 +1699,8 @@ class VisualNavigationSimulation(NavigationSimulationBase):
 
         self._eye = agent.sensors[0]
         self._mem = agent.brain[0]
-        self._stats += {
-            "L": [],  # straight distance from the nest
-            "C": [],  # distance towards the nest that the agent has covered
-        }
+        self._stats["L"] = []  # straight distance from the nest
+        self._stats["C"] = []  # distance towards the nest that the agent has covered
 
         self._calibrate = calibrate
         self._free_motion = free_motion
@@ -2223,7 +2348,8 @@ class VisualFamiliarityDataCollectionSimulation(Simulation):
 
 class VisualFamiliarityParallelExplorationSimulation(Simulation):
 
-    def __init__(self, data, nb_par, nb_oris, agent=None, calibrate=False, saturation=5., pre_training=False, **kwargs):
+    def __init__(self, data, nb_par, nb_oris, agent=None, calibrate=False, saturation=5.,
+                 order="rpo", pre_training=False, **kwargs):
         """
         Runs the route following task for an autonomous agent, by using entirely its vision. First it forces the agent
         to run through a predefined route. Then it places the agent back at the beginning and lets it autonomously reach
@@ -2289,8 +2415,7 @@ class VisualFamiliarityParallelExplorationSimulation(Simulation):
         self._route = np.concatenate([route, route_par], axis=0)
         self._route_length = route.shape[0]
         self._indices = np.arange(self.nb_frames)
-        # self._order = "random"
-        self._order = "rpo"
+        self._order = order
 
         self._eye = agent.sensors[0]
         self._mem = agent.brain[0]

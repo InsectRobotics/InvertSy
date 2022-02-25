@@ -24,7 +24,7 @@ def create_map_axis(world=None, nest=None, feeders=None, odour_spread=None, subp
         the world containing the vegetation. Default is None
     nest: np.ndarray[float], optional
         the position of the nest. Default is None
-    feeders: np.ndarray[float], optional
+    feeders: list[float], list[np.ndarray[float]], np.ndarray[float]
         the position of the feeder. Default is None
     odour_spread: list[float]
         the spead of the different odours
@@ -516,7 +516,7 @@ def create_familiarity_history(nb_frames, sep=None, subplot=111, ax=None):
     return create_single_line_history(nb_frames, sep=sep, title="familiarity (%)", ylim=100, subplot=subplot, ax=ax)
 
 
-def create_capacity_history(nb_frames, sep=None, subplot=111, ax=None):
+def create_free_space_history(nb_frames, sep=None, subplot=111, ax=None):
     """
     Draws a line of the available capacity per iteration.
 
@@ -536,7 +536,7 @@ def create_capacity_history(nb_frames, sep=None, subplot=111, ax=None):
     matplotlib.lines.Line2D
         the line of the available capacity per iteration.
     """
-    return create_single_line_history(nb_frames, sep=sep, title="capacity (%)", ylim=100, subplot=subplot, ax=ax)
+    return create_single_line_history(nb_frames, sep=sep, title="free space (%)", ylim=100, subplot=subplot, ax=ax)
 
 
 def create_dra_axis(sensor, cmap="coolwarm", centre=None, scale=1., draw_axis=True, subplot=111, ax=None):
@@ -737,6 +737,7 @@ def create_cpu4_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111
         the image of the CPU4 history responses
     """
     nb_cpu4 = agent.central_complex.nb_cpu4
+    # return create_image_history(nb_cpu4, nb_frames, sep=sep, title="hΔC", cmap=cmap, vmin=-1, vmax=1, subplot=subplot, ax=ax)
     return create_image_history(nb_cpu4, nb_frames, sep=sep, title="CPU4", cmap=cmap, vmin=-1, vmax=1, subplot=subplot, ax=ax)
 
 
@@ -796,6 +797,7 @@ def create_cpu4_mem_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot
         the image of the CPU4 history memories
     """
     nb_cpu4 = agent.central_complex.nb_cpu4
+    # return create_image_history(nb_cpu4, nb_frames, sep=sep, title="PFN", cmap=cmap, vmin=-1, vmax=1, subplot=subplot, ax=ax)
     return create_image_history(nb_cpu4, nb_frames, sep=sep, title="CPU4 (mem)", cmap=cmap, vmin=-1, vmax=1, subplot=subplot, ax=ax)
 
 

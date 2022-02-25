@@ -1,4 +1,5 @@
-from invertpy.brain.memory import PerfectMemory, WillshawNetwork, Infomax, IncentiveCircuitMemory
+from invertpy.brain.memory import PerfectMemory, WillshawNetwork, Infomax
+from invertpy.brain.mushroombody import IncentiveCircuitMemory, VisualIncentiveCircuit
 from invertpy.sense import CompoundEye
 from invertpy.brain.preprocessing import pca, zca, ZernikeMoments
 
@@ -24,7 +25,9 @@ def main(*args):
     calibrate = True
     zernike = False
     ms = 1  # mental scanning
-    percentile_omm = .9
+    percentile_omm = .8
+    order = "rpo"  # "random"
+    pre_training = 1
 
     details = re.match(pattern, data_filename)
     nb_scans = int(details.group(1))
@@ -72,8 +75,8 @@ def main(*args):
         #     nb_sparse = 4000  # The same number as Xuelong Sun uses
         sparseness = 10 / nb_sparse  # force 10 sparse neurons to be active (new)
         # sparseness = 5 / nb_sparse  # force 5 sparse neurons to be active
-        mem = IncentiveCircuitMemory(nb_input=nb_input, nb_sparse=nb_sparse,
-                                     sparseness=sparseness, eligibility_trace=0., dims=ms)
+        mem = VisualIncentiveCircuit(nb_input=nb_input, nb_sparse=nb_sparse,
+                                     sparseness=sparseness, eligibility_trace=0., ndim=ms)
         mem.reset()
 
 
@@ -82,14 +85,18 @@ def main(*args):
     #                                "" if whitening is None else f"{whitening.__name__}")
     mem.novelty_mode = ""
 
-    agent_name = "heatmap-%s%s%s%s-scan%d-par%d-ant%d-route%d-%s" % (
+    agent_name = "heatmap-%s%s%s%s-scan%d-par%d%s-ant%d-route%d-%s" % (
         mem.__class__.__name__.lower(),  # + "-s",
         "-zernike" if zernike else "",
         "" if whitening is None else f"-{whitening.__name__}{int(percentile_omm * 100):03d}",
         "-li" if lateral_inhibition else "",
-        nb_scans, nb_parallel, ant_no, rt_no, world_name)
+        nb_scans, nb_parallel,
+        "" if order == "rpo" else order,
+        ant_no, rt_no, world_name)
     agent_name += ("-omm%d" % nb_ommatidia) if nb_ommatidia is not None else ""
     agent_name += (f"x{ms:d}" if ms > 1 else "")
+    if pre_training > 1:
+        agent_name += f"-{pre_training}"
     print("Agent: %s" % agent_name)
 
     eye = CompoundEye(nb_input=nb_ommatidia, omm_pol_op=0, noise=0., omm_rho=np.deg2rad(4),
@@ -98,7 +105,7 @@ def main(*args):
                                   whitening=whitening, zernike=zernike, lateral_inhibition=lateral_inhibition)
     sim = VisualFamiliarityParallelExplorationSimulation(data_filename, nb_par=nb_parallel, nb_oris=nb_scans,
                                                          agent=agent, calibrate=calibrate, name=agent_name,
-                                                         pre_training=False)
+                                                         pre_training=pre_training)
     sim.message_intervals = 821
     # ani = VisualFamiliarityAnimation(sim)
     # ani(save=save, show=not save, save_type="mp4", save_stats=save)

@@ -16,3 +16,4 @@ __maintainer__ = "Evripidis Gkanias"
 
 
 from .agent import Agent, PathIntegrationAgent, VisualNavigationAgent, NavigatingAgent
+from .agent import VectorMemoryAgent, RouteFollowingAgent
