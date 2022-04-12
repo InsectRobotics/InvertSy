@@ -1,4 +1,5 @@
 from invertpy.sense.polarisation import PolarisationSensor
+from invertpy.brain.compass import PolarisationCompass, ring2sph
 
 from invertsy.env.sky import Sky
 from invertsy.sim._helpers import create_dra_axis
@@ -11,16 +12,26 @@ import matplotlib.pyplot as plt
 
 flat = True
 
-sky = Sky(np.deg2rad(30), np.pi)
+fov = 90
+nb_ommatidia = 4
+nb_receptors = 4
 
-sensor = PolarisationSensor(field_of_view=90, nb_lenses=4, omm_photoreceptor_angle=4, omm_rho=np.deg2rad(.05),
-                            omm_res=10000, ori=R.from_euler('ZYX', [0, 0, 0], degrees=True),
+sky = Sky(np.deg2rad(30), 0)
+
+sensor = PolarisationSensor(field_of_view=fov, nb_lenses=nb_ommatidia, omm_photoreceptor_angle=2, omm_rho=np.deg2rad(5),
+                            omm_res=1, ori=R.from_euler('ZYX', [0, 0, 0], degrees=True),
                             omm_pol_op=1., noise=0., name="Rob's sensor")
+compass = PolarisationCompass(nb_pol=nb_ommatidia, loc_ori=sensor.omm_ori,
+                              sigma=13, shift=40, nb_receptors=nb_receptors)
+
 print(sensor)
+print(compass)
 
 r = sensor(sky=sky)
+r_com = compass(r)
 
-print(sensor.responses)
+print(r)
+print(np.rad2deg(ring2sph(r_com.flatten())))
 
 plt.figure("env", figsize=(3.33, 3.33))
 pol = create_dra_axis(sensor, draw_axis=True)
