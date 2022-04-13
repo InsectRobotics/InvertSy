@@ -551,7 +551,7 @@ class Agent(object):
 
 class VisualProcessingAgent(Agent, ABC):
 
-    def __init__(self, eye=None, saturation=10., nb_scans=1, nb_visual=None,
+    def __init__(self, eye=None, saturation=7., nb_scans=1, nb_visual=None,
                  lateral_inhibition=False, mental_scanning=0, zernike=False, whitening=pca,
                  *args, **kwargs):
         """
@@ -1029,8 +1029,8 @@ class RouteFollowingAgent(VisualProcessingAgent, CentralComplexAgent):
             "gain": .5
         }
         # vis_sensors = self.sensors
-        # CentralComplexAgent.__init__(self, cx_class=FamiliarityCX, cx_params=cx_params, *args, **kwargs)
-        CentralComplexAgent.__init__(self, cx_class=FamiliarityIntegratorCX, cx_params=cx_params, *args, **kwargs)
+        CentralComplexAgent.__init__(self, cx_class=FamiliarityCX, cx_params=cx_params, *args, **kwargs)
+        # CentralComplexAgent.__init__(self, cx_class=FamiliarityIntegratorCX, cx_params=cx_params, *args, **kwargs)
         # self._sensors = vis_sensors + self.sensors
 
         self._mem.reset()
