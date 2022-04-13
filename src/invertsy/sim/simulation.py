@@ -502,7 +502,7 @@ class NavigationSimulationBase(Simulation, ABC):
         x, y, z = self._agent.xyz
         phi = self._agent.yaw_deg
         return f"{super().message()} - x: {x:.2f}, y:{y:.2f}, z: {z:.2f}, Φ: {phi:.0f}"
-
+      
     @property
     def agent(self):
         """
@@ -581,7 +581,7 @@ class CentralPointNavigationSimulationBase(NavigationSimulationBase, ABC):
                 nb_samples = self.agent.eye.nb_ommatidia
             elif nb_samples is None:
                 nb_samples = 1000
-
+                
             self.agent.xyz = copy(self.central_point)
             self.agent.update = False
 
@@ -726,8 +726,23 @@ class PathIntegrationSimulation(CentralPointNavigationSimulationBase):
         if not isinstance(self._agent, RouteFollowingAgent):
             delattr(self, 'r_mbon')
 
-    def reset(self, **kwargs):
-        super().reset(**kwargs)
+    def reset(self):
+        """
+        Initialises the logged statistics and iteration count, calibrates the eye of agent if applicable and places it
+        to the beginning of the route.
+
+        Returns
+        -------
+        np.ndarray[float]
+            array of the 3D positions of the samples used for the calibration
+        """
+        self._stats["ommatidia"] = []
+        self._stats["PN"] = []
+        self._stats["KC"] = []
+        self._stats["MBON"] = []
+        self._stats["position"] = []
+        self._stats["capacity"] = []
+        self._stats["familiarity"] = []
 
         self.__file_data = None
 
@@ -1895,7 +1910,7 @@ class VisualNavigationSimulation(NavigationSimulationBase):
 
         Returns
         -------
-        MushroomBody
+        MemoryComponent
         """
         return self._mem
 
