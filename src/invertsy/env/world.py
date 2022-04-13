@@ -17,6 +17,7 @@ __maintainer__ = "Evripidis Gkanias"
 
 from ._helpers import RNG, add_noise, __data__
 
+from scipy.interpolate import make_interp_spline
 from scipy.io import loadmat
 from scipy.spatial.transform import Rotation as R
 from matplotlib import cm
@@ -550,3 +551,58 @@ def get_terrain(max_altitude=.5, tau=.6, x=None, y=None):
     z_terrain = z
     return z
 
+
+def create_route_from_points(*points, step_size=0.01, degrees=True):
+    """
+    Create a route the passes through the given points.
+
+    The number of steps is determined based on the given step size.
+
+    Parameters
+    ----------
+    points : list
+        the points that the route should pass through
+    step_size : float, optional
+        the distance between two consecutive points on the route (in meters). Default is 1 cm
+    degrees : bool, optional
+        whether the heading direction should be given in degrees. Default is True
+
+    Returns
+    -------
+    np.ndarray[float]
+        the generated points of the route
+    """
+
+    points = np.array(points)  # transform points to numpy array
+
+    # calculate the distance travelled in each point
+    distance = np.cumsum(np.linalg.norm(np.diff(points, axis=0), axis=-1))
+    distance = np.insert(distance, 0, 0)
+
+    # create interpolation function
+    compute_points = make_interp_spline(distance, points, k=3, bc_type='natural')
+
+    # calculate the number of steps required for the route
+    nb_steps = int(distance[-1] // step_size) + 1
+
+    # sample positions on route based on distance travelled
+    d = np.linspace(0, nb_steps * step_size, num=nb_steps + 1, endpoint=True)
+    d = np.insert(d, -1, distance[-1])
+
+    xyz = compute_points(d)
+
+    # calculate the gradient
+    grad = np.diff(xyz, axis=0)
+
+    grad = np.insert(grad, -1, grad[-1], axis=0)  # copy the last gradient at the end
+
+    # calculate the heading direction
+    yaw = np.arctan2(grad[:, 1], grad[:, 0])  # get the direction from the gradient
+
+    if degrees:  # transform to degrees
+        yaw = np.rad2deg(yaw)
+
+    # add the heading to the route
+    route = np.hstack([xyz, yaw[:, np.newaxis]])
+
+    return route

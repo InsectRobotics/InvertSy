@@ -11,13 +11,13 @@ __license__ = "GPLv3+"
 __version__ = "v1.0.0-alpha"
 __maintainer__ = "Evripidis Gkanias"
 
-from invertpy.brain.compass import ring2complex
 from invertsy.__helpers import __root__
+from invertsy.agent.agent import RouteFollowingAgent, VisualProcessingAgent, CentralComplexAgent
 
 from ._helpers import *
-from .simulation import RouteSimulation, PathIntegrationSimulation, Simulation
-from .simulation import VisualNavigationSimulation, VisualFamiliaritySimulation
-from .simulation import VisualFamiliarityGridExplorationSimulation
+from .simulation import RouteSimulation, NavigationSimulation, Simulation
+from .simulation import PathIntegrationSimulation, TwoSourcePathIntegrationSimulation
+from .simulation import VisualNavigationSimulation, CentralPointNavigationSimulationBase
 
 from scipy.spatial.transform import Rotation as R
 from matplotlib import animation
@@ -76,6 +76,7 @@ class Animation(object):
         self._fps = fps
         self._ani = None
         self._lines = []
+        self.__lines = []
         self._iteration = 0
 
         if name is None:
@@ -126,6 +127,7 @@ class Animation(object):
         """
         Initialises the animation by running the first step.
         """
+        self.__lines = [line for line in self._lines if line is not None]
         self._animate(0)
 
     def _animate(self, i):
@@ -159,7 +161,7 @@ class Animation(object):
             the figure lines
         """
         self._initialise()
-        return tuple(self._lines)
+        return tuple(self.__lines)
 
     def __animate(self, i):
         """
@@ -178,7 +180,7 @@ class Animation(object):
         time = self._animate(i)
         if isinstance(time, float):
             print(self.sim.message() + " - time: %.2f sec" % time)
-        return tuple(self._lines)
+        return tuple(self.__lines)
 
     @property
     def fig(self):
@@ -266,8 +268,6 @@ class RouteAnimation(Animation):
         ax_dict = self.fig.subplot_mosaic(
             """
             AB
-            AB
-            AB
             CB
             """
         )
@@ -345,6 +345,408 @@ class RouteAnimation(Animation):
         return self._sim
 
 
+class MapResponsesAnimation(Animation):
+    def __init__(self, sim, *args, **kwargs):
+        kwargs.setdefault('fps', 100)
+        super().__init__(sim, *args, **kwargs)
+
+        has_visual = hasattr(sim, 'agent') and isinstance(sim.agent, VisualProcessingAgent)
+        has_pi = hasattr(sim, 'agent') and isinstance(sim.agent, CentralComplexAgent)
+        mosaic = """
+        """
+        if has_visual:
+            mosaic += """
+            BBBBAAAA
+            BBBBAAAA
+            """
+
+        if has_pi and has_visual:
+            mosaic += """CDDDAAAA
+            FFEEAAAA
+            GGHHAAAA
+            IIJJAAAA
+            KKNNMMLL
+            """
+        elif has_visual:
+            mosaic += """IILLAAAA
+            JJMMAAAA
+            KKNNAAAA
+            """
+        elif has_pi:
+            mosaic += """
+            CDDDAAAA
+            EEEEAAAA
+            FFFFAAAA
+            GGGGAAAA
+            HHHHAAAA
+            """
+
+        ax_dict = self.fig.subplot_mosaic(mosaic)
+
+        if isinstance(sim, TwoSourcePathIntegrationSimulation):
+            nest = sim.central_point[:2]
+            feeders = [sim.feeder_a[:2], sim.feeder_b[:2]]
+        elif isinstance(sim, CentralPointNavigationSimulationBase):
+            nest = sim.central_point[:2]
+            feeders = [sim.distant_point[:2]]
+        else:
+            nest = None
+            feeders = None
+
+        all_lines = create_map_axis(world=sim.world, ax=ax_dict["A"], nest=nest, feeders=feeders)
+        line_c, line_b, pos, self._marker, cal, poi, feeders_text = all_lines[:7]
+        omm, pol, tb1, cl1, cpu1, cpu4, cpu4mem, pn, mbon, dan, dist, cap, fam = [None] * 13
+
+        if "B" in mosaic and hasattr(sim.agent, "eye"):
+            omm = create_eye_axis(sim.agent.eye, cmap="Greens_r", ax=ax_dict["B"])
+        if "C" in mosaic and hasattr(sim.agent, "pol_sensor"):
+            pol = create_dra_axis(sim.agent.pol_sensor, cmap="coolwarm", ax=ax_dict["C"])
+            pol.set_array(sim.r_pol)
+        if "D" in mosaic:
+            tb1 = create_tb1_history(sim.agent, self.nb_frames, cmap="coolwarm", ax=ax_dict["D"])
+        if "E" in mosaic:
+            cl1 = create_cl1_history(sim.agent, self.nb_frames, cmap="coolwarm", ax=ax_dict["E"])
+        if "F" in mosaic:
+            cpu1 = create_cpu1_history(sim.agent, self.nb_frames, cmap="coolwarm", ax=ax_dict["F"])
+        if "G" in mosaic:
+            cpu4 = create_cpu4_history(sim.agent, self.nb_frames, cmap="coolwarm", ax=ax_dict["G"])
+        if "H" in mosaic:
+            cpu4mem = create_cpu4_mem_history(sim.agent, self.nb_frames, cmap="coolwarm", ax=ax_dict["H"])
+        if "I" in mosaic:
+            pn = create_pn_history(sim.agent, self.nb_frames, cmap="coolwarm", ax=ax_dict["I"])
+        if "J" in mosaic:
+            mbon = create_mbon_history(sim.agent, self.nb_frames, cmap="coolwarm", ax=ax_dict["J"])
+        if "K" in mosaic:
+            dan = create_dan_history(sim.agent, self.nb_frames, cmap="coolwarm", ax=ax_dict["K"])
+        if "L" in mosaic:
+            dist = create_single_line_history(self.nb_frames, title="d_nest (m)", ylim=8, ax=ax_dict["L"])
+        if "M" in mosaic:
+            cap = create_free_space_history(self.nb_frames, ax=ax_dict["M"])
+        if "N" in mosaic:
+            fam = create_familiarity_history(self.nb_frames, ax=ax_dict["N"])
+
+        self._lines.extend([line_c, line_b, pos, cal, poi,
+                            omm, pol, tb1, cl1, cpu1, cpu4, cpu4mem,
+                            pn, mbon, dan, dist, cap, fam] + feeders_text)
+
+        plt.tight_layout()
+
+    def _animate(self, i):
+        """
+        Runs the current iteration of the simulation and updates the data from the figure.
+
+        Parameters
+        ----------
+        i : int
+        """
+
+        if i == 0:
+            if self.line_b is not None:
+                self.line_b.set_data([], [])
+            if self.poi is not None:
+                self.poi.set_offsets(np.empty((0, 2)))
+
+            xyz = self.sim.reset()
+            # xyz = self.sim.reset(nb_samples_calibrate=3)
+            if xyz is not None and self.cal is not None:
+                self.cal.set_offsets(np.array(xyz)[:, [1, 0]])
+        elif "xyz_out" in self.sim.stats and self.line_b is not None:
+            xyz = np.array(self.sim.stats["xyz_out"])
+            self.line_b.set_data(xyz[..., 1], xyz[..., 0])
+
+        time = self.sim.step(i)
+
+        x, y = np.array(self.sim.stats["xyz"])[..., :2].T
+        if self.line_c is not None:
+            self.line_c.set_data(y, x)
+        if self.pos is not None:
+            self.pos.set_offsets(np.array([y[-1], x[-1]]))
+
+            vert, codes = self._marker
+            vertices = R.from_euler('Z', -self.sim.agent.ori.as_euler('ZYX', degrees=True)[0], degrees=True).apply(vert)
+            self.pos.set_paths((Path(vertices[:, :2], codes),))
+        if (self.poi is not None and "replace" in self.sim.stats and
+                len(self.sim.stats["replace"]) > 0 and self.sim.stats["replace"][-1]):
+            points = self.poi.get_offsets()
+            self.poi.set_offsets(np.vstack([points, np.array([[y[-1], x[-1]]])]))
+
+        if self.omm is not None and "ommatidia" in self.sim.stats:
+            r = self.sim.stats["ommatidia"][-1].mean(axis=1)
+            self.omm.set_array(r.T.flatten())
+        if self.pol is not None and "POL" in self.sim.stats:
+            self.pol.set_array(np.array(self.sim.stats["POL"][-1]))
+        if self.tb1 is not None and "TB1" in self.sim.stats:
+            tb1 = np.zeros((self.sim.r_tb1.shape[0], self.nb_frames), dtype=float)
+            tb1[:, :i + 1] = np.array(self.sim.stats["TB1"]).T
+            self.tb1.set_array(tb1)
+        if self.cl1 is not None and "CL1" in self.sim.stats:
+            cl1 = np.zeros((self.sim.r_cl1.shape[0], self.nb_frames), dtype=float)
+            cl1[:, :i + 1] = np.array(self.sim.stats["CL1"]).T
+            self.cl1.set_array(cl1)
+        if self.cpu1 is not None and "CPU1" in self.sim.stats:
+            cpu1 = np.zeros((self.sim.r_cpu1.shape[0], self.nb_frames), dtype=float)
+            cpu1[:, :i + 1] = np.array(self.sim.stats["CPU1"]).T
+            self.cpu1.set_array(cpu1)
+        if self.cpu4 is not None and "CPU4" in self.sim.stats:
+            cpu4 = np.zeros((self.sim.r_cpu4.shape[0], self.nb_frames), dtype=float)
+            cpu4[:, :i + 1] = np.array(self.sim.stats["CPU4"]).T
+            self.cpu4.set_array(cpu4)
+        if self.cpu4mem is not None and "CPU4mem" in self.sim.stats:
+            cpu4mem = np.zeros((self.sim.cpu4_mem.shape[0], self.nb_frames), dtype=float)
+            cpu4mem[:, :i + 1] = np.array(self.sim.stats["CPU4mem"]).T
+            self.cpu4mem.set_array(cpu4mem)
+
+        if self.pn is not None and "PN" in self.sim.stats:
+            pn = np.zeros((self.sim.agent.mushroom_body.nb_cs, self.nb_frames), dtype=float)
+            pn[:, :i + 1] = np.array(self.sim.stats["PN"]).T
+            self.pn.set_array(pn)
+        if self.mbon is not None and "MBON" in self.sim.stats:
+            mbon = np.zeros((self.sim.agent.mushroom_body.nb_mbon, self.nb_frames), dtype=float)
+            mbon[:, :i + 1] = np.array(self.sim.stats["MBON"]).T
+            self.mbon.set_array(mbon)
+        if self.dan is not None and "DAN" in self.sim.stats:
+            dan = np.zeros((self.sim.agent.mushroom_body.nb_dan, self.nb_frames), dtype=float)
+            dan[:, :i + 1] = np.array(self.sim.stats["DAN"]).T
+            self.dan.set_array(dan)
+        if self.dist is not None and "L" in self.sim.stats:
+            dist = np.full(self.nb_frames, np.nan, dtype=float)
+            if "L_out" in self.sim.stats:
+                out = np.array(self.sim.stats["L_out"]).T
+            else:
+                out = np.array([])
+            dist[:i + 1] = np.r_[out, np.array(self.sim.stats["L"]).T]
+            self.dist.set_data(np.arange(self.nb_frames), dist)
+        if self.capacity is not None and "capacity" in self.sim.stats:
+            cap = np.full(self.nb_frames, np.nan, dtype=float)
+            cap[:i + 1] = np.array(self.sim.stats["capacity"]).T
+            self.capacity.set_data(np.arange(self.nb_frames), cap)
+        if self.fam is not None and "familiarity" in self.sim.stats:
+            fam = np.full(self.nb_frames, np.nan, dtype=float)
+            fam[:i + 1] = np.array(self.sim.stats["familiarity"]).T
+            self.fam.set_data(np.arange(self.nb_frames), fam)
+
+        return time
+
+    @property
+    def sim(self):
+        """
+
+        Returns
+        -------
+        NavigationSimulation
+        """
+        return super().sim
+
+    @property
+    def line_c(self):
+        """
+        The line representing the ongoing path of the agent in the figure.
+
+        Returns
+        -------
+        matplotlib.lines.Line2D
+        """
+        return self._lines[0]
+
+    @property
+    def line_b(self):
+        """
+        The line representing the finished path of the agent in the figure.
+
+        Returns
+        -------
+        matplotlib.lines.Line2D
+        """
+        return self._lines[1]
+
+    @property
+    def pos(self):
+        """
+        The current position of agent in the figure.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
+        return self._lines[2]
+
+    @property
+    def cal(self):
+        """
+        The positions the figure used for calibration in.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
+        return self._lines[3]
+
+    @property
+    def poi(self):
+        """
+        The positions in the figure where the agent was brought back to the route.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
+        return self._lines[4]
+
+    @property
+    def omm(self):
+        """
+        The collection of ommatidia in the figure.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
+        return self._lines[5]
+
+    @property
+    def pol(self):
+        """
+        The collection of the DRA ommatidia in the figure.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
+        return self._lines[6]
+
+    @property
+    def tb1(self):
+        """
+        The history of the TB1 response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[7]
+
+    @property
+    def cl1(self):
+        """
+        The history of the CL1 response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[8]
+
+    @property
+    def cpu1(self):
+        """
+        The history of the CPU1 response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[9]
+
+    @property
+    def cpu4(self):
+        """
+        The history of the CPU4 response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[10]
+
+    @property
+    def cpu4mem(self):
+        """
+        The history of the CPU4 memory in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[11]
+
+    @property
+    def pn(self):
+        """
+        The history of the PN response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[12]
+
+    @property
+    def mbon(self):
+        """
+        The history of the MBON response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[13]
+
+    @property
+    def dan(self):
+        """
+        The history of the DAN response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[14]
+
+    @property
+    def dist(self):
+        """
+        The history of the distance from the goal (nest) in the figure.
+
+        Returns
+        -------
+        matplotlib.lines.Line2D
+        """
+        return self._lines[15]
+
+    @property
+    def capacity(self):
+        """
+        The history of the memory capacity in the figure.
+
+        Returns
+        -------
+        matplotlib.lines.Line2D
+        """
+        return self._lines[16]
+
+    @property
+    def fam(self):
+        """
+        The history of familiarity in the figure.
+
+        Returns
+        -------
+        matplotlib.lines.Line2D
+        """
+        return self._lines[17]
+
+    @property
+    def feeders_text(self):
+        """
+        The text next to each feeder in the map.
+
+        Returns
+        -------
+        list[matplotlib.text.Text]
+        """
+        return self._lines[18:]
+
+
 class VisualNavigationAnimation(Animation):
 
     def __init__(self, sim, cmap="Greens_r", show_history=True, show_weights=False, *args, **kwargs):
@@ -386,7 +788,7 @@ class VisualNavigationAnimation(Animation):
 
         omm = create_eye_axis(sim.eye, cmap=cmap, ax=ax_dict["A"])
         line_c, line_b, pos, self._marker, cal, poi = create_map_axis(
-            world=sim.world, ax=ax_dict["B"], nest=sim.route[-1, :2], feeder=sim.route[0, :2])
+            world=sim.world, ax=ax_dict["B"], nest=sim.route[-1, :2], feeders=[sim.route[0, :2]])[:6]
 
         self._lines.extend([omm, line_c, line_b, pos, cal, poi])
 
@@ -399,7 +801,7 @@ class VisualNavigationAnimation(Animation):
             #     sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["E"])
             dist = create_single_line_history(
                 self.nb_frames, sep=sim.route.shape[0], title="d_nest (m)", ylim=8, ax=ax_dict["F"])
-            cap = create_capacity_history(self.nb_frames, sep=sim.route.shape[0], ax=ax_dict["G"])
+            cap = create_free_space_history(self.nb_frames, sep=sim.route.shape[0], ax=ax_dict["G"])
             fam = create_familiarity_history(self.nb_frames, sep=sim.route.shape[0], ax=ax_dict["H"])
 
             self._lines.extend([pn, kc, fam, dist, cap])
@@ -428,12 +830,12 @@ class VisualNavigationAnimation(Animation):
             if xyzs is not None:
                 self.cal.set_offsets(np.array(xyzs)[:, [1, 0]])
         elif i == self.sim.route.shape[0]:
-            self.line_b.set_data(np.array(self.sim.stats["path"])[..., 1], np.array(self.sim.stats["path"])[..., 0])
+            self.line_b.set_data(np.array(self.sim.stats["xyz"])[..., 1], np.array(self.sim.stats["xyz"])[..., 0])
 
         time = self.sim.step(i)
 
         r = self.sim.stats["ommatidia"][-1].mean(axis=1)
-        x, y = np.array(self.sim.stats["path"])[..., :2].T
+        x, y = np.array(self.sim.stats["xyz"])[..., :2].T
 
         self.omm.set_array(r.T.flatten())
         self.line_c.set_data(y, x)
@@ -663,7 +1065,7 @@ class VisualFamiliarityAnimation(Animation):
 
         Parameters
         ----------
-        sim: VisualFamiliaritySimulation | VisualFamiliarityGridExplorationSimulation
+        sim: VisualFamiliarityTestSimulation | VisualFamiliarityGridExplorationSimulation
             the visual navigation simulation instance
         cmap: str, optional
             the colour map to be used for the responses from the ommatidia. Default is 'Greens_r'
@@ -732,12 +1134,12 @@ class VisualFamiliarityAnimation(Animation):
 
         # draw the PN activity
         pn = self.pn.get_array()
-        pn[:, i] = self.sim.mem.r_cs[0].T.flatten()
+        pn[:, i] = self.sim.mem.r_inp[0].T.flatten()
         self.pn.set_array(pn)
 
         # draw the KC activity
         kc = self.kc.get_array()
-        kc[:, i] = self.sim.mem.r_kc[0].T.flatten()
+        kc[:, i] = self.sim.mem.r_hid[0].T.flatten()
         self.kc.set_array(kc)
 
         # draw familiarity map
@@ -759,7 +1161,7 @@ class VisualFamiliarityAnimation(Animation):
 
         Returns
         -------
-        VisualFamiliaritySimulation
+        VisualFamiliarityTestSimulation
         """
         return self._sim
 
@@ -882,7 +1284,7 @@ class VisualFamiliarityAnimation(Animation):
 
 class PathIntegrationAnimation(Animation):
 
-    def __init__(self, sim: PathIntegrationSimulation, show_history=True, cmap="coolwarm", *args, **kwargs):
+    def __init__(self, sim, show_history=True, cmap="coolwarm", *args, **kwargs):
         """
         Animation for the path integration simulation. Shows the POL neurons responses in the Dorsal Rim Area, the
         position and history of positions of the agent on the map (with vegetation if provided) and the responses of
@@ -890,7 +1292,7 @@ class PathIntegrationAnimation(Animation):
 
         Parameters
         ----------
-        sim: PathIntegrationSimulation
+        sim: PathIntegrationSimulation, TwoSourcePathIntegrationSimulation
             the path integration simulation isnstance
         show_history: bool, optional
             if True, it shows the history instead of just the current responses. Default is True
@@ -901,15 +1303,17 @@ class PathIntegrationAnimation(Animation):
         super().__init__(sim, *args, **kwargs)
 
         if show_history:
-            ax_dict = self.fig.subplot_mosaic(
-                """
+            mosaic = """
                 ACCCBBBB
                 DDDDBBBB
                 EEEEBBBB
                 FFFFBBBB
                 GGGGBBBB
                 """
-            )
+            if isinstance(sim, TwoSourcePathIntegrationSimulation) or isinstance(sim.agent, RouteFollowingAgent):
+                mosaic += """HHHHBBBB
+                """
+            ax_dict = self.fig.subplot_mosaic(mosaic)
         else:
             ax_dict = self.fig.subplot_mosaic(
                 """
@@ -919,28 +1323,46 @@ class PathIntegrationAnimation(Animation):
                 """
             )
 
-        line_c, line_b, pos, self._marker = create_map_axis(world=sim.world, ax=ax_dict["B"],
-                                                            nest=sim.route[0, :2], feeder=sim.route[-1, :2])[:4]
+        if isinstance(sim, TwoSourcePathIntegrationSimulation):
+            nest = sim.central_point[:2]
+            feeders = [sim.feeder_a[:2], sim.feeder_b[:2]]
+            route = sim.route_a
+            print(feeders)
+        elif isinstance(sim, PathIntegrationSimulation):
+            nest = sim.central_point[:2]
+            feeders = [sim.distant_point[:2]]
+            route = sim.route
+        else:
+            nest = None
+            feeders = None
+            route = None
 
+        line_c, line_b, pos, self._marker = create_map_axis(world=sim.world, ax=ax_dict["B"],
+                                                            nest=nest, feeders=feeders)[:4]
+        vec, mbon = None, None
         if show_history:
-            omm = create_dra_axis(sim.agent.sensors[0], cmap=cmap, ax=ax_dict["A"])
-            tb1 = create_tb1_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap, ax=ax_dict["C"])
-            cl1 = create_cl1_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap, ax=ax_dict["D"])
-            cpu1 = create_cpu1_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap, ax=ax_dict["E"])
-            cpu4 = create_cpu4_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap, ax=ax_dict["F"])
-            cpu4mem = create_cpu4_mem_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap=cmap,
+            omm = create_dra_axis(sim.compass_sensor, cmap=cmap, ax=ax_dict["A"])
+            tb1 = create_tb1_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["C"])
+            cl1 = create_cl1_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["D"])
+            cpu1 = create_cpu1_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["E"])
+            cpu4 = create_cpu4_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["F"])
+            cpu4mem = create_cpu4_mem_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap,
                                               ax=ax_dict["G"])
+            if isinstance(sim, TwoSourcePathIntegrationSimulation):
+                vec = create_vec_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["H"])
+            if isinstance(sim.agent, RouteFollowingAgent):
+                mbon = create_mbon_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["H"])
         else:
             omm, tb1, cl1, cpu1, cpu4, cpu4mem = create_bcx_axis(sim.agent, cmap=cmap, ax=ax_dict["A"])
 
         plt.tight_layout()
 
-        self._lines.extend([omm, tb1, cl1, cpu1, cpu4, cpu4mem, line_c, line_b, pos])
+        self._lines.extend([omm, tb1, cl1, cpu1, cpu4, cpu4mem, line_c, line_b, pos, vec, mbon])
 
         omm.set_array(sim.r_pol)
         self._show_history = show_history
 
-    def _animate(self, i: int):
+    def _animate(self, i):
         """
         Runs the current iteration of the simulation and updates the data from the figure.
 
@@ -949,16 +1371,26 @@ class PathIntegrationAnimation(Animation):
         i: int
             the current iteration number
         """
+
+        if isinstance(self.sim, PathIntegrationSimulation):
+            route_size = self.sim.route.shape[0]
+        elif isinstance(self.sim, TwoSourcePathIntegrationSimulation):
+            route_size = self.sim.route_a.shape[0]
+        else:
+            route_size = -1
+            print("None INSTANCE!")
         if i == 0:
             self.line_b.set_data([], [])
+            # self.sim.reset(nb_samples_calibrate=10)
             self.sim.reset()
-        elif i == self.sim.route.shape[0]:
-            self.line_b.set_data(np.array(self.sim.stats["path"])[..., 1], np.array(self.sim.stats["path"])[..., 0])
-            self.sim.init_inbound()
+        elif "xyz_out" in self.sim.stats:
+            self.line_b.set_data(np.array(self.sim.stats["xyz_out"])[..., 1],
+                                 np.array(self.sim.stats["xyz_out"])[..., 0])
+            # self.sim.init_inbound()
 
         time = self.sim.step(i)
 
-        self.omm.set_array(self.sim.r_pol)
+        self.omm.set_array(np.array(self.sim.stats["POL"][-1]))
 
         if self._show_history:
             tb1 = np.zeros((self.sim.r_tb1.shape[0], self.nb_frames), dtype=float)
@@ -976,6 +1408,14 @@ class PathIntegrationAnimation(Animation):
             cpu4mem = np.zeros((self.sim.cpu4_mem.shape[0], self.nb_frames), dtype=float)
             cpu4mem[:, :i+1] = np.array(self.sim.stats["CPU4mem"]).T
             self.cpu4mem.set_array(cpu4mem)
+            if self.vec is not None:
+                vec = np.zeros((self.sim.r_vec.shape[0], self.nb_frames), dtype=float)
+                vec[:, :i+1] = np.array(self.sim.stats["vec"]).T
+                self.vec.set_array(vec)
+            if self.mbon is not None:
+                mbon = np.zeros((self.sim.r_mbon.shape[-1], self.nb_frames), dtype=float)
+                mbon[:, :i+1] = np.array(self.sim.stats["MBON"]).T
+                self.mbon.set_array(mbon)
         else:
             self.tb1.set_array(self.sim.r_tb1)
             self.cl1.set_array(self.sim.r_cl1)
@@ -983,7 +1423,7 @@ class PathIntegrationAnimation(Animation):
             self.cpu4.set_array(self.sim.r_cpu4)
             self.cpu4mem.set_array(self.sim.cpu4_mem)
 
-        x, y = np.array(self.sim.stats["path"])[..., :2].T
+        x, y = np.array(self.sim.stats["xyz"])[..., :2].T
         self.line_c.set_data(y, x)
         self.pos.set_offsets(np.array([y[-1], x[-1]]))
 
@@ -1103,54 +1543,93 @@ class PathIntegrationAnimation(Animation):
         """
         return self._lines[8]
 
+    @property
+    def vec(self):
+        """
+        The history of the Vector neurons in the figure.
 
-class LandmarkIntegrationAnimation(Animation):
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        if len(self._lines) > 8:
+            return self._lines[9]
+        else:
+            return None
+
+    @property
+    def mbon(self):
+        """
+        The history of the Vector neurons in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        if len(self._lines) > 9:
+            return self._lines[10]
+        else:
+            return None
+
+
+class NavigationAnimation(Animation):
 
     def __init__(self, sim, cmap="coolwarm", *args, **kwargs):
         """
-        Animation for the landmark integration simulation. Shows the ommatidia responses in the compound eye, the
+        Animation for the path integration simulation. Shows the POL neurons responses in the Dorsal Rim Area, the
         position and history of positions of the agent on the map (with vegetation if provided) and the responses of
-        the CX and MB neurons (and their history if requested).
+        the CX neurons (and their history if requested).
 
         Parameters
         ----------
-        sim: LandmarkIntegrationSimulation
+        sim: NavigationSimulation
             the path integration simulation isnstance
         cmap: str, optional
             the colour map for the responses of the POL neurons. Default is 'coolwarm'
         """
         kwargs.setdefault('fps', 100)
+        # kwargs.setdefault('width', 15)
+        kwargs.setdefault('height', 6)
         super().__init__(sim, *args, **kwargs)
 
         ax_dict = self.fig.subplot_mosaic(
             """
-            AAAAAABBBBBB
-            AAAAAABBBBBB
-            AAAAAABBBBBB
-            CCDDEEBBBBBB
-            FFGGHHBBBBBB
-            IIJJKKBBBBBB
+            ACCCBBBBBB
+            DDDDBBBBBB
+            EEEEBBBBBB
+            FFFFBBBBBB
+            GGGGBBBBBB
+            HHHHBBBBBB
+            JJKKBBBBBB
             """
         )
+        nest = sim.route[0, :2]
+        feeders = [route[-1, :2] for route in sim.routes]
+        route = sim.route
+        odour_spread = []
+        for odour in sim.odours:
+            odour_spread.append(odour.spread)
 
-        line_c, line_b, pos, self._marker, cal, poi = create_map_axis(
-            world=sim.world, ax=ax_dict["B"], nest=sim.route[0, :2], feeder=sim.route[-1, :2])[:6]
+        all_lines = create_map_axis(world=sim.world, ax=ax_dict["B"],
+                                    nest=nest, feeders=feeders, odour_spread=odour_spread)
+        line_c, line_b, pos, self._marker, cal = all_lines[:5]
+        feeders_text = all_lines[-1]
 
-        omm = create_eye_axis(sim.agent.sensors[0], cmap="Greens_r", ax=ax_dict["A"])
-        cmp = create_cmp_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["C"])
-        pfl = create_pfl_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["F"])
-        fbn = create_fbn_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["I"])
-        epg = create_epg_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["D"])
-        peg = create_peg_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["G"])
-        pen = create_pen_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["J"])
-        pn = create_pn_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["E"])
-        kc = create_kc_history(sim.agent, self.nb_frames, sep=sim.route.shape[0], cmap="Greys", ax=ax_dict["H"])
-        fam = create_familiarity_history(self.nb_frames, sep=sim.route.shape[0], ax=ax_dict["K"])
+        omm = create_dra_axis(sim.agent.pol_sensor, cmap=cmap, ax=ax_dict["A"])
+        tb1 = create_tb1_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["C"])
+        cl1 = create_cl1_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["D"])
+        cpu1 = create_cpu1_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["E"])
+        cpu4 = create_cpu4_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["F"])
+        cpu4mem = create_cpu4_mem_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["G"])
+        pn = create_pn_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["H"])
+        mbon = create_mbon_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["J"])
+        dan = create_dan_history(sim.agent, self.nb_frames, sep=route.shape[0], cmap=cmap, ax=ax_dict["K"])
 
         plt.tight_layout()
 
-        self._lines.extend([line_c, line_b, pos, cal, poi, omm, cmp, pfl, fbn, epg, peg, pen, pn, kc, fam])
+        self._lines.extend([omm, tb1, cl1, cpu1, cpu4, cpu4mem, pn, mbon, dan, line_c, line_b, pos, cal] + feeders_text)
 
+        self._nb_lines = 0
         omm.set_array(sim.r_pol)
 
     def _animate(self, i: int):
@@ -1163,72 +1642,77 @@ class LandmarkIntegrationAnimation(Animation):
             the current iteration number
         """
 
+        nb_lines = 0
+        for suf in ["in", "out"]:
+            j = 0
+            while f"xyz_{suf}_{j}" in self.sim.stats:
+                j += 1
+            nb_lines += j
+
         if i == 0:
+            self.line_b.set_data([], [])
+            self.sim.reset()
+            self._nb_lines = 0
+
             xyzs = self.sim.reset()
+
             if xyzs is not None:
                 self.cal.set_offsets(np.array(xyzs)[:, [1, 0]])
-        elif i == self.sim.route.shape[0]:
-            self.line_b.set_data(np.array(self.sim.stats["path"])[..., 1], np.array(self.sim.stats["path"])[..., 0])
+        elif nb_lines > self._nb_lines:
+            xs, ys = [], []
+            for suf in ["in", "out"]:
+                j = 0
+                while f"xyz_{suf}_{j}" in self.sim.stats:
+                    xs.append(np.r_[np.array(self.sim.stats[f"xyz_{suf}_{j}"])[:, 1], np.nan])
+                    ys.append(np.r_[np.array(self.sim.stats[f"xyz_{suf}_{j}"])[:, 0], np.nan])
+                    j += 1
+
+            if len(xs) > 0 and len(ys) > 0:
+                xs = np.hstack(xs)
+                ys = np.hstack(ys)
+
+            self.line_b.set_data(xs, ys)
+            self._nb_lines = nb_lines
 
         time = self.sim.step(i)
 
-        r = self.sim.stats["ommatidia"][-1].mean(axis=1)
-        x, y = np.array(self.sim.stats["path"])[..., :2].T
-        spec = self.sim.eye._c_sensitive[:, 1:-1].copy()
-        # spec[:, [0, -1]] += self.sim.eye._c_sensitive[:, 0].copy()[:, np.newaxis]
-        # spec[:, [0, -1]] += self.sim.eye._c_sensitive[:, -1].copy()[:, np.newaxis]
-        colours = np.hstack([spec, 1 - r.T.flatten()[..., np.newaxis]])
+        self.omm.set_array(np.array(self.sim.stats["POL"][-1]))
 
-        # self.omm.set_array(r.T.flatten())
-        self.omm.set_facecolor(colours)
+        tb1 = np.zeros((self.sim.r_tb1.shape[0], self.nb_frames), dtype=float)
+        tb1[:, :i+1] = np.array(self.sim.stats["TB1"]).T
+        self.tb1.set_array(tb1)
+        cl1 = np.zeros((self.sim.r_cl1.shape[0], self.nb_frames), dtype=float)
+        cl1[:, :i+1] = np.array(self.sim.stats["CL1"]).T
+        self.cl1.set_array(cl1)
+        cpu1 = np.zeros((self.sim.r_cpu1.shape[0], self.nb_frames), dtype=float)
+        cpu1[:, :i+1] = np.array(self.sim.stats["CPU1"]).T
+        self.cpu1.set_array(cpu1)
+        cpu4 = np.zeros((self.sim.r_cpu4.shape[0], self.nb_frames), dtype=float)
+        cpu4[:, :i+1] = np.array(self.sim.stats["CPU4"]).T
+        self.cpu4.set_array(cpu4)
+        cpu4mem = np.zeros((self.sim.cpu4_mem.shape[0], self.nb_frames), dtype=float)
+        cpu4mem[:, :i+1] = np.array(self.sim.stats["CPU4mem"]).T
+        self.cpu4mem.set_array(cpu4mem)
+        pn = np.zeros((self.sim.r_pn.shape[0], self.nb_frames), dtype=float)
+        pn[:, :i+1] = np.array(self.sim.stats["PN"]).T
+        self.pn.set_array(pn)
+        mbon = np.zeros((self.sim.r_mbon.shape[0], self.nb_frames), dtype=float)
+        mbon[:, :i+1] = np.array(self.sim.stats["MBON"]).T
+        self.mbon.set_array(mbon)
+        dan = np.zeros((self.sim.r_dan.shape[0], self.nb_frames), dtype=float)
+        dan[:, :i+1] = np.array(self.sim.stats["DAN"]).T
+        self.dan.set_array(dan)
+
+        x, y = np.array(self.sim.stats["xyz"])[..., :2].T
         self.line_c.set_data(y, x)
         self.pos.set_offsets(np.array([y[-1], x[-1]]))
-        vert, codes = self._marker
-        vertices = R.from_euler('Z', -self.sim.agent.ori.as_euler('ZYX', degrees=True)[0], degrees=True).apply(vert)
-        self.pos.set_paths((Path(vertices[:, :2], codes),))
-
-        if "replace" in self.sim.stats and self.sim.stats["replace"][-1]:
-            pois = self.poi.get_offsets()
-            self.poi.set_offsets(np.vstack([pois, np.array([[y[-1], x[-1]]])]))
-
-        cmp = np.zeros((self.sim.cx.r_cmp.shape[0], self.nb_frames), dtype=float)
-        cmp[:, :i+1] = np.array(self.sim.stats["CMP"]).T
-        self.cmp.set_array(cmp)
-        epg = np.zeros((self.sim.r_epg.shape[0], self.nb_frames), dtype=float)
-        epg[:, :i+1] = np.array(self.sim.stats["E-PG"]).T
-        self.epg.set_array(epg)
-        peg = np.zeros((self.sim.r_peg.shape[0], self.nb_frames), dtype=float)
-        peg[:, :i+1] = np.array(self.sim.stats["P-EG"]).T
-        self.peg.set_array(peg)
-        pen = np.zeros((self.sim.r_pen.shape[0], self.nb_frames), dtype=float)
-        pen[:, :i+1] = np.array(self.sim.stats["P-EN"]).T
-        self.pen.set_array(pen)
-        pfl = np.zeros((self.sim.r_pfl3.shape[0], self.nb_frames), dtype=float)
-        pfl[:, :i+1] = np.array(self.sim.stats["PFL3"]).T
-        self.pfl3.set_array(pfl)
-        fbn = np.zeros((self.sim.r_fbn.shape[0], self.nb_frames), dtype=float)
-        fbn[:, :i+1] = np.array(self.sim.stats["FsBN"]).T
-        self.fbn.set_array(fbn)
-
-        pn = self.pn.get_array()
-        pn[:, i] = self.sim.mb.r_cs[0, 0].T.flatten()
-        self.pn.set_array(pn)
-        kc = self.kc.get_array()
-        kc[:, i] = self.sim.mb.r_kc[0, 0].T.flatten()
-        self.kc.set_array(kc)
-        fam = self.fam.get_data()
-        fam[1][i] = self.sim.familiarity * 100
-        self.fam.set_data(*fam)
-
-        kc = np.zeros((self.sim.r_kc.shape[0], self.nb_frames), dtype=float)
-        kc[:, :i+1] = np.array(self.sim.stats["KC"]).T
-        self.kc.set_array(kc)
-
-        self.pos.set_offsets(np.array([y[-1], x[-1]]))
 
         vert, codes = self._marker
         vertices = R.from_euler('Z', -self.sim.agent.ori.as_euler('ZYX', degrees=True)[0], degrees=True).apply(vert)
         self.pos.set_paths((Path(vertices[:, :2], codes),))
+
+        for i, feeder_text in enumerate(self.feeders_text):
+            feeder_text.set_text(f"Crumbs: {self.sim.food_supply[i]}")
 
         return time
 
@@ -1239,141 +1723,75 @@ class LandmarkIntegrationAnimation(Animation):
 
         Returns
         -------
-        LandmarkIntegrationSimulation
+        NavigationSimulation
         """
         return self._sim
 
     @property
-    def line_c(self):
+    def omm(self):
         """
-        The line representing the ongoing path of the agent in the figure.
+        The collection of the DRA ommatidia in the figure.
 
         Returns
         -------
-        matplotlib.lines.Line2D
+        matplotlib.collections.PathCollection
         """
         return self._lines[0]
 
     @property
-    def line_b(self):
+    def tb1(self):
         """
-        The line representing the finished path of the agent in the figure.
+        The history of the TB1 response in the figure.
 
         Returns
         -------
-        matplotlib.lines.Line2D
+        matplotlib.image.AxesImage
         """
         return self._lines[1]
 
     @property
-    def pos(self):
+    def cl1(self):
         """
-        The current position of agent in the figure.
+        The history of the CL1 response in the figure.
 
         Returns
         -------
-        matplotlib.collections.PathCollection
+        matplotlib.image.AxesImage
         """
         return self._lines[2]
 
     @property
-    def cal(self):
+    def cpu1(self):
         """
-        The positions the figure used for calibration in.
+        The history of the CPU1 response in the figure.
 
         Returns
         -------
-        matplotlib.collections.PathCollection
+        matplotlib.image.AxesImage
         """
         return self._lines[3]
 
     @property
-    def poi(self):
+    def cpu4(self):
         """
-        The positions in the figure where the agent was brought back to the route.
+        The history of the CPU4 response in the figure.
 
         Returns
         -------
-        matplotlib.collections.PathCollection
+        matplotlib.image.AxesImage
         """
         return self._lines[4]
 
     @property
-    def omm(self):
+    def cpu4mem(self):
         """
-        The collection of the ommatidia in the figure.
+        The history of the CPU4 memory in the figure.
 
         Returns
         -------
-        matplotlib.collections.PathCollection
+        matplotlib.image.AxesImage
         """
         return self._lines[5]
-
-    @property
-    def cmp(self):
-        """
-        The history of the compass neurons in the figure.
-
-        Returns
-        -------
-        matplotlib.image.AxesImage
-        """
-        return self._lines[6]
-
-    @property
-    def pfl3(self):
-        """
-        The history of the PFL3 response in the figure.
-
-        Returns
-        -------
-        matplotlib.image.AxesImage
-        """
-        return self._lines[7]
-
-    @property
-    def fbn(self):
-        """
-        The history of the FsBN memory in the figure.
-
-        Returns
-        -------
-        matplotlib.image.AxesImage
-        """
-        return self._lines[8]
-
-    @property
-    def epg(self):
-        """
-        The history of the E-PG response in the figure.
-
-        Returns
-        -------
-        matplotlib.image.AxesImage
-        """
-        return self._lines[9]
-
-    @property
-    def peg(self):
-        """
-        The history of the P-EG response in the figure.
-
-        Returns
-        -------
-        matplotlib.image.AxesImage
-        """
-        return self._lines[10]
-
-    @property
-    def pen(self):
-        """
-        The history of the P-EN response in the figure.
-
-        Returns
-        -------
-        matplotlib.image.AxesImage
-        """
-        return self._lines[11]
 
     @property
     def pn(self):
@@ -1384,26 +1802,74 @@ class LandmarkIntegrationAnimation(Animation):
         -------
         matplotlib.image.AxesImage
         """
-        return self._lines[12]
+        return self._lines[6]
 
     @property
-    def kc(self):
+    def mbon(self):
         """
-        The history of the KC neurons in the figure.
+        The history of the MBON response in the figure.
 
         Returns
         -------
         matplotlib.image.AxesImage
         """
-        return self._lines[13]
+        return self._lines[7]
 
     @property
-    def fam(self):
+    def dan(self):
         """
-        The history of familiarity in the figure.
+        The history of the DAN response in the figure.
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+        """
+        return self._lines[8]
+
+    @property
+    def line_c(self):
+        """
+        The line representing the ongoing path of the agent in the figure.
 
         Returns
         -------
         matplotlib.lines.Line2D
         """
-        return self._lines[14]
+        return self._lines[9]
+
+    @property
+    def line_b(self):
+        """
+        The line representing the finished path of the agent in the figure.
+
+        Returns
+        -------
+        matplotlib.lines.Line2D
+        """
+        return self._lines[10]
+
+    @property
+    def pos(self):
+        """
+        The current position of agent in the figure.
+
+        Returns
+        -------
+        matplotlib.collections.PathCollection
+        """
+        return self._lines[11]
+
+    @property
+    def cal(self):
+        return self._lines[12]
+
+    @property
+    def feeders_text(self):
+        """
+        The text next to each feeder in the map.
+
+        Returns
+        -------
+        list[matplotlib.text.Text]
+        """
+        return self._lines[13:]

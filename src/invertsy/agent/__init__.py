@@ -15,4 +15,5 @@ __version__ = "v1.0.0-alpha"
 __maintainer__ = "Evripidis Gkanias"
 
 
-from .agent import Agent, PathIntegrationAgent, VisualNavigationAgent
+from .agent import Agent, PathIntegrationAgent, VisualNavigationAgent, NavigatingAgent
+from .agent import VectorMemoryAgent, RouteFollowingAgent

@@ -1,4 +1,6 @@
-from invertsy.agent.agent import VisualNavigationAgent, PathIntegrationAgent, LandmarkIntegrationAgent
+import numbers
+
+from invertsy.agent.agent import VisualNavigationAgent, PathIntegrationAgent
 
 from invertpy.brain import MushroomBody
 from invertpy.sense import CompoundEye, PolarisationSensor
@@ -10,7 +12,7 @@ import matplotlib.image
 import numpy as np
 
 
-def create_map_axis(world=None, nest=None, feeder=None, subplot=111, ax=None):
+def create_map_axis(world=None, nest=None, feeders=None, odour_spread=None, subplot=111, ax=None):
     """
     Draws a map with all the vegetation from the world (if given), the nest and feeder positions (if given) and returns
     the ongoing and previous paths of the agent, the agent's current position, the marker (arror) of the agents facing
@@ -22,8 +24,10 @@ def create_map_axis(world=None, nest=None, feeder=None, subplot=111, ax=None):
         the world containing the vegetation. Default is None
     nest: np.ndarray[float], optional
         the position of the nest. Default is None
-    feeder: np.ndarray[float], optional
+    feeders: list[float], list[np.ndarray[float]], np.ndarray[float]
         the position of the feeder. Default is None
+    odour_spread: list[float]
+        the spead of the different odours
     subplot: int, tuple
         the subplot ID. Default is 111
     ax: plt.Axes, optional
@@ -50,6 +54,17 @@ def create_map_axis(world=None, nest=None, feeder=None, subplot=111, ax=None):
 
     line_b, = ax.plot([], [], 'grey', lw=2)
 
+    if nest is not None and odour_spread is not None:
+        xy = odour_spread[0] * np.exp(1j * np.linspace(0, 2 * np.pi, 101, endpoint=True))
+        ax.plot(xy.real + nest[1], xy.imag + nest[0], 'C0--', lw=2, alpha=.5)
+
+    if feeders is not None and odour_spread is not None:
+        if not isinstance(feeders, list):
+            feeders = [feeders]
+        for i, feeder in enumerate(feeders):
+            xy = odour_spread[i + 1] * np.exp(1j * np.linspace(0, 2 * np.pi, 101, endpoint=True))
+            ax.plot(xy.real + feeder[1], xy.imag + feeder[0], f'C{i+1}--', lw=2, alpha=.5)
+
     if world is not None:
         for polygon, colour in zip(world.polygons, world.colours):
             x = polygon[[0, 1, 2, 0], 0]
@@ -58,11 +73,18 @@ def create_map_axis(world=None, nest=None, feeder=None, subplot=111, ax=None):
 
     if nest is not None:
         ax.scatter([nest[1]], [nest[0]], marker='o', s=50, c='black')
-        ax.text(nest[1] - 1, nest[0] - .5, "Nest")
+        ax.text(nest[1] - .5, nest[0] + .2, "Nest")
 
-    if feeder is not None:
-        ax.scatter([feeder[1]], [feeder[0]], marker='o', s=50, c='black')
-        ax.text(feeder[1] + .2, feeder[0] + .2, "Feeder")
+    feeders_text = []
+    if feeders is not None:
+        if not isinstance(feeders, list):
+            feeders = [feeders]
+        for i, feeder in enumerate(feeders):
+            ax.scatter([feeder[1]], [feeder[0]], marker='o', s=50, c='black')
+            feeder_name = "Feeder" if len(feeders) < 2 else f"{chr(ord('A') + i)}"
+            ax.text(feeder[1] + .2, feeder[0] + .2, feeder_name)
+            text = ax.text(feeder[1] - .7, feeder[0] + .5, "", ha='left', va='bottom')
+            feeders_text.append(text)
 
     ax.set_ylim(0, 10)
     ax.set_xlim(0, 10)
@@ -82,7 +104,7 @@ def create_map_axis(world=None, nest=None, feeder=None, subplot=111, ax=None):
     codes = pos.get_paths()[0].codes[points]
     vert = np.hstack([vert, np.zeros((vert.shape[0], 1))])
 
-    return line_c, line_b, pos, (vert, codes), cal, poi
+    return line_c, line_b, pos, (vert, codes), cal, poi, feeders_text
 
 
 def create_side_axis(world=None, subplot=111, ax=None):
@@ -220,24 +242,26 @@ def create_mem_axis(agent, cmap="Greys", subplot=111, ax=None):
     ax.spines['bottom'].set_visible(False)
     ax.spines['left'].set_visible(False)
 
-    mem = agent.brain[0]  # type: MushroomBody
+    mem = agent.memory_component
+    nb_pn = mem.nb_input
+    nb_kc = mem.nb_hidden
 
     size = 400.
     ax.text(.1, 4.8, "PN", fontsize=10)
-    pn = ax.scatter(np.linspace(.3, 12.7, mem.nb_cs), np.full(mem.nb_cs, 4.5), s=size / mem.nb_cs,
-                    c=np.zeros(mem.nb_cs, dtype='float32'), cmap=cmap, vmin=0, vmax=1)
+    pn = ax.scatter(np.linspace(.3, 12.7, nb_pn), np.full(nb_pn, 4.5), s=size / nb_pn,
+                    c=np.zeros(nb_pn, dtype='float32'), cmap=cmap, vmin=0, vmax=1)
 
     ax.text(.1, 3.8, "KC", fontsize=10)
     nb_rows = 50
-    nb_cols = int(mem.nb_kc / nb_rows) + 1
-    x = np.array([np.linspace(.3, 12.7, nb_cols)] * nb_rows).flatten()[:mem.nb_kc]
-    y = np.array([np.linspace(1.3, 3.5, nb_rows)] * nb_cols).T.flatten()[:mem.nb_kc]
-    kc = ax.scatter(x, y, s=size / mem.nb_kc, c=np.zeros(mem.nb_kc, dtype='float32'), cmap=cmap, vmin=0, vmax=1)
+    nb_cols = int(nb_kc / nb_rows) + 1
+    x = np.array([np.linspace(.3, 12.7, nb_cols)] * nb_rows).flatten()[:nb_kc]
+    y = np.array([np.linspace(1.3, 3.5, nb_rows)] * nb_cols).T.flatten()[:nb_kc]
+    kc = ax.scatter(x, y, s=size / nb_kc, c=np.zeros(nb_kc, dtype='float32'), cmap=cmap, vmin=0, vmax=1)
 
     ax.text(.1, 0.8, "familiarity", fontsize=10)
     nb_fam = len(agent.pref_angles)
     fam = ax.scatter(np.linspace(.3, 12.7, nb_fam), np.full(nb_fam, 0.5), s=size / nb_fam,
-                     c=np.zeros(nb_fam, dtype='float32'), cmap=cmap, vmin=0, vmax=mem.nb_cs * mem.sparseness)
+                     c=np.zeros(nb_fam, dtype='float32'), cmap=cmap, vmin=0, vmax=1)
 
     return pn, kc, fam
 
@@ -249,12 +273,12 @@ def create_pn_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=
 
     Parameters
     ----------
-    agent: VisualNavigationAgent | LandmarkIntegrationAgent
+    agent: VisualNavigationAgent | NavigationAgent
         the agent to get the data and properties from
     nb_frames: int
         the total number of frames for the animation
-    sep: float, optional
-        the iteration where the phase changes. Default is None
+    sep: float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
     cmap: str, optional
         the colour map of the responses. Default is 'Greys'
     subplot: int, tuple
@@ -267,8 +291,11 @@ def create_pn_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=
     matplotlib.image.AxesImage
         the image of the PN history responses
     """
-    nb_pn = agent.brain[int(isinstance(agent, LandmarkIntegrationAgent))].nb_cs
-    return create_image_history(nb_pn, nb_frames, sep=sep, title="PN",  cmap=cmap, subplot=subplot, ax=ax)
+    if isinstance(agent, VisualNavigationAgent):
+        nb_pn = agent.memory_component.nb_input
+    else:
+        nb_pn = agent.mushroom_body.nb_cs
+    return create_image_history(nb_pn, nb_frames, sep=sep, title="PN",  cmap=cmap, vmin=-1, vmax=1, subplot=subplot, ax=ax)
 
 
 def create_kc_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=None):
@@ -278,12 +305,12 @@ def create_kc_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=
 
     Parameters
     ----------
-    agent: VisualNavigationAgent | LandmarkIntegrationAgent
+    agent: VisualNavigationAgent | NavigationAgent
         the agent to get the data and properties from
     nb_frames: int
         the total number of frames for the animation
-    sep: float, optional
-        the iteration where the phase changes. Default is None
+    sep: float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
     cmap: str, optional
         the colour map of the responses. Default is 'Greys'
     subplot: int, tuple
@@ -296,8 +323,69 @@ def create_kc_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=
     matplotlib.image.AxesImage
         the image of the KC history responses
     """
-    nb_kc = agent.brain[int(isinstance(agent, LandmarkIntegrationAgent))].nb_kc
-    return create_image_history(nb_kc, nb_frames, sep=sep, title="KC",  cmap=cmap, subplot=subplot, ax=ax)
+    if isinstance(agent, VisualNavigationAgent):
+        nb_kc = agent.memory_component.nb_hidden
+    else:
+        nb_kc = agent.mushroom_body.nb_kc
+    return create_image_history(nb_kc, nb_frames, sep=sep, title="KC",  cmap=cmap, vmin=-1, vmax=1, subplot=subplot, ax=ax)
+
+
+def create_mbon_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=None):
+    """
+    Draws the MBON history of responses as an image, where each pixel is a neuron in time and its colour reflects the
+    response rate of the neuron.
+
+    Parameters
+    ----------
+    agent: NavigationAgent
+        the agent to get the data and properties from
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'Greys'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the MBON history responses
+    """
+    nb_mbon = agent.mushroom_body.nb_mbon
+    return create_image_history(nb_mbon, nb_frames, sep=sep, title="MBON", cmap=cmap, vmin=-2, vmax=2, subplot=subplot, ax=ax)
+
+
+def create_dan_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=None):
+    """
+    Draws the DAN history of responses as an image, where each pixel is a neuron in time and its colour reflects the
+    response rate of the neuron.
+
+    Parameters
+    ----------
+    agent: NavigationAgent
+        the agent to get the data and properties from
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'Greys'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the DAN history responses
+    """
+    nb_dan = agent.mushroom_body.nb_dan
+    return create_image_history(nb_dan, nb_frames, sep=sep, title="DAN", cmap=cmap, vmin=-2, vmax=2, subplot=subplot, ax=ax)
 
 
 def create_familiarity_response_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax=None):
@@ -413,8 +501,8 @@ def create_familiarity_history(nb_frames, sep=None, subplot=111, ax=None):
     ----------
     nb_frames: int
         the total number of frames for the animation
-    sep: float, optional
-        the iteration where the phase changes. Default is None
+    sep: float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
     subplot: int, tuple
         the subplot ID. Default is 111
     ax: plt.Axes, optional
@@ -428,7 +516,7 @@ def create_familiarity_history(nb_frames, sep=None, subplot=111, ax=None):
     return create_single_line_history(nb_frames, sep=sep, title="familiarity (%)", ylim=100, subplot=subplot, ax=ax)
 
 
-def create_capacity_history(nb_frames, sep=None, subplot=111, ax=None):
+def create_free_space_history(nb_frames, sep=None, subplot=111, ax=None):
     """
     Draws a line of the available capacity per iteration.
 
@@ -436,8 +524,8 @@ def create_capacity_history(nb_frames, sep=None, subplot=111, ax=None):
     ----------
     nb_frames: int
         the total number of frames for the animation
-    sep: float, optional
-        the iteration where the phase changes. Default is None
+    sep: float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
     subplot: int, tuple
         the subplot ID. Default is 111
     ax: plt.Axes, optional
@@ -448,7 +536,7 @@ def create_capacity_history(nb_frames, sep=None, subplot=111, ax=None):
     matplotlib.lines.Line2D
         the line of the available capacity per iteration.
     """
-    return create_single_line_history(nb_frames, sep=sep, title="capacity (%)", ylim=100, subplot=subplot, ax=ax)
+    return create_single_line_history(nb_frames, sep=sep, title="free space (%)", ylim=100, subplot=subplot, ax=ax)
 
 
 def create_dra_axis(sensor, cmap="coolwarm", centre=None, scale=1., draw_axis=True, subplot=111, ax=None):
@@ -477,7 +565,9 @@ def create_dra_axis(sensor, cmap="coolwarm", centre=None, scale=1., draw_axis=Tr
     matplotlib.collections.PathCollection
         the ommatidia of the DRA as a path collection
     """
-    omm_x, omm_y, omm_z = sensor.omm_ori.apply(np.array([1, 0, 0])).T
+    x, y, _ = sensor.omm_ori.apply(np.array([1, 0, 0])).T
+    omm_y = -x
+    omm_x = y
 
     if ax is None:
         ax = plt.subplot(subplot)
@@ -515,8 +605,8 @@ def create_cmp_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax
         the agent to get the data and properties from
     nb_frames: int
         the total number of frames for the animation
-    sep: float, optional
-        the iteration where the phase changes. Default is None
+    sep: float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
     cmap: str, optional
         the colour map of the responses. Default is 'coolwarm'
     subplot: int, tuple
@@ -545,8 +635,8 @@ def create_tb1_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111,
         the agent to get the data and properties from
     nb_frames: int
         the total number of frames for the animation
-    sep: float, optional
-        the iteration where the phase changes. Default is None
+    sep: float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
     cmap: str, optional
         the colour map of the responses. Default is 'coolwarm'
     subplot: int, tuple
@@ -559,7 +649,7 @@ def create_tb1_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111,
     matplotlib.image.AxesImage
         the image of the TB1 history responses
     """
-    nb_tb1 = agent.brain[1].nb_tb1
+    nb_tb1 = agent.central_complex.nb_tb1
     return create_image_history(nb_tb1, nb_frames, sep=sep, title="TB1", cmap=cmap, vmin=-1, vmax=1, subplot=subplot, ax=ax)
 
 
@@ -574,8 +664,8 @@ def create_cl1_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111,
         the agent to get the data and properties from
     nb_frames: int
         the total number of frames for the animation
-    sep: float, optional
-        the iteration where the phase changes. Default is None
+    sep: float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
     cmap: str, optional
         the colour map of the responses. Default is 'coolwarm'
     subplot: int, tuple
@@ -588,7 +678,7 @@ def create_cl1_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111,
     matplotlib.image.AxesImage
         the image of the CL1 history responses
     """
-    nb_cl1 = agent.brain[1].nb_cl1
+    nb_cl1 = agent.central_complex.nb_cl1
     return create_image_history(nb_cl1, nb_frames, sep=sep, title="CL1", cmap=cmap, vmin=-1, vmax=1, subplot=subplot, ax=ax)
 
 
@@ -603,8 +693,8 @@ def create_cpu1_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111
         the agent to get the data and properties from
     nb_frames: int
         the total number of frames for the animation
-    sep: float, optional
-        the iteration where the phase changes. Default is None
+    sep: float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
     cmap: str, optional
         the colour map of the responses. Default is 'coolwarm'
     subplot: int, tuple
@@ -617,7 +707,7 @@ def create_cpu1_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111
     matplotlib.image.AxesImage
         the image of the CPU1 history responses
     """
-    nb_cpu1 = agent.brain[1].nb_cpu1
+    nb_cpu1 = agent.central_complex.nb_cpu1
     return create_image_history(nb_cpu1, nb_frames, sep=sep, title="CPU1", cmap=cmap, vmin=-1, vmax=1, subplot=subplot, ax=ax)
 
 
@@ -632,8 +722,8 @@ def create_cpu4_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111
         the agent to get the data and properties from
     nb_frames: int
         the total number of frames for the animation
-    sep: float, optional
-        the iteration where the phase changes. Default is None
+    sep: float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
     cmap: str, optional
         the colour map of the responses. Default is 'coolwarm'
     subplot: int, tuple
@@ -646,8 +736,39 @@ def create_cpu4_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111
     matplotlib.image.AxesImage
         the image of the CPU4 history responses
     """
-    nb_cpu4 = agent.brain[1].nb_cpu4
+    nb_cpu4 = agent.central_complex.nb_cpu4
+    # return create_image_history(nb_cpu4, nb_frames, sep=sep, title="hΔC", cmap=cmap, vmin=-1, vmax=1, subplot=subplot, ax=ax)
     return create_image_history(nb_cpu4, nb_frames, sep=sep, title="CPU4", cmap=cmap, vmin=-1, vmax=1, subplot=subplot, ax=ax)
+
+
+def create_vec_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111, ax=None):
+    """
+    Draws the vector memory activation history of responses as an image, where each pixel is a neuron in time and its
+    colour reflects the response rate of the neuron.
+
+    Parameters
+    ----------
+    agent: PathIntegrationAgent
+        the agent to get the data and properties from
+    nb_frames: int
+        the total number of frames for the animation
+    sep: float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
+    cmap: str, optional
+        the colour map of the responses. Default is 'coolwarm'
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        the image of the CPU4 history responses
+    """
+    nb_vec = agent.central_complex.nb_vectors
+    return create_image_history(nb_vec, nb_frames, sep=sep, title="vectors", cmap=cmap, vmin=-1, vmax=1,
+                                subplot=subplot, ax=ax)
 
 
 def create_cpu4_mem_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=111, ax=None):
@@ -661,8 +782,8 @@ def create_cpu4_mem_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot
         the agent to get the data and properties from
     nb_frames: int
         the total number of frames for the animation
-    sep: float, optional
-        the iteration where the phase changes. Default is None
+    sep: float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
     cmap: str, optional
         the colour map of the responses. Default is 'coolwarm'
     subplot: int, tuple
@@ -675,7 +796,8 @@ def create_cpu4_mem_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot
     matplotlib.image.AxesImage
         the image of the CPU4 history memories
     """
-    nb_cpu4 = agent.brain[1].nb_cpu4
+    nb_cpu4 = agent.central_complex.nb_cpu4
+    # return create_image_history(nb_cpu4, nb_frames, sep=sep, title="PFN", cmap=cmap, vmin=-1, vmax=1, subplot=subplot, ax=ax)
     return create_image_history(nb_cpu4, nb_frames, sep=sep, title="CPU4 (mem)", cmap=cmap, vmin=-1, vmax=1, subplot=subplot, ax=ax)
 
 
@@ -690,8 +812,8 @@ def create_compass_history(agent, nb_frames, sep=None, cmap="coolwarm", subplot=
         the agent to get the data and properties from
     nb_frames: int
         the total number of frames for the animation
-    sep: float, optional
-        the iteration where the phase changes. Default is None
+    sep: float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
     cmap: str, optional
         the colour map of the responses. Default is 'coolwarm'
     subplot: int, tuple
@@ -720,8 +842,8 @@ def create_epg_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax
         the agent to get the data and properties from
     nb_frames: int
         the total number of frames for the animation
-    sep: float, optional
-        the iteration where the phase changes. Default is None
+    sep: float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
     cmap: str, optional
         the colour map of the responses. Default is 'coolwarm'
     subplot: int, tuple
@@ -750,8 +872,8 @@ def create_peg_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax
         the agent to get the data and properties from
     nb_frames: int
         the total number of frames for the animation
-    sep: float, optional
-        the iteration where the phase changes. Default is None
+    sep: float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
     cmap: str, optional
         the colour map of the responses. Default is 'coolwarm'
     subplot: int, tuple
@@ -780,8 +902,8 @@ def create_pen_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax
         the agent to get the data and properties from
     nb_frames: int
         the total number of frames for the animation
-    sep: float, optional
-        the iteration where the phase changes. Default is None
+    sep: float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
     cmap: str, optional
         the colour map of the responses. Default is 'coolwarm'
     subplot: int, tuple
@@ -810,8 +932,8 @@ def create_pfl_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax
         the agent to get the data and properties from
     nb_frames: int
         the total number of frames for the animation
-    sep: float, optional
-        the iteration where the phase changes. Default is None
+    sep:  float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
     cmap: str, optional
         the colour map of the responses. Default is 'coolwarm'
     subplot: int, tuple
@@ -840,8 +962,8 @@ def create_fbn_history(agent, nb_frames, sep=None, cmap="Greys", subplot=111, ax
         the agent to get the data and properties from
     nb_frames: int
         the total number of frames for the animation
-    sep: float, optional
-        the iteration where the phase changes. Default is None
+    sep:  float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
     cmap: str, optional
         the colour map of the responses. Default is 'coolwarm'
     subplot: int, tuple
@@ -904,27 +1026,27 @@ def create_bcx_axis(agent, cmap="coolwarm", subplot=111, ax=None):
     ax.spines['left'].set_visible(False)
 
     size = 20.
-    omm = create_dra_axis(agent.sensors[0], cmap=cmap, centre=[.8, 4.5], draw_axis=False, ax=ax)
+    omm = create_dra_axis(agent.pol_sensor, cmap=cmap, centre=[.8, 4.5], draw_axis=False, ax=ax)
 
     ax.text(1.5, 4.8, "TB1", fontsize=10)
     tb1 = ax.scatter(np.linspace(2, 4.5, 8), np.full(8, 4.5), s=2 * size,
-                     c=np.zeros_like(agent.brain[1].r_tb1), cmap=cmap, vmin=0, vmax=1)
+                     c=np.zeros_like(agent.central_complex.r_tb1), cmap=cmap, vmin=0, vmax=1)
 
     ax.text(.1, 3.8, "CL1", fontsize=10)
     cl1 = ax.scatter(np.linspace(.5, 4.5, 16), np.full(16, 3.5), s=2 * size,
-                     c=np.zeros_like(agent.brain[1].r_cl1), cmap=cmap, vmin=0, vmax=1)
+                     c=np.zeros_like(agent.central_complex.r_cl1), cmap=cmap, vmin=0, vmax=1)
 
     ax.text(.1, 2.8, "CPU1", fontsize=10)
     cpu1 = ax.scatter(np.linspace(.5, 4.5, 16), np.full(16, 2.5), s=2 * size,
-                      c=np.zeros_like(agent.brain[1].r_cpu1), cmap=cmap, vmin=0, vmax=1)
+                      c=np.zeros_like(agent.central_complex.r_cpu1), cmap=cmap, vmin=0, vmax=1)
 
     ax.text(.1, 1.8, "CPU4", fontsize=10)
     cpu4 = ax.scatter(np.linspace(.5, 4.5, 16), np.full(16, 1.5), s=2 * size,
-                      c=np.zeros_like(agent.brain[1].r_cpu4), cmap=cmap, vmin=0, vmax=1)
+                      c=np.zeros_like(agent.central_complex), cmap=cmap, vmin=0, vmax=1)
 
     ax.text(.1, .8, "CPU4 (mem)", fontsize=10)
     cpu4mem = ax.scatter(np.linspace(.5, 4.5, 16), np.full(16, .5), s=2 * size,
-                         c=np.zeros_like(agent.brain[1].r_cpu4), cmap=cmap, vmin=0, vmax=1)
+                         c=np.zeros_like(agent.central_complex.r_cpu4), cmap=cmap, vmin=0, vmax=1)
 
     return omm, tb1, cl1, cpu1, cpu4, cpu4mem
 
@@ -943,8 +1065,8 @@ def create_image_history(nb_values, nb_frames, sep=None, title=None, cmap="Greys
     title: str, optional
     vmin: float, optional
     vmax: float, optional
-    sep: float, optional
-        the iteration where the phase changes. Default is None
+    sep: float, np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
     cmap: str, optional
         the colour map of the responses. Default is 'Greys'
     subplot: int, tuple
@@ -961,8 +1083,8 @@ def create_image_history(nb_values, nb_frames, sep=None, title=None, cmap="Greys
 
     ax.set_yticks([])
     ax.set_xticks([])
-    ax.set_ylim(0, nb_values-1)
-    ax.set_xlim(0, nb_frames-1)
+    ax.set_ylim(-0.5, nb_values-0.5)
+    ax.set_xlim(-0.5, nb_frames-0.5)
     ax.set_aspect('auto')
     ax.spines['right'].set_visible(False)
     ax.spines['top'].set_visible(False)
@@ -975,7 +1097,10 @@ def create_image_history(nb_values, nb_frames, sep=None, title=None, cmap="Greys
                    interpolation="none", aspect="auto")
 
     if sep is not None:
-        ax.plot([sep, sep], [0, nb_values-1], 'grey', lw=1)
+        if isinstance(sep, numbers.Number):
+            sep = [sep]
+        for s in sep:
+            ax.plot([s, s], [0, nb_values-1], 'grey', lw=1)
 
     return im
 
@@ -992,8 +1117,8 @@ def create_single_line_history(nb_frames, sep=None, title=None, ylim=1., subplot
         draw the title for the plot. Default is None
     ylim: float, optional
         the maximum value for the Y axis. Default is 1
-    sep: float, optional
-        the iteration where the phase changes. Default is None
+    sep: float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
     subplot: int, tuple
         the subplot ID. Default is 111
     ax: plt.Axes, optional
@@ -1020,8 +1145,8 @@ def create_multi_line_history(nb_frames, nb_lines, sep=None, title=None, ylim=1.
         draw the title for the plot. Default is None
     ylim: float, optional
         the maximum value for the Y axis. Default is 1
-    sep: float, optional
-        the iteration where the phase changes. Default is None
+    sep: float | np.ndarray[float]
+        the iteration(s) where the phase changes. Default is None
     subplot: int, tuple
         the subplot ID. Default is 111
     ax: plt.Axes, optional
@@ -1043,7 +1168,10 @@ def create_multi_line_history(nb_frames, nb_lines, sep=None, title=None, ylim=1.
     ax.spines['left'].set_visible(False)
 
     if sep is not None:
-        ax.plot([sep, sep], [0, ylim], 'grey', lw=3)
+        if isinstance(sep, numbers.Number):
+            sep = [sep]
+        for s in sep:
+            ax.plot([s, s], [0, ylim], 'grey', lw=3)
 
     lines, = ax.plot(np.full((nb_frames, nb_lines), np.nan), 'k-', lw=2)
     if title is not None:
@@ -1073,3 +1201,132 @@ def get_axis(ax=None, subplot=111):
         else:
             ax = plt.subplot(*subplot)
     return ax
+
+
+def col2x(col, nb_cols, max_meters=10.):
+    """
+    Transforms column number to the 'x' coordinate.
+
+    Parameters
+    ----------
+    col : int
+        the column number
+    nb_cols : int
+        the total number of columns
+    max_meters : float
+        the maximum width of the arena in meters. Default is 10 meters
+
+    Returns
+    -------
+    float
+        the 'x' coordinate
+    """
+    return np.float32(col * max_meters) / np.float32(nb_cols)
+
+
+def x2col(x, nb_cols, max_meters=10.):
+    """
+    Transforms the 'x' coordinate to the column number.
+
+    Parameters
+    ----------
+    x : float
+        the 'x' coordinate
+    nb_cols : int
+        the total number of columns
+    max_meters : float
+        the maximum width of the arena in meters. Default is 10 meters
+
+    Returns
+    -------
+    int :
+        the column number
+    """
+    return np.int(np.float32(x * nb_cols) / np.float32(max_meters))
+
+
+def row2y(row, nb_rows, max_meters=10.):
+    """
+    Transforms row number to the 'y' coordinate.
+
+    Parameters
+    ----------
+    row : int
+        the row number
+    nb_rows : int
+        the total number of rows
+    max_meters : float
+        the maximum length of the arena in meters. Default is 10 meters
+
+    Returns
+    -------
+    float
+        the 'y' coordinate
+    """
+    return np.float32(row * max_meters) / np.float32(nb_rows)
+
+
+def y2row(y, nb_rows, max_meters=10):
+    """
+    Transforms the 'y' coordinate to the row number.
+
+    Parameters
+    ----------
+    y : float
+        the 'y' coordinate
+    nb_rows : int
+        the total number of rows
+    max_meters : float
+        the maximum length of the arena in meters. Default is 10 meters
+
+    Returns
+    -------
+    int :
+        the row number
+    """
+    return np.int(np.float32(y * nb_rows) / np.float32(max_meters))
+
+
+def ori2yaw(ori, nb_oris, degrees=True):
+    """
+    Transforms the orientation identity to the yaw direction.
+
+    Parameters
+    ----------
+    ori : int
+        the orientation identity
+    nb_oris : int
+        the total number of orientations
+    degrees : bool
+        whether we want the output to be in degrees
+
+    Returns
+    -------
+    float
+        the yaw direction
+    """
+
+    two_pi = np.float32(360. if degrees else (2 * np.pi))
+    return (np.float32(ori) * two_pi / np.float32(nb_oris) + two_pi / 2) % two_pi - two_pi / 2
+
+
+def yaw2ori(yaw, nb_oris, degrees=True):
+    """
+    Transforms the 'yaw' direction to the orientation identity.
+
+    Parameters
+    ----------
+    yaw : float
+        the 'yaw' direction
+    nb_oris : int
+        the total number of orientations
+    degrees : bool
+        whether the input is in degrees
+
+    Returns
+    -------
+    int :
+        the orientation identity
+    """
+    two_pi = np.float32(360. if degrees else (2 * np.pi))
+    return np.int(np.float32((yaw % two_pi) * nb_oris) / two_pi)

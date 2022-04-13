@@ -8,7 +8,10 @@ def main(*args):
     ant_no, rt_no, rt = routes['ant_no'][0], routes['route_no'][0], routes['path'][0]
     print("Ant#: %d, Route#: %d, steps#: %d" % (ant_no, rt_no, rt.shape[0]))
 
-    sim = PathIntegrationSimulation(rt, name="pi-ant%d-route%d" % (ant_no, rt_no))
+    rt = rt[::-1]
+    rt[:, 3] = (rt[:, 3] - 0) % 360 - 180
+    # rt[:, 3] = (rt[:, 3] - 5) % 360 - 180
+    sim = PathIntegrationSimulation(rt, noise=0., name="pi-ant%d-route%d" % (ant_no, rt_no))
     ani = PathIntegrationAnimation(sim, show_history=True)
     ani(save=False, show=True, save_type="mp4", save_stats=False)
 

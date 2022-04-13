@@ -18,8 +18,8 @@ def main(*args):
         # filename = "heatmap-infomax-pca-scan16-rows100-cols100-ant1-route1-seville2009-omm1000"
         # filename = "heatmap-infomax-scan16-rows100-cols100-ant1-route1-seville2009-omm1000x16"
         # filename = "heatmap-willshawnetwork-pca-scan16-rows100-cols100-ant1-route1-seville2009-omm1000"
-        filename = "heatmap-willshawnetwork-pca-scan16-rows100-cols100-ant1-route1-seville2009-omm1000x16"
-        # filename = "heatmap-perfectmemory-zernike-zca-scan16-rows100-cols100-ant1-route1-seville2009-omm1000"
+        # filename = "heatmap-willshawnetwork-pca-scan16-rows100-cols100-ant1-route1-seville2009-omm1000x16"
+        filename = "heatmap-perfectmemory-zernike-zca-scan16-rows100-cols100-ant1-route1-seville2009-omm1000"
         # filename = "heatmap-infomax-zernike-zca-scan16-rows100-cols100-ant1-route1-seville2009-omm1000"
         # filename = "heatmap-willshawnetwork-zernike-zca-scan16-rows100-cols100-ant1-route1-seville2009-omm1000"
         # filename = "heatmap-perfectmemory-zernike-scan16-rows100-cols100-ant1-route1-seville2009-omm1000"
@@ -29,7 +29,7 @@ def main(*args):
     data = np.load(os.path.join(__stat_dir__, "%s.npz" % filename), allow_pickle=True)
     print([k for k in data.keys()])
 
-
+    route = data["position_out"]
     # PM: R=0.2876, p=4.78e-24
     # WN: R=0.0403, p=1.65e-01
     # IM: R=0.0678, p=1.95e-02
@@ -69,17 +69,17 @@ def main(*args):
     fammap = np.transpose(heatmap, axes=(1, 0, 2))
     fammap = compose_fammap(fammap, method="angles")
 
-    score, p = get_score(fammap, data["position_out"], sigma=.01, fill_nans=True)
-    print("r=%.4f, p=%.2e" % (score, p))
+    # score, p = get_score(fammap, data["position_out"], sigma=.01, fill_nans=True)
+    # print("r=%.4f, p=%.2e" % (score, p))
 
     plt.figure(filename, figsize=(5, 5))
-    fam, qui = create_familiarity_map(nb_rows=fammap.shape[0], nb_cols=fammap.shape[1])
-    print(fammap.max())
 
-    fam.set_array(fammap)
-    # famdir = ring2complex(np.transpose(heatmap, axes=(1, 0, 2)), axis=2)
-    # qui.set_UVC(famdir.imag, famdir.real)
-    # plt.colorbar()
+    x = np.linspace(0, 10, fammap.shape[0], endpoint=True)
+    y = np.linspace(0, 10, fammap.shape[1], endpoint=True)
+    x, y = np.meshgrid(x, y)
+
+    plt.contourf(x, y, fammap, cmap="Greys")
+    plt.plot(route[:, 1], route[:, 0], 'r:')
 
     plt.show()
 
