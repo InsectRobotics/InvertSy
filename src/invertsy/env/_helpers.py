@@ -34,3 +34,16 @@ def add_noise(v=None, noise=0., shape=None, fill_value=0, rng=RNG):
         v[eta] = fill_value
 
     return eta
+
+
+def reset_data_directory(data_dir):
+    """
+    Sets up the default directory of the data.
+
+    Parameters
+    ----------
+    data_dir : str
+        the new directory path.
+    """
+    global __data__
+    __data__ = data_dir

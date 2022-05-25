@@ -18,3 +18,4 @@ __maintainer__ = "Evripidis Gkanias"
 from .world import Seville2009, SimpleWorld, WorldBase
 from .sky import Sky, UniformSky
 from .odour import StaticOdour
+from ._helpers import reset_data_directory

@@ -43,6 +43,8 @@ z_terrain = np.zeros_like(x_terrain)
 
 
 class WorldBase(object):
+    __data_dir__ = __data__
+
     def __init__(self, polygons, colours, horizon=2., dtype='float32', name='my_world'):
         self.__polygons = polygons
         self.__colours = colours
@@ -160,6 +162,9 @@ class WorldBase(object):
         """
         return self.__horizon
 
+    def set_data_dir(self, data_dir):
+        self.__data_dir__ = data_dir
+
 
 class Seville2009(WorldBase):
     __data_dir__ = os.path.join(__data__, "Seville2009_world")
@@ -205,7 +210,10 @@ class Seville2009(WorldBase):
         np.ndarray[float]
             the colours of the polygons
         """
-        mat = loadmat(os.path.join(Seville2009.__data_dir__, world_filename))
+
+        if not os.path.exists(os.path.dirname(world_filename)):
+            world_filename = os.path.join(Seville2009.__data_dir__, world_filename)
+        mat = loadmat(world_filename)
 
         polygons = []
         colours = []
@@ -238,7 +246,11 @@ class Seville2009(WorldBase):
             dictionary of lists with 3 keys: 'ant_no', 'route_no' and 'path'. The entries in the lists correspond to the
             respective entries in the other lists
         """
-        mat = loadmat(os.path.join(Seville2009.__data_dir__, routes_filename))
+
+        if not os.path.exists(os.path.dirname(routes_filename)):
+            routes_filename = os.path.join(Seville2009.__data_dir__, routes_filename)
+
+        mat = loadmat(routes_filename)
         ant, route, key = 1, 1, lambda a, r: "Ant%d_Route%d" % (a, r)
         routes = {"ant_no": [], "route_no": [], "path": []}
         while key(ant, route) in mat.keys():
@@ -278,7 +290,11 @@ class Seville2009(WorldBase):
         int
             the route ID
         """
-        path = os.path.join(__data__, "routes", name + ".npz")
+
+        path = f"{name}.npz"
+        if not os.path.exists(os.path.dirname(path)):
+            path = os.path.join(__data__, "routes", path)
+
         data = np.load(path)
         return data["path"], data["ant"], data["route"]
 
@@ -294,7 +310,9 @@ class Seville2009(WorldBase):
         rt: dict
             the keys and data that we want to save
         """
-        path = os.path.join(__data__, "routes", name + ".npz")
+        path = f"{name}.npz"
+        if not os.path.exists(os.path.dirname(path)):
+            path = os.path.join(__data__, "routes", path)
         np.save(path, **rt)
 
 
@@ -417,7 +435,10 @@ class SimpleWorld(WorldBase):
         np.ndarray[float]
             the colours of the polygons
         """
-        mat = loadmat(os.path.join(SimpleWorld.__data_dir__, world_filename))
+
+        if not os.path.exists(os.path.dirname(world_filename)):
+            world_filename = os.path.join(SimpleWorld.__data_dir__, world_filename)
+        mat = loadmat(world_filename)
 
         polygons = []
         colours = []
