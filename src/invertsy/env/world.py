@@ -162,8 +162,9 @@ class WorldBase(object):
         """
         return self.__horizon
 
-    def set_data_dir(self, data_dir):
-        self.__data_dir__ = data_dir
+    @staticmethod
+    def set_data_dir(data_dir):
+        WorldBase.__data_dir__ = data_dir
 
 
 class Seville2009(WorldBase):
