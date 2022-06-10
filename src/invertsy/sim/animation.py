@@ -263,6 +263,8 @@ class RouteAnimation(Animation):
         cmap: str, optional
             the colour map to show the intensity of the ommatidia photo-receptors' responses. Default it 'Greens_r'
         """
+        kwargs.setdefault("width", 7)
+        kwargs.setdefault("height", 3)
         super().__init__(sim, *args, **kwargs)
 
         ax_dict = self.fig.subplot_mosaic(
@@ -299,6 +301,31 @@ class RouteAnimation(Animation):
         vert, codes = self._marker
         vertices = R.from_euler('Z', -self.sim.eye.ori.as_euler('ZYX', degrees=True)[0], degrees=True).apply(vert)
         self.pos.set_paths((Path(vertices[:, :2], codes),))
+
+        # id = {40: 1, 400: 2, 800: 3, 819: 4}
+        # print(f"Iteration: {i}")
+        # if i in id:
+        #     fig = plt.figure(f"{self.name}-view-{id[i]}", figsize=(7, 3))
+        #     ax_dict = fig.subplot_mosaic(
+        #         """
+        #         AABB
+        #         CDBB
+        #         """
+        #     )
+        #
+        #     omm = create_eye_axis(self.sim.eye, cmap="Greens_r", ax=ax_dict['A'])
+        #     omm_t = create_sphere_eye_axis(self.sim.eye, cmap="Greens_r", side="top", ax=ax_dict['C'])
+        #     omm_s = create_sphere_eye_axis(self.sim.eye, cmap="Greens_r", side="side", ax=ax_dict['D'])
+        #     line, _, pos, self._marker = create_map_axis(world=self.sim.world, ax=ax_dict['B'])[:4]
+        #
+        #     omm.set_array(self.sim.responses)
+        #     omm_t.set_array(self.sim.responses[self.sim.eye.omm_xyz[:, 2] >= 0])
+        #     omm_s.set_array(self.sim.responses[self.sim.eye.omm_xyz[:, 1] >= 0])
+        #     line.set_data(self.sim.route[:(i + 1), 1], self.sim.route[:(i + 1), 0])
+        #     pos.set_offsets(np.array([self.sim.eye.y, self.sim.eye.x]))
+        #     pos.set_paths((Path(vertices[:, :2], codes),))
+        #
+        #     plt.show()
 
     @property
     def omm(self):

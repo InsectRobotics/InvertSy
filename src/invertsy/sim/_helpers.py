@@ -206,6 +206,53 @@ def create_eye_axis(eye, cmap="Greys_r", subplot=111, ax=None):
     return omm
 
 
+def create_sphere_eye_axis(eye, cmap="Greys_r", side="top", subplot=111, ax=None):
+    """
+    Draws a map of the positions of the ommatidia coloured using their photo-receptor responses.
+
+    Parameters
+    ----------
+    eye: CompoundEye
+        the eye to take the ommatidia positions from
+    cmap: str, optional
+        the colour map of the responses. Default is 'Greys_r'
+    side: str, optional
+        specifies whether to show the 'top' or 'side' of the eye. Default is 'top'.
+    subplot: int, tuple
+        the subplot ID. Default is 111
+    ax: plt.Axes, optional
+        the axis to draw the subplot on. Default is None
+
+    Returns
+    -------
+    matplotlib.collections.PathCollection
+        the ommatidia as a path collection
+    """
+    if ax is None:
+        ax = plt.subplot(subplot)
+
+    x_, y_, z_ = eye.omm_xyz.T
+    if side == "top":
+        select = z_ >= 0
+        x = -x_[select]
+        y = -y_[select]
+    else:
+        select = y_ >= 0
+        x = -x_[select]
+        y = z_[select]
+    ax.set_yticks([])
+    ax.set_xticks([])
+    ax.set_ylim(-1, 1)
+    ax.set_xlim(-1, 1)
+    ax.tick_params(axis='both', labelsize=8)
+
+    eye_size = 5000. / x.size * eye.omm_area[select] * 80
+    omm = ax.scatter(x.tolist(), y.tolist(), s=eye_size,
+                     c=np.zeros(x.shape[0], dtype='float32'), cmap=cmap, vmin=0, vmax=1)
+
+    return omm
+
+
 def create_mem_axis(agent, cmap="Greys", subplot=111, ax=None):
     """
     Draws the responses of the PNs, KCs and the familiarity current value in neuron-like arrays.
@@ -1287,7 +1334,7 @@ def y2row(y, nb_rows, max_meters=10):
     return np.int(np.float32(y * nb_rows) / np.float32(max_meters))
 
 
-def ori2yaw(ori, nb_oris, degrees=True):
+def ori2yaw(ori, nb_oris, linear=True, degrees=True):
     """
     Transforms the orientation identity to the yaw direction.
 
@@ -1297,6 +1344,8 @@ def ori2yaw(ori, nb_oris, degrees=True):
         the orientation identity
     nb_oris : int
         the total number of orientations
+    linear : bool
+        whether the ori2yaw map is linear or not
     degrees : bool
         whether we want the output to be in degrees
 
@@ -1307,10 +1356,12 @@ def ori2yaw(ori, nb_oris, degrees=True):
     """
 
     two_pi = np.float32(360. if degrees else (2 * np.pi))
+    if not linear:
+        ori = ((ori / nb_oris - .25) ** 3 + .25) * nb_oris
     return (np.float32(ori) * two_pi / np.float32(nb_oris) + two_pi / 2) % two_pi - two_pi / 2
 
 
-def yaw2ori(yaw, nb_oris, degrees=True):
+def yaw2ori(yaw, nb_oris, linear=True, degrees=True):
     """
     Transforms the 'yaw' direction to the orientation identity.
 
@@ -1320,6 +1371,8 @@ def yaw2ori(yaw, nb_oris, degrees=True):
         the 'yaw' direction
     nb_oris : int
         the total number of orientations
+    linear : bool
+        whether the ori2yaw map is linear or not
     degrees : bool
         whether the input is in degrees
 
@@ -1329,4 +1382,10 @@ def yaw2ori(yaw, nb_oris, degrees=True):
         the orientation identity
     """
     two_pi = np.float32(360. if degrees else (2 * np.pi))
-    return np.int(np.float32((yaw % two_pi) * nb_oris) / two_pi)
+    ori = np.float32((yaw % two_pi) * nb_oris) / two_pi
+    if not linear:
+        if ori / nb_oris >= .25:
+            ori = (np.power(ori / nb_oris - .25, 1/3) + .25) * nb_oris
+        else:
+            ori = (-np.power(np.abs(ori / nb_oris - .25), 1/3) + .25) * nb_oris
+    return np.int(ori)
