@@ -193,15 +193,10 @@ class GradientVectorAnimation(Animation):
 
         self.line_g = None
         self.res_epg = None
-        self.res_pfn_d = None
-        self.res_pfn_v = None
-        self.res_hdb = None
-        self.res_dfb = None
+        self.res_pfn = None
+        self.res_hd = None
+        self.res_fc = None
         self.res_pfl2 = None
-        self.res_pfn_a = None
-        self.res_pfn_p = None
-        self.res_hdc = None
-        self.res_dfc = None
         self.res_pfl3 = None
         self.line_tan = None
         self.line_tar = None
@@ -216,45 +211,29 @@ class GradientVectorAnimation(Animation):
             self.panels["B"].set_ylabel("familiarity")
             self.lines.append(self.line_g)
 
-        if "C" in self.panel_names:
-            self.res_pfn_d = self.init_panel("C", title=r"$PFN_d$", bottom=False, cmap='Purples')
-            self.lines.append(self.res_pfn_d)
-
-        if "D" in self.panel_names:
-            self.res_pfn_v = self.init_panel("D", title=r"$PFN_v$", bottom=False, cmap='Oranges')
-            self.lines.append(self.res_pfn_v)
-
         if "E" in self.panel_names:
-            self.res_hdb = self.init_panel("E", title=r"$h\Delta$", bottom=False, cmap='Reds')
+            self.res_hdb = self.init_panel("E", title=r"$h\Delta$", bottom=False, cmap='Reds', pop_size=8)
             self.lines.append(self.res_hdb)
 
         if "F" in self.panel_names:
-            self.res_pfl2 = self.init_panel("F", title=r"$PFL2$", cmap='Oranges')
+            self.res_pfl2 = self.init_panel("F", title=r"$PFL2$", bottom=False, cmap='Oranges', pop_size=8)
             self.lines.append(self.res_pfl2)
 
         if "G" in self.panel_names:
-            self.res_pfn_a = self.init_panel("G", title=r"$PFN_{d/v}$", bottom=False, cmap='Purples')
-            self.lines.append(self.res_pfn_a)
-
-        if "H" in self.panel_names:
-            self.res_pfn_p = self.init_panel("H", title=r"$PFN_p$", bottom=False, cmap='Oranges')
-            self.lines.append(self.res_pfn_p)
+            self.res_pfn = self.init_panel("G", title=r"$PFN_{d/v}$", bottom=False, cmap='Purples')
+            self.lines.append(self.res_pfn)
 
         if "I" in self.panel_names:
-            self.res_hdc = self.init_panel("I", title=r"$h\Delta$", bottom=False, cmap='Reds')
-            self.lines.append(self.res_hdc)
+            self.res_hd = self.init_panel("I", title=r"$h\Delta$", bottom=False, cmap='Reds', pop_size=8)
+            self.lines.append(self.res_hd)
 
         if "J" in self.panel_names:
             self.res_pfl3 = self.init_panel("J", title=r"$PFL3$", bottom=False, cmap='Greens')
             self.lines.append(self.res_pfl3)
 
-        if "K" in self.panel_names:
-            self.res_dfb = self.init_panel("K", title=r"$\Delta\Phi B$", bottom=False, cmap='Oranges')
-            self.lines.append(self.res_dfb)
-
         if "L" in self.panel_names:
-            self.res_dfc = self.init_panel("L", title=r"$FC$", bottom=False, cmap='Oranges')
-            self.lines.append(self.res_dfc)
+            self.res_fc = self.init_panel("L", title=r"$FC$", bottom=False, cmap='Oranges', pop_size=8)
+            self.lines.append(self.res_fc)
 
         if "O" in self.panel_names:
             self.res_epg = self.init_panel("O", title=r"$EPG$", cmap="Blues", bottom=False)
@@ -299,7 +278,7 @@ class GradientVectorAnimation(Animation):
         if self.line_dis is not None:
             self.line_dis.set_data([], [])
             self.panels["N"].set_xlim(0, 0)
-            self.panels["N"].set_ylim(-.1 , +.1)
+            self.panels["N"].set_ylim(-.1, +.1)
 
         if self.line_tan is not None:
             self.line_tan.set_data([], [])
@@ -325,16 +304,16 @@ class GradientVectorAnimation(Animation):
             self.res_epg.set_array(-100 * np.ones((16, self.max_time + 1), dtype='float32'))
             self.panels["O"].set_xlim(-0.5, 0.5)
 
-        if self.res_pfn_a is not None:
-            self.res_pfn_a.set_array(-100 * np.ones((16, self.max_time + 1), dtype='float32'))
+        if self.res_pfn is not None:
+            self.res_pfn.set_array(-100 * np.ones((16, self.max_time + 1), dtype='float32'))
             self.panels["G"].set_xlim(-0.5, 0.5)
 
-        if self.res_hdc is not None:
-            self.res_hdc.set_array(-100 * np.ones((16, self.max_time + 1), dtype='float32'))
+        if self.res_hd is not None:
+            self.res_hd.set_array(-100 * np.ones((16, self.max_time + 1), dtype='float32'))
             self.panels["I"].set_xlim(-0.5, 0.5)
 
-        if self.res_dfc is not None:
-            self.res_dfc.set_array(-100 * np.ones((16, self.max_time + 1), dtype='float32'))
+        if self.res_fc is not None:
+            self.res_fc.set_array(-100 * np.ones((16, self.max_time + 1), dtype='float32'))
             self.panels["L"].set_xlim(-0.5, 0.5)
 
         if self.res_pfl3 is not None:
@@ -343,30 +322,25 @@ class GradientVectorAnimation(Animation):
 
         return super(GradientVectorAnimation, self).reset()
 
-    def __call__(self, agent, grad=None, epg=None, pfn_d=None, pfn_v=None, hdb=None, dfb=None, pfl2=None,
-                 pfn_a=None, pfn_p=None, hdc=None, dfc=None, pfl3=None, phi=None):
+    def __call__(self, agent, grad=None, epg=None, pfn=None,
+                 h_delta=None, fc=None, pfl2=None, pfl3=None, phi=None):
 
         if self.__iteration >= self.max_time:
             return self.reset(agent)
 
         print(f"i = {self.__iteration:03d}", end="; ")
         self.update_agent(agent)
-        self.update_target(agent, np.exp(agent.yaw * 1j) * pfl2, np.exp(1j * agent.yaw) * (dfc - epg * np.abs(dfc)))
+        self.update_target(agent, np.exp(agent.yaw * 1j) * pfl2, np.exp(1j * agent.yaw) * (fc - epg * np.abs(fc)))
         self.update_gradient(grad)
         self.update_distance(self.__gradient.last_distance)
         self.update_epg(epg)
-        self.update_pfn_d(pfn_d)
-        self.update_pfn_v(pfn_v)
-        self.update_hdb(hdb)
-        self.update_dfb(dfb)
+        self.update_pfn(pfn)
+        self.update_hd(h_delta)
+        self.update_df(fc)
         self.update_pfl2(pfl2)
-        self.update_pfn_a(pfn_a)
-        self.update_pfn_p(pfn_p)
-        self.update_hdc(hdc)
-        self.update_dfc(dfc)
         self.update_pfl3(pfl3)
         # self.update_yaw(agent.yaw, phi=phi, target=[np.angle(dfc[1] + dfc[0]), np.angle(dfb[1] + dfb[0])])
-        self.update_yaw(agent.yaw, target=np.angle(np.sum(dfc)))
+        self.update_yaw(agent.yaw, target=np.angle(np.sum(fc)))
 
         self.__iteration += 1
 
@@ -474,32 +448,17 @@ class GradientVectorAnimation(Animation):
     def update_epg(self, epg):
         self.update_panel("O", self.res_epg, epg)
 
-    def update_pfn_d(self, pfn_d):
-        self.update_panel("C", self.res_pfn_d, pfn_d)
+    def update_pfn(self, pfn):
+        self.update_panel("G", self.res_pfn, pfn)
 
-    def update_pfn_v(self, pfn_v):
-        self.update_panel("D", self.res_pfn_v, pfn_v)
+    def update_hd(self, hd):
+        self.update_panel("I", self.res_hd, hd)
 
-    def update_hdb(self, hdb):
-        self.update_panel("E", self.res_hdb, hdb)
-
-    def update_dfb(self, dfb):
-        self.update_panel("K", self.res_dfb, dfb)
+    def update_df(self, fc):
+        self.update_panel("L", self.res_fc, fc)
 
     def update_pfl2(self, pfl3):
         self.update_panel("F", self.res_pfl2, pfl3)
-
-    def update_pfn_a(self, pfn_a):
-        self.update_panel("G", self.res_pfn_a, pfn_a)
-
-    def update_pfn_p(self, pfn_p):
-        self.update_panel("H", self.res_pfn_p, pfn_p)
-
-    def update_hdc(self, hdc):
-        self.update_panel("I", self.res_hdc, hdc)
-
-    def update_dfc(self, dfc):
-        self.update_panel("L", self.res_dfc, dfc)
 
     def update_pfl3(self, pfl3):
         self.update_panel("J", self.res_pfl3, pfl3)
@@ -526,13 +485,17 @@ class GradientVectorAnimation(Animation):
         if handler is not None and new_value is not None:
             values = handler.get_array()
             t = int(np.all(values > -100, axis=0).sum())
-            abs_0, ang_0 = np.abs(new_value[0]), np.angle(new_value[0])
-            abs_1, ang_1 = np.abs(new_value[1]), np.angle(new_value[1])
-            abs_m = 1
-            # abs_m = np.maximum(abs_0, abs_1)
 
-            angles = np.linspace(-np.pi, np.pi, 8, endpoint=False)
-            values[:, t] = np.r_[abs_0 / abs_m * np.cos(ang_0 + angles), abs_1 / abs_m * np.cos(ang_1 + angles)]
+            angles = -np.linspace(-np.pi, np.pi, 8, endpoint=False)
+            nb_col = values.shape[0] // 8
+            if nb_col > 1:
+                abs_0, ang_0 = np.abs(new_value[0]), np.angle(new_value[0])
+                abs_1, ang_1 = np.abs(new_value[1]), np.angle(new_value[1])
+                abs_m = 1
+                # abs_m = np.maximum(abs_0, abs_1)
+                values[:, t] = np.r_[abs_0 / abs_m * np.cos(ang_0 + angles), abs_1 / abs_m * np.cos(ang_1 + angles)]
+            else:
+                values[:, t] = np.abs(new_value) * np.cos(np.angle(new_value) + angles)
             handler.set_array(values)
             self.panels[panel].set_xlim(-0.5, t + 0.5)
 
@@ -556,15 +519,19 @@ class GradientVectorAnimation(Animation):
 
         return ax1, ax2
 
-    def init_panel_responses(self, panel, title="", left=True, bottom=True, cmap='inferno'):
+    def init_panel_responses(self, panel, title="", left=True, bottom=True, pop_size=16, cmap='inferno'):
         ax = self.panels[panel].imshow(
-            -100 * np.ones((16, self.max_time + 1), dtype='float32'), cmap=cmap, vmin=-1, vmax=1, origin="upper",
+            -100 * np.ones((pop_size, self.max_time + 1), dtype='float32'), cmap=cmap, vmin=-1, vmax=1, origin="upper",
             interpolation="none", aspect="auto")
-        self.panels[panel].set_ylim(-0.5, 15.5)
+        self.panels[panel].set_ylim(-0.5, pop_size - 0.5)
         self.panels[panel].set_xlim(-0.5, self.max_time - 0.5)
         if left:
-            self.panels[panel].set_yticks([-0.5, 3.5, 7.5, 11.5, 15.5])
-            self.panels[panel].set_yticklabels(["", "L", "", "R", ""])
+            if pop_size > 8:
+                self.panels[panel].set_yticks([-0.5, 3.5, 7.5, 11.5, 15.5])
+                self.panels[panel].set_yticklabels(["", "R", "", "L", ""])
+            else:
+                self.panels[panel].set_yticks([-0.5, pop_size // 2 - 0.5, pop_size - 0.5])
+                self.panels[panel].set_yticklabels(["1", "", f"{pop_size}"])
         else:
             self.panels[panel].set_yticks([-0.5, 7.5, 15.5])
             self.panels[panel].set_yticklabels(["", "", ""])

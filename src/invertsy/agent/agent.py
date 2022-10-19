@@ -243,10 +243,7 @@ class Agent(object):
         # compute the step size based on the new delta time
         dx = dx * dt
 
-        # normalise the vector
-        direction_xyz = np.array(direction_xyz) / np.maximum(np.linalg.norm(direction_xyz), eps)
-
-        self.translate(self._ori.apply(dx * direction_xyz))
+        self.translate(self._ori.apply(dx * np.array(direction_xyz)))
 
     def rotate(self, d_ori: R):
         """

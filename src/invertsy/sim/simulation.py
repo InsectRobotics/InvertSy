@@ -127,45 +127,44 @@ class GradientVectorSimulation(Simulation):
         # 04: 0.3, 0.1, 0.10, 0.2, 0.0, False, 1.0, 0.1 --- small S
         # 05: 0.3, 0.1, 0.10, 0.2, 0.0, False, 1.0, 0.1 --- I-shape
         # 06: 0.3, 0.1, 0.10, 0.2, 0.0, False, 1.0, 0.1 --- large S
-        self.__steering_gain = 0.3
-        self.__update_gain = 0.1
+        self.__steering_gain = 1.
+        self.__update_gain = 10
         self.__memory_decay = 0.1
-        self.__oscillation_gain = .2
-        self.__g_power = 0.
+        self.__oscillation_gain = 0.5
+        self.__g_power = 0.0
         self.__normalise_update = False
-        gradient.exp = 1.
+        gradient.exp = 1.0
         gradient.baseline = 0.1
 
         self.__gradient = gradient
         self.__hist = {
             'g': [],
             'x': [], 'y': [], 'yaw': [], 'phi': [],
-            'epg': [],
-            'pfn_d': [], 'pfn_v': [], 'pfn_a': [], 'pfn_p': [],
-            'hdb': [], 'hdc': [],
-            'dfb': [], 'dfc': [],
-            'pfl2': [], 'pfl3': [],
+            'epg': [], 'pfn_d': [], 'pfn_v': [], 'pfn_a': [], 'pfn_p': [],
+            'h_delta': [], 'fc': [], 'pfl2': [], 'pfl3': [],
         }
         self.l_epg = lambda yaw: np.exp(1j * yaw)
         self.r_epg = lambda yaw: np.exp(1j * yaw)
         self.l_pfn = lambda l_epg, r_lno: (1 - r_lno) * np.exp(+1j * np.pi / 4) * l_epg
         self.r_pfn = lambda r_epg, l_lno: (1 - l_lno) * np.exp(-1j * np.pi / 4) * r_epg
-        self.l_hdb = lambda l_pfn_d, l_pfn_v: l_pfn_d + np.exp(-4j * np.pi / 4) * l_pfn_v
-        self.r_hdb = lambda r_pfn_d, r_pfn_v: r_pfn_d + np.exp(+4j * np.pi / 4) * r_pfn_v
-        self.l_hdc = lambda l_pfn_a, l_pfn_p: l_pfn_a + np.exp(-4j * np.pi / 4) * l_pfn_p
-        self.r_hdc = lambda r_pfn_a, r_pfn_p: r_pfn_a + np.exp(+4j * np.pi / 4) * r_pfn_p
-        self.l_pfl2 = lambda l_dfb, l_epg: np.exp(-4j * np.pi / 4) * l_epg + l_dfb
-        self.r_pfl2 = lambda r_dfb, r_epg: np.exp(+4j * np.pi / 4) * r_epg + r_dfb
+        self.h_delta = lambda l_pfn_d, r_pfn_d, l_pfn_v, r_pfn_v: (l_pfn_d + np.exp(-4j * np.pi / 4) * l_pfn_v +
+                                                                   r_pfn_d + np.exp(+4j * np.pi / 4) * r_pfn_v)
+
+        self.fc = lambda fc, fc_p, g: np.power(g, self.__g_power) * (1 - self.__memory_decay) * fc_p + fc
+
+        self.pfl2 = lambda fc, l_epg, r_epg: fc + 0.5 * np.exp(+1j * np.pi) * (l_epg + r_epg)
+        self.l_pfl3 = lambda fc, l_epg: fc + np.exp(-2j * np.pi / 4) * l_epg
+        self.r_pfl3 = lambda fc, r_epg: fc + np.exp(+2j * np.pi / 4) * r_epg
         # self.l_pfl3 = lambda l_dfc, l_epg: np.exp(+0j * np.pi / 4) * l_dfc + np.exp(+3j * np.pi / 4) * l_epg
         # self.r_pfl3 = lambda r_dfc, r_epg: np.exp(-0j * np.pi / 4) * r_dfc + np.exp(-3j * np.pi / 4) * r_epg
-        self.l_pfl3 = lambda l_dfc, l_epg: np.exp(+0j * np.pi / 4) * l_dfc + np.exp(-3j * np.pi / 4) * l_epg
-        self.r_pfl3 = lambda r_dfc, r_epg: np.exp(-0j * np.pi / 4) * r_dfc + np.exp(+3j * np.pi / 4) * r_epg
+        # self.l_pfl3 = lambda df, l_epg: np.exp(-3j * np.pi / 4) * l_epg + df
+        # self.r_pfl3 = lambda df, r_epg: np.exp(+3j * np.pi / 4) * r_epg + df
 
         self.r_nod = 0.
         self.l_nod = 0.
 
-        self.osc_b = 0.  # side-walk
-        self.osc_c = 0.  # steering
+        self.osc_side = 0.  # side-walk
+        self.osc_steer = 0.  # steering
 
     def __call__(self, *args, **kwargs):
         self.sense()
@@ -173,15 +172,13 @@ class GradientVectorSimulation(Simulation):
 
         return super(GradientVectorSimulation, self).__call__(
             linear_velocity=lv, angular_velocity=av, grad=grad, epg=self.__hist["epg"][-1],
-            pfn_d=self.__hist["pfn_d"][-1], pfn_v=self.__hist["pfn_v"][-1],
-            hdb=self.__hist["hdb"][-1], dfb=self.__hist["dfb"][-1], pfl2=self.__hist["pfl2"][-1],
-            pfn_a=self.__hist["pfn_a"][-1], hdc=self.__hist["hdc"][-1],
-            dfc=self.__hist["dfc"][-1], pfl3=self.__hist["pfl3"][-1], phi=self.__hist["phi"][-1])
+            pfn=self.__hist["pfn_d"][-1], h_delta=self.__hist["h_delta"][-1], fc=self.__hist["fc"][-1],
+            pfl2=self.__hist["pfl2"][-1], pfl3=self.__hist["pfl3"][-1], phi=self.__hist["phi"][-1])
 
     def act(self):
 
         front = 1
-        side = self.osc_b
+        side = self.osc_side
 
         yaw = self.__hist['yaw'][-1]
 
@@ -193,28 +190,39 @@ class GradientVectorSimulation(Simulation):
         else:
             phi = 0.
 
-        pfl2_v = (self.__hist["pfl2"][-1][1] + self.__hist["pfl2"][-1][0])
-        pfl2_m = np.abs(pfl2_v)
-        pfl2_a = np.angle(pfl2_v)  # - phi
-        l_pfl3, r_pfl3 = self.__hist["pfl3"][-1]
-        pfl3_v = l_pfl3 + r_pfl3
-        pfl3_m = np.abs(pfl3_v)
-        pfl3_a = self.__steering_gain * np.angle(pfl3_v)
-        # pfl3_a = (np.abs(self.__hist["pfl3"][-1][0]) - np.abs(self.__hist["pfl3"][-1][1])) * np.pi / 4
         print(f"yaw = {np.rad2deg(yaw):.2f}", end=";  ")
-        # print(f"PFL2_ang = {np.rad2deg(pfl2_a):.2f}", end=";  ")
-        print(f"PFL3_mag = {pfl3_m:.2f}, PFL3_ang = {np.rad2deg(pfl3_a):.2f}")
+        pfl2 = self.__hist["pfl2"][-1]
+        l_pfl3, r_pfl3 = self.__hist["pfl3"][-1]
+        l_dna_2 = 0.5 * np.abs(l_pfl3 + pfl2)
+        r_dna_2 = 0.5 * np.abs(r_pfl3 + pfl2)
+        print(f"_lDNa_2 = {l_dna_2:.2f}, _rDNa_2 = {r_dna_2:.2f}", end="; ")
 
-        osc_w = self.__oscillation_gain
+        dna_3 = 0.5 * np.abs(pfl2)
+        osc_w = np.clip(self.__oscillation_gain * (1 + dna_3), 0, 1)
         rand = 0.0 * (np.random.rand(3) * 2 - 1)
-        lv = [0, front, 0]
-        # lv = [osc_w * side, front, 0]
+
+        # differential steering
+        steer = self.__steering_gain * (r_dna_2 - l_dna_2)
+        print(f"steer = {np.rad2deg(steer):.2f}", end="; ")
+        av = R.from_euler("Z", osc_w * self.osc_steer +
+                          np.clip(steer, -np.pi/4, np.pi/4) +
+                          rand[2] * np.pi / 2)
+
+        # vector steering
+        # steer = (r_pfl3 + l_pfl3 + pfl2) / 3
+        # print(f"steer_mag = {np.abs(steer):.2f}, steer_ang = {np.rad2deg(np.angle(steer)):.2f}", end="; ")
+        # av = R.from_euler("Z", osc_w * self.osc_steer +
+        #                   np.clip(np.abs(steer) * np.angle(steer), -np.pi/4, np.pi/4) +
+        #                   rand[2] * np.pi / 2)
+
+        lv = [0, front - dna_3, 0]
+        # lv = [0, front, 0]
+        # lv = [osc_w * side * (1 - dna_3), front - dna_3, 0]
         # lv = [osc_w * side - np.sin(pfl2_a) + rand[0], front + rand[1], 0]
         # lv = [osc_w * side - 1 * np.sin(pfl2_a) + rand[0], osc_w * front + np.cos(pfl2_a) + rand[1], 0]
         # av = R.from_euler("Z", osc_w * self.osc_c)
-        av = R.from_euler("Z", osc_w * self.osc_c +
-                          np.clip(pfl3_m * pfl3_a, -np.pi/4, np.pi/4) +
-                          rand[2] * np.pi / 2)
+
+        print(f"back = {dna_3:.2f}")
 
         # lv = [side * (1 - w * np.clip(pfl2_m, 0, 1)), front * (1 + w * np.clip(pfl2_m, 0, 1)), 0]
         # lv = [side, front * (1 - w * np.clip(pfl2_m, 0, 1)), 0]
@@ -238,117 +246,67 @@ class GradientVectorSimulation(Simulation):
             d_g = self.__hist['g'][-1] - self.__hist['g'][-2]
             d_x = self.__hist['x'][-1] - self.__hist['x'][-2]
             d_y = self.__hist['y'][-1] - self.__hist['y'][-2]
-            d_yaw = self.__hist['yaw'][-1] - self.__hist['yaw'][-2]
+
+            # calculate the relative direction of holonomic motion (excluding the heading)
+            d_phi = np.exp(-1j * self.__hist['yaw'][-2]) * (d_y - 1j * d_x)
         else:
             d_g = 0.
             d_x = 0.
             d_y = 0.
-            d_yaw = 0.
-
-        d_yaw = (d_yaw + np.pi) % (2 * np.pi) - np.pi
-
-        phi = np.angle(np.exp(-1j * np.pi / 2) * (d_x + d_y * 1j))
-        self.__hist["phi"].append(phi)
-
-        if len(self.__hist['g']) > 1:
-            d_phi = phi - self.__hist['yaw'][-2]
-            # d_phi = self.__hist['phi'][-1] - self.__hist['phi'][-1] - d_yaw
-        else:
             d_phi = 0.
-            # d_phi = -d_yaw
 
-        # calculate the relative direction of holonomic motion (excluding the heading)
-        d_phi = (d_phi + np.pi) % (2 * np.pi) - np.pi
+        self.__hist["phi"].append(np.angle(d_y - 1j * d_x))
 
         # calculate the relative magnitude (speed) of motion
         # rho = np.sqrt(np.square(d_x) + np.square(d_y)) * 20
-        rho = 1
-        # print(f"d_phi = {np.rad2deg(phi):.2f}, d_yaw={np.rad2deg(d_yaw):.2f}", end="; ")
+        rho = np.abs(d_phi)
+        d_phi = np.angle(d_phi)
 
-        r_lno1 = rho * np.clip(0.5 + 0.5 * np.sin(d_phi) * (0.5 + 0.5 * np.cos(d_phi)), 0.1, 0.9)
-        l_lno1 = rho * np.clip(0.5 - 0.5 * np.sin(d_phi) * (0.5 + 0.5 * np.cos(d_phi)), 0.1, 0.9)
-        r_lno2 = rho * np.clip(0.5 + 0.5 * np.sin(d_phi) * (0.5 - 0.5 * np.cos(d_phi)), 0.1, 0.9)
-        l_lno2 = rho * np.clip(0.5 - 0.5 * np.sin(d_phi) * (0.5 - 0.5 * np.cos(d_phi)), 0.1, 0.9)
-        # print(f"_lLNO1 = {l_lno1:.2f}, _rLNO1 = {r_lno1:.2f}, _lLNO2 = {l_lno2:.2f}, _rLNO2  = {r_lno2:.2f}", end="; ")
+        # forwards motion
+        r_lno1 = rho * (0.5 + 0.5 * np.sin(d_phi)) * (0.5 + 0.5 * np.cos(d_phi))
+        l_lno1 = rho * (0.5 - 0.5 * np.sin(d_phi)) * (0.5 + 0.5 * np.cos(d_phi))
 
-        # r_lno_a = float(d_yaw < 0) * np.maximum(np.cos(d_yaw + np.pi/2), 0)
-        # l_lno_a = float(d_yaw > 0) * np.maximum(np.cos(d_yaw - np.pi/2), 0)
-        r_lno_a = 0 * np.cos(d_yaw + np.pi / 4) * np.clip(np.cos(d_yaw + np.pi / 2), 0., 0.9)
-        l_lno_a = 0 * np.cos(d_yaw - np.pi / 4) * np.clip(np.cos(d_yaw - np.pi / 2), 0., 0.9)
-        r_lno_p = 1 - r_lno_a
-        l_lno_p = 1 - l_lno_a
-        # r_lno_a = np.clip(-0.5 * (np.cos(d_yaw + 3 * np.pi / 4) + 1), 0.01, 0.9)
-        # l_lno_a = np.clip(-0.5 * (np.cos(d_yaw - 3 * np.pi / 4) + 1), 0.01, 0.9)
-        # l_lno_p = np.clip(+0.5 * (np.cos(d_yaw + np.pi / 4) + 1), 0.01, 0.9)
-        # r_lno_p = np.clip(+0.5 * (np.cos(d_yaw - np.pi / 4) + 1), 0.01, 0.9)
+        # backwards motion
+        r_lno2 = rho * (0.5 + 0.5 * np.sin(d_phi)) * (0.5 - 0.5 * np.cos(d_phi))
+        l_lno2 = rho * (0.5 - 0.5 * np.sin(d_phi)) * (0.5 - 0.5 * np.cos(d_phi))
+        print(f"_lLNO1 = {l_lno1:.2f}, _rLNO1 = {r_lno1:.2f}, _lLNO2 = {l_lno2:.2f}, _rLNO2  = {r_lno2:.2f}", end="; ")
+        print(f"g = {np.power(g, self.__g_power):.4f}, d_phi = {np.rad2deg(d_phi):.2f}", end="; ")
 
-        # r_lno_a = np.clip(-np.sin(d_yaw - np.pi/4), 0.01, 0.9)
-        # l_lno_a = np.clip(+np.sin(d_yaw + np.pi/4), 0.01, 0.9)
-        print(f"g = {np.power(g, self.__g_power):.4f}, _lLNO_a = {l_lno_a:.2f}, _rLNO_a = {r_lno_a:.2f}", end=", ")
-        print(f"_lLNO_p = {l_lno_p:.2f}, _rLNO_p = {r_lno_p:.2f}, d_yaw = {np.rad2deg(d_yaw):.2f}", end="; ")
-        print(f"d_phi = {np.rad2deg(d_phi):.2f}", end="; ")
+        l_epg = self.l_epg(yaw)
+        r_epg = self.r_epg(yaw)
+        self.__hist['epg'].append(np.r_[l_epg, r_epg])
 
-        l_epg_b = self.l_epg(yaw)
-        r_epg_b = self.r_epg(yaw)
-        self.__hist['epg'].append(np.r_[l_epg_b, r_epg_b])
-
-        l_pfn_d = self.l_pfn(l_epg_b, r_lno2)
-        r_pfn_d = self.r_pfn(r_epg_b, l_lno2)
+        l_pfn_d = self.l_pfn(l_epg, r_lno2)
+        r_pfn_d = self.r_pfn(r_epg, l_lno2)
         self.__hist['pfn_d'].append(np.r_[l_pfn_d, r_pfn_d])
 
-        l_pfn_v = self.l_pfn(l_epg_b, r_lno1)
-        r_pfn_v = self.r_pfn(r_epg_b, l_lno1)
+        l_pfn_v = self.l_pfn(l_epg, r_lno1)
+        r_pfn_v = self.r_pfn(r_epg, l_lno1)
         self.__hist['pfn_v'].append(np.r_[l_pfn_v, r_pfn_v])
 
-        l_epg_c = self.l_epg(yaw)
-        r_epg_c = self.r_epg(yaw)
-        l_pfn_a = self.l_pfn(l_epg_c, r_lno_a)
-        r_pfn_a = self.r_pfn(r_epg_c, l_lno_a)
-        l_pfn_p = self.l_pfn(l_epg_c, r_lno_p)
-        r_pfn_p = self.r_pfn(r_epg_c, l_lno_p)
-        self.__hist['pfn_a'].append(np.r_[l_pfn_a, r_pfn_a])
+        h_delta = np.sign(d_g) * self.h_delta(l_pfn_d, r_pfn_d, l_pfn_v, r_pfn_v)
+        self.__hist['h_delta'].append(h_delta * 100)
 
-        l_hdb = np.sign(d_g) * self.l_hdb(l_pfn_d, l_pfn_v)
-        r_hdb = np.sign(d_g) * self.r_hdb(r_pfn_d, r_pfn_d)
-        self.__hist['hdb'].append(np.r_[l_hdb, r_hdb])
-
-        # l_hdc = float(d_yaw <= 0) * np.sign(d_g) * self.l_hdc(l_pfn_a, l_pfn_p)
-        # r_hdc = float(d_yaw >= 0) * np.sign(d_g) * self.r_hdc(r_pfn_a, r_pfn_p)
-        l_hdc = self.l_hdc(l_pfn_a, l_pfn_p)
-        r_hdc = self.r_hdc(r_pfn_a, r_pfn_p)
-        self.__hist['hdc'].append(np.r_[l_hdc, r_hdc])
-
-        delta_phi_b = np.sign(d_g) * np.r_[l_hdb, r_hdb]
-        # delta_phi_c = np.sign(d_g) * np.r_[l_hdc, r_hdc]
-        delta_phi_c = self.__update_gain * np.sign(d_g) * np.r_[l_hdc, r_hdc]
-        if len(self.__hist['dfb']) > 0:
-            delta_phi_b = 2 * self.__hist['dfb'][-1] + delta_phi_b
-            delta_phi_c = np.power(g, self.__g_power) * (1 - self.__memory_decay) * self.__hist['dfc'][-1] + delta_phi_c
-            # delta_phi_c = 0.98 * self.__hist['dfc'][-1] + delta_phi_c
+        fc = self.__update_gain * h_delta
+        if len(self.__hist['fc']) > 0:
+            fc = self.fc(fc, self.__hist['fc'][-1], g)
             if self.__normalise_update:
-                delta_phi_b /= (np.abs(delta_phi_b) + np.finfo(float).eps)
-                delta_phi_c /= (np.abs(delta_phi_c) + np.finfo(float).eps)
-        l_dfb = delta_phi_b[0]
-        r_dfb = delta_phi_b[1]
-        l_dfc = delta_phi_c[0]
-        r_dfc = delta_phi_c[1]
-        self.__hist['dfb'].append(delta_phi_b)  # side-walk
-        self.__hist['dfc'].append(delta_phi_c)  # steering
+                fc /= (np.abs(fc) + np.finfo(float).eps)
+        self.__hist['fc'].append(fc)
 
-        l_pfl2 = np.exp(+0j * np.pi / 4) * l_dfb - np.exp(+2j * np.pi / 4) * l_epg_b
-        r_pfl2 = np.exp(-0j * np.pi / 4) * r_dfb - np.exp(-2j * np.pi / 4) * r_epg_b
-        self.__hist['pfl2'].append(np.r_[l_pfl2, r_pfl2])
+        pfl2 = self.pfl2(fc / (np.abs(fc) + np.finfo(float).eps), l_epg, r_epg)
+        self.__hist['pfl2'].append(pfl2)
         # l_pfl3 = l_dfc - np.exp(+1j * np.pi / 4) * l_epg_c
         # r_pfl3 = r_dfc - np.exp(-1j * np.pi / 4) * r_epg_c
-        l_pfl3 = self.l_pfl3(0.5 * (l_dfc + r_dfc), 0.9 * l_epg_c * np.abs(0.5 * (l_dfc + r_dfc)))
-        r_pfl3 = self.r_pfl3(0.5 * (r_dfc + l_dfc), 0.9 * r_epg_c * np.abs(0.5 * (r_dfc + l_dfc)))
+        l_pfl3 = self.l_pfl3(fc / (np.abs(fc) + np.finfo(float).eps), l_epg)
+        r_pfl3 = self.r_pfl3(fc / (np.abs(fc) + np.finfo(float).eps), r_epg)
         self.__hist['pfl3'].append(np.r_[l_pfl3, r_pfl3])
 
         # default oscillation angle
         angle = (len(self.__hist['g']) + 4.5) * np.pi / 10
 
-        self.osc_b = np.sin(angle)  # side-walk oscillation
-        self.osc_c = (np.abs((angle + np.pi / 2) % (2 * np.pi) - np.pi) - np.pi / 2) / 4  # steering oscillation
+        self.osc_side = np.sin(angle)  # side-walk oscillation
+        self.osc_steer = (np.abs((angle + np.pi / 2) % (2 * np.pi) - np.pi) - np.pi / 2) / 4  # steering oscillation
 
     @property
     def gradient(self):

@@ -18,7 +18,7 @@ def main(*args):
     save = build_animation
     max_time = 1000
     agent = Agent(speed=0.04)
-    init_xyz = 0, -7, 0.01
+    init_xyz = 0, -5, 0.01
     init_ori = R.from_euler("Z", 0)
     # init_ori = R.from_euler("Z", np.pi)
     # init_xyz = -5, -2, 0.01
@@ -56,6 +56,7 @@ def main(*args):
     AAG
     AAI
     AAL
+    AAF
     AAJ
     NBM""", name=ani_name)
     sim.callback = ani
