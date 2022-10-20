@@ -133,6 +133,7 @@ class GradientVectorSimulation(Simulation):
         self.__oscillation_gain = 0.5
         self.__g_power = 0.0
         self.__normalise_update = False
+        self.__differential_steering = False
         gradient.exp = 1.0
         gradient.baseline = 0.1
 
@@ -201,19 +202,20 @@ class GradientVectorSimulation(Simulation):
         osc_w = np.clip(self.__oscillation_gain * (1 + dna_3), 0, 1)
         rand = 0.0 * (np.random.rand(3) * 2 - 1)
 
-        # differential steering
-        steer = self.__steering_gain * (r_dna_2 - l_dna_2)
-        print(f"steer = {np.rad2deg(steer):.2f}", end="; ")
-        av = R.from_euler("Z", osc_w * self.osc_steer +
-                          np.clip(steer, -np.pi/4, np.pi/4) +
-                          rand[2] * np.pi / 2)
-
-        # vector steering
-        # steer = (r_pfl3 + l_pfl3 + pfl2) / 3
-        # print(f"steer_mag = {np.abs(steer):.2f}, steer_ang = {np.rad2deg(np.angle(steer)):.2f}", end="; ")
-        # av = R.from_euler("Z", osc_w * self.osc_steer +
-        #                   np.clip(np.abs(steer) * np.angle(steer), -np.pi/4, np.pi/4) +
-        #                   rand[2] * np.pi / 2)
+        if self.__differential_steering:
+            # differential steering
+            steer = self.__steering_gain * (r_dna_2 - l_dna_2)
+            print(f"steer = {np.rad2deg(steer):.2f}", end="; ")
+            av = R.from_euler("Z", osc_w * self.osc_steer +
+                              np.clip(steer, -np.pi/4, np.pi/4) +
+                              rand[2] * np.pi / 2)
+        else:
+            # vector steering
+            steer = (r_pfl3 + l_pfl3 + pfl2) / 3
+            print(f"steer_mag = {np.abs(steer):.2f}, steer_ang = {np.rad2deg(np.angle(steer)):.2f}", end="; ")
+            av = R.from_euler("Z", osc_w * self.osc_steer +
+                              np.clip(np.abs(steer) * np.angle(steer), -np.pi/4, np.pi/4) +
+                              rand[2] * np.pi / 2)
 
         lv = [0, front - dna_3, 0]
         # lv = [0, front, 0]
