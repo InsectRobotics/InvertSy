@@ -1224,10 +1224,7 @@ class PathIntegrationSimulation(CentralPointNavigationSimulationBase):
 
         self.__file_data = None
 
-        if not isinstance(self._agent, RouteFollowingAgent):
-            delattr(self, 'r_mbon')
-
-    def reset(self):
+    def reset(self, *args):
         """
         Initialises the logged statistics and iteration count, calibrates the eye of agent if applicable and places it
         to the beginning of the route.
@@ -1237,6 +1234,7 @@ class PathIntegrationSimulation(CentralPointNavigationSimulationBase):
         np.ndarray[float]
             array of the 3D positions of the samples used for the calibration
         """
+        super().reset()
         self._stats["ommatidia"] = []
         self._stats["PN"] = []
         self._stats["KC"] = []
@@ -1345,7 +1343,7 @@ class PathIntegrationSimulation(CentralPointNavigationSimulationBase):
 
         if hasattr(self.agent, "mushroom_body"):
             self.agent.mushroom_body.update = self._foraging
-        self._agent(sky=self._sky, scene=self._world, act=act, callback=self.update_stats, omm_responses=omm_responses)
+        self._agent(sky=self._sky, scene=self._world, act=act, callback=self.update_stats)
 
         if i > self.route.shape[0] and "replace" in self._stats:
             d_route = np.linalg.norm(self.route[:, :3] - self._agent.xyz, axis=1)

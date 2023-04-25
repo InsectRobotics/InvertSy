@@ -1,4 +1,5 @@
 from invertsy.env.world import Seville2009
+from invertsy.agent import PathIntegrationAgent
 from invertsy.sim.simulation import PathIntegrationSimulation
 from invertsy.sim.animation import PathIntegrationAnimation
 
@@ -11,7 +12,8 @@ def main(*args):
     rt = rt[::-1]
     rt[:, 3] = (rt[:, 3] - 0) % 360 - 180
     # rt[:, 3] = (rt[:, 3] - 5) % 360 - 180
-    sim = PathIntegrationSimulation(rt, noise=0., name="pi-ant%d-route%d" % (ant_no, rt_no))
+    agent = PathIntegrationAgent()
+    sim = PathIntegrationSimulation(rt, agent=agent, noise=0., name="pi-ant%d-route%d" % (ant_no, rt_no))
     ani = PathIntegrationAnimation(sim, show_history=True)
     ani(save=False, show=True, save_type="mp4", save_stats=False)
 
