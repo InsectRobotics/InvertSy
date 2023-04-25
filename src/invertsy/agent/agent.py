@@ -534,6 +534,10 @@ class Agent(object):
         """
         return self._dx
 
+    @step_size.setter
+    def step_size(self, value):
+        self._dx = value
+
     @property
     def delta_time(self):
         """
