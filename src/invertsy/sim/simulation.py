@@ -1282,10 +1282,10 @@ class PathIntegrationSimulation(CentralPointNavigationSimulationBase):
             self.agent.ori = R.from_euler("Z", self.route[0, 3], degrees=True)
             self.agent.central_complex.reset_integrator()
 
-        file_path = os.path.join(__outb_dir__, f"{self.name}.npz")
-        if not os.path.exists(file_path):
-            np.savez(file_path, **self.stats)
-            print(f"Outbound stats are saved in: '{file_path}'")
+        # file_path = os.path.join(__outb_dir__, f"{self.name}.npz")
+        # if not os.path.exists(file_path):
+        #     np.savez(file_path, **self.stats)
+        #     print(f"Outbound stats are saved in: '{file_path}'")
 
     def _step(self, i):
         """
