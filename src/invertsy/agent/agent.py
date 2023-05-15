@@ -243,10 +243,7 @@ class Agent(object):
         # compute the step size based on the new delta time
         dx = dx * dt
 
-        # normalise the vector
-        direction_xyz = np.array(direction_xyz) / np.maximum(np.linalg.norm(direction_xyz), eps)
-
-        self.translate(self._ori.apply(dx * direction_xyz))
+        self.translate(self._ori.apply(dx * np.array(direction_xyz)))
 
     def rotate(self, d_ori: R):
         """
@@ -537,6 +534,10 @@ class Agent(object):
         """
         return self._dx
 
+    @step_size.setter
+    def step_size(self, value):
+        self._dx = value
+
     @property
     def delta_time(self):
         """
@@ -663,7 +664,12 @@ class VisualProcessingAgent(Agent, ABC):
         if omm_responses is not None:
             nb_samples = omm_responses.shape[0]
 
-        cal_file = os.path.join(__data_calibrate__, f"calibration_{nb_samples}.npz")
+        li = ""
+        for proc in self.preprocessing:
+            if isinstance(proc, LateralInhibition):
+                li = "_li"
+
+        cal_file = os.path.join(__data_calibrate__, f"calibration{li}_{nb_samples}.npz")
         if os.path.exists(cal_file):
             data = np.load(cal_file, allow_pickle=True)
 
@@ -1150,7 +1156,7 @@ class VisualNavigationAgent(VisualProcessingAgent):
             us = np.cos(np.deg2rad(self.pref_angles))
             self._mem(cs=r, us=us)
             if isinstance(self._mem, VisualIncentiveCircuit):
-                fam = np.mean(self._mem.familiarity[0], axis=-1)
+                fam = np.mean(self._mem.familiarity, axis=-1)
             else:
                 fam = self._mem.familiarity
             if isinstance(fam, numbers.Number):
@@ -1169,7 +1175,7 @@ class VisualNavigationAgent(VisualProcessingAgent):
                 r = self.get_pn_responses(sky=sky, scene=scene, omm_responses=omm_responses)
                 self._mem(cs=r)
                 if isinstance(self._mem, VisualIncentiveCircuit):
-                    fam = np.mean(self._mem.familiarity[0], axis=-1)
+                    fam = np.mean(self._mem.familiarity, axis=-1)
                 else:
                     fam = self._mem.familiarity
                 self._familiarity[:] = fam.flatten()

@@ -11,11 +11,13 @@ __license__ = "GPLv3+"
 __version__ = "v1.0.0-alpha"
 __maintainer__ = "Evripidis Gkanias"
 
+from collections import namedtuple
+
 from invertsy.__helpers import __root__
 from invertsy.agent.agent import RouteFollowingAgent, VisualProcessingAgent, CentralComplexAgent
 
 from ._helpers import *
-from .simulation import RouteSimulation, NavigationSimulation, Simulation
+from .simulation import RouteSimulation, NavigationSimulation, SimulationBase
 from .simulation import PathIntegrationSimulation, TwoSourcePathIntegrationSimulation
 from .simulation import VisualNavigationSimulation, CentralPointNavigationSimulationBase
 
@@ -54,6 +56,799 @@ Directory where to save the simulation statistics logs
 
 
 class Animation(object):
+    Marker = namedtuple('Marker', ['position', 'codes', 'vert'])
+
+    def __init__(self, mosaic=None, fps=15, width=5, height=5, name=None):
+
+        self.__fps = fps
+        self.__width = width
+        self.__height = height
+        if name is None:
+            name = "animation"
+        self.__name = name
+        self.__fig = plt.figure(name, figsize=(width, height))
+        if mosaic is None:
+            mosaic = """A"""
+        self.__ax_dict = self.__fig.subplot_mosaic(mosaic)
+        self.__static_lines = []
+        self.__lines = []
+
+        # plt.show()
+
+    def reset(self):
+        return tuple(self.lines)
+
+    def __call__(self, *args, **kwargs):
+        return tuple(self.lines)
+
+    @property
+    def figure(self):
+        return self.__fig
+
+    @property
+    def panels(self):
+        return self.__ax_dict
+
+    @property
+    def panel_names(self):
+        return list(self.__ax_dict)
+
+    @property
+    def frames_per_second(self):
+        return self.__fps
+
+    @property
+    def fig_width(self):
+        return self.__width
+
+    @property
+    def fig_height(self):
+        return self.__height
+
+    @property
+    def name(self):
+        return self.__name
+
+    @property
+    def lines(self):
+        return self.__lines
+
+    @property
+    def _static_lines(self):
+        return self.__static_lines
+
+    @staticmethod
+    def add_directed_position(axis, colour='red', size=100):
+        pos = axis.scatter([], [], marker=(3, 2, 0), s=size, c=colour, zorder=100)
+
+        points = [0, 2, 3, 4, 6]
+        vert = np.array(pos.get_paths()[0].vertices)[points]
+        vert[0] *= 2
+        codes = pos.get_paths()[0].codes[points]
+        vert = np.hstack([vert, np.zeros((vert.shape[0], 1))])
+
+        return Animation.Marker(pos, codes, vert)
+
+    @staticmethod
+    def update_directed_position(marker, x, y, ori):
+
+        marker.position.set_offsets(np.array([x, y]))
+
+        vertices = R.from_euler('Z', ori.as_euler('ZYX', degrees=True)[0], degrees=True).apply(marker.vert)
+        marker.position.set_paths((Path(vertices[:, :2], marker.codes),))
+
+    def __del__(self):
+        plt.close(self.__fig)
+
+
+class GradientVectorAnimation(Animation):
+
+    def __init__(self, gradient, levels=10, resolution=101, max_time=1000, vectors=False, *args, **kwargs):
+        kwargs.setdefault("mosaic", """A""")
+        super().__init__(*args, **kwargs)
+
+        self.max_time = max_time
+        self.__gradient = gradient
+        self.__iteration = 0
+
+        if vectors:
+            self.init_panel = self.init_panel_vectors
+            self.update_panel = self.update_panel_vectors
+        else:
+            self.init_panel = self.init_panel_responses
+            self.update_panel = self.update_panel_responses
+
+        grid = np.zeros((resolution, resolution), dtype=float)
+        for i, x in enumerate(np.linspace(gradient.minx - 2, gradient.maxx + 2, resolution)):
+            for j, y in enumerate(np.linspace(gradient.miny - 2, gradient.maxy + 2, resolution)):
+                grid[i, j] = self.__gradient(x, y)
+
+        cont = self.panels["A"].contourf(np.linspace(gradient.minx - 2, gradient.maxx + 2, resolution),
+                                         np.linspace(gradient.miny - 2, gradient.maxy + 2, resolution),
+                                         grid.T, levels=levels, cmap='YlOrBr', vmin=0, vmax=1)
+        self._static_lines.append(cont)
+
+        # self.panels["A"].plot(gradient.route[:, 0], gradient.route[:, 1], 'k-', lw=2)
+        # self.line, = self.panels["A"].plot([], [], 'k-', lw=1, alpha=0.5)
+        self.quiver = []
+        for _ in range(max_time + 1):
+            self.quiver.append(self.panels["A"].quiver(-100, -100, 1, 0, color='black', zorder=50,
+                                                       lw=.5, alpha=0.2, headwidth=1, headlength=2))
+        self.panels["A"].set_aspect("equal")
+        self.panels["A"].set_xlim([self.__gradient.minx - 2, self.__gradient.maxx + 2])
+        self.panels["A"].set_ylim([self.__gradient.miny - 2, self.__gradient.maxy + 2])
+        # self.target_bl = self.panels["A"].scatter([0], [0], s=50, c='red', marker='x')
+        # self.target_br = self.panels["A"].scatter([0], [0], s=50, c='green', marker='x')
+        # self.target_cl = self.panels["A"].scatter([0], [0], s=50, c='red', marker='o')
+        # self.target_cr = self.panels["A"].scatter([0], [0], s=50, c='green', marker='o')
+        self.marker = self.add_directed_position(self.panels["A"], colour='orange', size=100)
+        self.update_directed_position(self.marker, x=0, y=0, ori=R.from_euler("Z", 0))
+        self.lines.append(self.marker.position)
+        # self.lines.append(self.line)
+        self.lines.extend(self.quiver)
+        # self.lines.append(self.target_bl)
+        # self.lines.append(self.target_br)
+        # self.lines.append(self.target_cl)
+        # self.lines.append(self.target_cr)
+
+        self.line_g = None
+        self.res_epg = None
+        self.res_pfn = None
+        self.res_hd = None
+        self.res_fc = None
+        self.res_pfl2 = None
+        self.res_pfl3 = None
+        self.line_tan = None
+        self.line_tar = None
+        self.line_vec = None
+        self.line_ang = None
+        self.line_phi = None
+        self.line_dis = None
+
+        if "B" in self.panel_names:
+            self.line_g, = self.panels["B"].plot([], [], 'k-', lw=2)
+            self.panels["B"].set_ylim(-.1, 1.1)
+            self.panels["B"].set_ylabel("familiarity")
+            self.lines.append(self.line_g)
+
+        if "E" in self.panel_names:
+            self.res_hdb = self.init_panel("E", title=r"$h\Delta$", bottom=False, cmap='Reds', pop_size=8)
+            self.lines.append(self.res_hdb)
+
+        if "F" in self.panel_names:
+            self.res_pfl2 = self.init_panel("F", title=r"$PFL2$", bottom=False, cmap='Oranges', pop_size=8)
+            self.lines.append(self.res_pfl2)
+
+        if "G" in self.panel_names:
+            self.res_pfn = self.init_panel("G", title=r"$PFN_{d/v}$", bottom=False, cmap='Purples')
+            self.lines.append(self.res_pfn)
+
+        if "I" in self.panel_names:
+            self.res_hd = self.init_panel("I", title=r"$h\Delta$", bottom=False, cmap='Reds', pop_size=8)
+            self.lines.append(self.res_hd)
+
+        if "J" in self.panel_names:
+            self.res_pfl3 = self.init_panel("J", title=r"$PFL3$", bottom=False, cmap='Greens')
+            self.lines.append(self.res_pfl3)
+
+        if "L" in self.panel_names:
+            self.res_fc = self.init_panel("L", title=r"$FC$", bottom=False, cmap='Oranges', pop_size=8)
+            self.lines.append(self.res_fc)
+
+        if "O" in self.panel_names:
+            self.res_epg = self.init_panel("O", title=r"$EPG$", cmap="Blues", bottom=False)
+            self.lines.append(self.res_epg)
+
+        if "M" in self.panel_names:
+            self.line_tar, = self.panels["M"].plot([], [], color='orange', lw=2)
+            self.line_vec, = self.panels["M"].plot([], [], 'r-', lw=2)
+            self.line_tan, = self.panels["M"].plot([], [], 'k--', lw=2)
+            self.line_ang, = self.panels["M"].plot([], [], 'k-', lw=1, alpha=0.5)
+            self.line_phi, = self.panels["M"].plot([], [], 'r-', lw=1, alpha=0.5)  # direction of motion
+            self.panels["M"].set_ylim(-np.pi, np.pi)
+            self.panels["M"].set_yticks([-np.pi, 0, np.pi])
+            self.panels["M"].set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
+            self.panels["M"].set_ylabel("yaw")
+            self.lines.append(self.line_tan)
+            self.lines.append(self.line_tar)
+            self.lines.append(self.line_vec)
+            self.lines.append(self.line_ang)
+            self.lines.append(self.line_phi)
+
+        if "N" in self.panel_names:
+            self.line_dis, = self.panels["N"].plot([], [], 'k-', lw=2)
+            self.panels["N"].set_ylim(-.1, 3.1)
+            self.panels["N"].set_ylabel("distance")
+            self.lines.append(self.line_dis)
+
+        plt.tight_layout()
+
+    def reset(self, agent=None):
+        self.__iteration = 0
+
+        self.update_agent(agent)
+        for q in self.quiver:
+            q.set_offsets([-100, -100])
+            q.set_UVC(1, 0)
+
+        if self.line_g is not None:
+            self.line_g.set_data([], [])
+            self.panels["B"].set_xlim(0, 0)
+
+        if self.line_dis is not None:
+            self.line_dis.set_data([], [])
+            self.panels["N"].set_xlim(0, 0)
+            self.panels["N"].set_ylim(-.1, +.1)
+
+        if self.line_tan is not None:
+            self.line_tan.set_data([], [])
+            self.panels["M"].set_xlim(0, 0)
+
+        if self.line_ang is not None:
+            self.line_ang.set_data([], [])
+            self.panels["M"].set_xlim(0, 0)
+
+        if self.line_phi is not None:
+            self.line_phi.set_data([], [])
+            self.panels["M"].set_xlim(0, 0)
+
+        if self.line_vec is not None:
+            self.line_vec.set_data([], [])
+            self.panels["M"].set_xlim(0, 0)
+
+        if self.line_tar is not None:
+            self.line_tar.set_data([], [])
+            self.panels["M"].set_xlim(0, 0)
+
+        if self.res_epg is not None:
+            self.res_epg.set_array(-100 * np.ones((16, self.max_time + 1), dtype='float32'))
+            self.panels["O"].set_xlim(-0.5, 0.5)
+
+        if self.res_pfn is not None:
+            self.res_pfn.set_array(-100 * np.ones((16, self.max_time + 1), dtype='float32'))
+            self.panels["G"].set_xlim(-0.5, 0.5)
+
+        if self.res_hd is not None:
+            self.res_hd.set_array(-100 * np.ones((16, self.max_time + 1), dtype='float32'))
+            self.panels["I"].set_xlim(-0.5, 0.5)
+
+        if self.res_fc is not None:
+            self.res_fc.set_array(-100 * np.ones((16, self.max_time + 1), dtype='float32'))
+            self.panels["L"].set_xlim(-0.5, 0.5)
+
+        if self.res_pfl3 is not None:
+            self.res_pfl3.set_array(-100 * np.ones((16, self.max_time + 1), dtype='float32'))
+            self.panels["J"].set_xlim(-0.5, 0.5)
+
+        return super(GradientVectorAnimation, self).reset()
+
+    def __call__(self, agent, grad=None, epg=None, pfn=None,
+                 h_delta=None, fc=None, pfl2=None, pfl3=None, phi=None):
+
+        if self.__iteration >= self.max_time:
+            return self.reset(agent)
+
+        print(f"i = {self.__iteration:03d}", end="; ")
+        self.update_agent(agent)
+        self.update_target(agent, np.exp(agent.yaw * 1j) * pfl2, np.exp(1j * agent.yaw) * (fc - epg * np.abs(fc)))
+        self.update_gradient(grad)
+        self.update_distance(self.__gradient.last_distance)
+        self.update_epg(epg)
+        self.update_pfn(pfn)
+        self.update_hd(h_delta)
+        self.update_df(fc)
+        self.update_pfl2(pfl2)
+        self.update_pfl3(pfl3)
+        # self.update_yaw(agent.yaw, phi=phi, target=[np.angle(dfc[1] + dfc[0]), np.angle(dfb[1] + dfb[0])])
+        self.update_yaw(agent.yaw, target=np.angle(np.sum(fc)))
+
+        self.__iteration += 1
+
+        return super(GradientVectorAnimation, self).__call__()
+
+    def update_agent(self, agent):
+        self.update_directed_position(self.marker, x=agent.x, y=agent.y, ori=agent.ori)
+        # x, y = self.line.get_data()
+        # self.line.set_data(list(x) + [agent.x], list(y) + [agent.y])
+        self.quiver[self.__iteration].set_offsets([[agent.x, agent.y]])
+        self.quiver[self.__iteration].set_UVC([-np.sin(agent.yaw)], [np.cos(agent.yaw)])
+        # self.panels["A"].quiver(agent.x, agent.y, -np.sin(agent.yaw), np.cos(agent.yaw))
+
+    def update_target(self, agent, dfb, dfc):
+        # self.target_bl.set_offsets([agent.x + np.real(np.exp(1j * np.pi/2) * dfb[0]),
+        #                             agent.y + np.imag(np.exp(1j * np.pi/2) * dfb[0])])
+        # self.target_br.set_offsets([agent.x + np.real(np.exp(1j * np.pi/2) * dfb[1]),
+        #                             agent.y + np.imag(np.exp(1j * np.pi/2) * dfb[1])])
+        # self.target_cl.set_offsets([agent.x + np.real(np.exp(1j * np.pi/2) * dfc[0]),
+        #                             agent.y + np.imag(np.exp(1j * np.pi/2) * dfc[0])])
+        # self.target_cr.set_offsets([agent.x + np.real(np.exp(1j * np.pi/2) * dfc[1]),
+        #                             agent.y + np.imag(np.exp(1j * np.pi/2) * dfc[1])])
+        pass
+
+    def update_gradient(self, grad):
+        if self.line_g is not None and grad is not None:
+            t, g = self.line_g.get_data()
+            t_last = len(t) / self.frames_per_second
+            self.line_g.set_data(list(t) + [t_last], list(g) + [grad])
+            self.panels["B"].set_xlim(0, t_last)
+
+    def update_distance(self, distance):
+        if self.line_dis is not None and distance is not None:
+            t, d = self.line_dis.get_data()
+            t_last = len(t) / self.frames_per_second
+            data = list(d) + [distance]
+            self.line_dis.set_data(list(t) + [t_last], data)
+            self.panels["N"].set_xlim(0, t_last)
+            self.panels["N"].set_ylim(-.1 * np.max(data), 1.1 * np.max(data))
+
+    def update_yaw(self, yaw, phi=None, target=None):
+        if self.line_ang is not None and yaw is not None:
+            t_ang, ang = self.line_ang.get_data()
+            t_phi, phi_ = self.line_phi.get_data()
+            t_tar, tar = self.line_tar.get_data()
+            t_vec, vec = self.line_vec.get_data()
+            t_tan, tan = self.line_tan.get_data()
+            t_last = np.isfinite(t_ang).sum() / self.frames_per_second
+
+            def add_value(times, values, val_c):
+                # fix potential jump
+                if len(values) > 0 and np.abs(val_c - values[-1]) > np.pi:
+                    t_llast = times[-1]
+                    times.append(t_last)
+                    if val_c - values[-1] > 0:
+                        values.append(val_c - 2 * np.pi)
+                    else:
+                        values.append(val_c + 2 * np.pi)
+                    times.append(t_last)
+                    values.append(np.nan)
+                    times.append(t_llast)
+                    if val_c - values[-2] > 0:
+                        values.append(values[-3] + 2 * np.pi)
+                    else:
+                        values.append(values[-3] - 2 * np.pi)
+                times.append(t_last)
+                values.append(val_c)
+
+            t_tan = list(t_tan)
+            tan = list(tan)
+            tan_c = (self.__gradient.last_tangent + np.pi) % (2 * np.pi) - np.pi
+            add_value(t_tan, tan, tan_c)
+            self.line_tan.set_data(t_tan, tan)
+
+            t_ang = list(t_ang)
+            ang = list(ang)
+            ang_c = (yaw + np.pi) % (2 * np.pi) - np.pi
+            add_value(t_ang, ang, ang_c)
+            self.line_ang.set_data(t_ang, ang)
+
+            if phi is not None:
+                t_phi = list(t_phi)
+                phi_ = list(phi_)
+                phi_c = (phi + np.pi) % (2 * np.pi) - np.pi
+                add_value(t_phi, phi_, phi_c)
+                self.line_phi.set_data(t_phi, phi_)
+
+            if target is not None:
+                t_tar = list(t_tar)
+                tar = list(tar)
+                if type(target) is list:
+                    t_vec = list(t_vec)
+                    vec = list(vec)
+                    tar_c = (target[0] + np.pi) % (2 * np.pi) - np.pi
+                    vec_c = (target[1] + np.pi) % (2 * np.pi) - np.pi
+                    add_value(t_vec, vec, vec_c)
+                    self.line_vec.set_data(t_vec, vec)
+                else:
+                    tar_c = (target + np.pi) % (2 * np.pi) - np.pi
+                add_value(t_tar, tar, tar_c)
+                self.line_tar.set_data(t_tar, tar)
+
+            self.panels["M"].set_xlim(0, t_last)
+
+    def update_epg(self, epg):
+        self.update_panel("O", self.res_epg, epg)
+
+    def update_pfn(self, pfn):
+        self.update_panel("G", self.res_pfn, pfn)
+
+    def update_hd(self, hd):
+        self.update_panel("I", self.res_hd, hd)
+
+    def update_df(self, fc):
+        self.update_panel("L", self.res_fc, fc)
+
+    def update_pfl2(self, pfl3):
+        self.update_panel("F", self.res_pfl2, pfl3)
+
+    def update_pfl3(self, pfl3):
+        self.update_panel("J", self.res_pfl3, pfl3)
+
+    def update_panel_vectors(self, panel, handler, new_value):
+        h1, h2 = handler
+        if handler is not None and new_value is not None:
+            t1, v1 = h1.get_data()
+            t2, v2 = h2.get_data()
+            if len(t1) > 0:
+                nb_nans = np.isnan(v1).sum()
+                t_last = (len(v1) - 3 * nb_nans) / self.frames_per_second
+            else:
+                t_last = 0.
+            new_v1 = np.angle(new_value[0])
+            t1, v1 = self.add_value(list(t1), t_last, list(v1), new_v1)
+            h1.set_data(t1, v1)
+            new_v2 = np.angle(new_value[1])
+            t2, v2 = self.add_value(list(t2), t_last, list(v2), new_v2)
+            h2.set_data(t2, v2)
+            self.panels[panel].set_xlim(0, t_last)
+
+    def update_panel_responses(self, panel, handler, new_value):
+        if handler is not None and new_value is not None:
+            values = handler.get_array()
+            t = int(np.all(values > -100, axis=0).sum())
+
+            angles = -np.linspace(-np.pi, np.pi, 8, endpoint=False)
+            nb_col = values.shape[0] // 8
+            if nb_col > 1:
+                abs_0, ang_0 = np.abs(new_value[0]), np.angle(new_value[0])
+                abs_1, ang_1 = np.abs(new_value[1]), np.angle(new_value[1])
+                abs_m = 1
+                # abs_m = np.maximum(abs_0, abs_1)
+                values[:, t] = np.r_[abs_0 / abs_m * np.cos(ang_0 + angles), abs_1 / abs_m * np.cos(ang_1 + angles)]
+            else:
+                values[:, t] = np.abs(new_value) * np.cos(np.angle(new_value) + angles)
+            handler.set_array(values)
+            self.panels[panel].set_xlim(-0.5, t + 0.5)
+
+    def init_panel_vectors(self, panel, title="", left=True, bottom=True, cmap=None):
+        ax1, = self.panels[panel].plot([], 'r-', lw=1)
+        ax2, = self.panels[panel].plot([], 'g-', lw=1)
+        self.panels[panel].plot([0, self.max_time / self.frames_per_second], [np.pi, np.pi], 'k-', lw=0.5)
+        self.panels[panel].set_ylim(-np.pi, np.pi)
+        if left:
+            self.panels[panel].set_yticks([-np.pi, 0, np.pi])
+            self.panels[panel].set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
+        else:
+            self.panels[panel].set_yticks([-np.pi, 0, np.pi])
+            self.panels[panel].set_yticklabels(["", "", ""])
+        if not bottom:
+            self.panels[panel].set_xticks([])
+            self.panels[panel].set_xticklabels([])
+        self.panels[panel].set_ylabel(title)
+
+        self.lines.append([ax1, ax2])
+
+        return ax1, ax2
+
+    def init_panel_responses(self, panel, title="", left=True, bottom=True, pop_size=16, cmap='inferno'):
+        ax = self.panels[panel].imshow(
+            -100 * np.ones((pop_size, self.max_time + 1), dtype='float32'), cmap=cmap, vmin=-1, vmax=1, origin="upper",
+            interpolation="none", aspect="auto")
+        self.panels[panel].set_ylim(-0.5, pop_size - 0.5)
+        self.panels[panel].set_xlim(-0.5, self.max_time - 0.5)
+        if left:
+            if pop_size > 8:
+                self.panels[panel].set_yticks([-0.5, 3.5, 7.5, 11.5, 15.5])
+                self.panels[panel].set_yticklabels(["", "R", "", "L", ""])
+            else:
+                self.panels[panel].set_yticks([-0.5, pop_size // 2 - 0.5, pop_size - 0.5])
+                self.panels[panel].set_yticklabels(["1", "", f"{pop_size}"])
+        else:
+            self.panels[panel].set_yticks([-0.5, 7.5, 15.5])
+            self.panels[panel].set_yticklabels(["", "", ""])
+        if not bottom:
+            self.panels[panel].set_xticks([])
+        self.panels[panel].set_ylabel(title)
+        self.panels[panel].plot([-0.5, self.max_time - 0.5], [7.5, 7.5], 'k-', lw=0.5)
+
+        self.lines.append(ax)
+
+        return ax
+
+    @staticmethod
+    def add_value(times, t_last, values, val_c):
+        # fix potential jump
+        if len(values) > 0 and np.abs(val_c - values[-1]) > np.pi:
+            t_llast = times[-1]
+            times.append(t_last)
+            if val_c - values[-1] > 0:
+                values.append(val_c - 2 * np.pi)
+            else:
+                values.append(val_c + 2 * np.pi)
+            times.append(t_last)
+            values.append(np.nan)
+            times.append(t_llast)
+            if val_c - values[-2] > 0:
+                values.append(values[-3] + 2 * np.pi)
+            else:
+                values.append(values[-3] - 2 * np.pi)
+        times.append(t_last)
+        values.append(val_c)
+
+        return times, values
+
+
+class GradientAnimation(Animation):
+
+    def __init__(self, gradient, levels=10, resolution=101, max_time=1000, *args, **kwargs):
+        kwargs.setdefault("mosaic", """A""")
+        super().__init__(*args, **kwargs)
+
+        self.max_time = max_time
+        self.__gradient = gradient
+
+        grid = np.zeros((resolution, resolution), dtype=float)
+        for i, x in enumerate(np.linspace(gradient.minx-2, gradient.maxx+2, resolution)):
+            for j, y in enumerate(np.linspace(gradient.miny-2, gradient.maxy+2, resolution)):
+                grid[i, j] = gradient(x, y)
+
+        cont = self.panels["A"].contourf(np.linspace(gradient.minx - 2, gradient.maxx + 2, resolution),
+                                         np.linspace(gradient.miny - 2, gradient.maxy + 2, resolution),
+                                         grid.T, levels=levels, cmap='YlOrBr', vmin=0, vmax=1)
+        self.line, = self.panels["A"].plot([], [], 'k-', lw=1, alpha=0.5)
+        self.panels["A"].set_aspect("equal")
+        self._static_lines.append(cont)
+        self.marker = self.add_directed_position(self.panels["A"], colour='black', size=100)
+        self.update_directed_position(self.marker, x=0, y=0, ori=R.from_euler("Z", 0))
+        self.lines.append(self.marker)
+        self.lines.append(self.line)
+
+        if "B" in self.panel_names:
+            self.line_g, = self.panels["B"].plot([], [], 'k-', lw=2)
+            self.panels["B"].set_ylim(-.1, 1.1)
+            self.panels["B"].set_ylabel("gradient")
+            self.lines.append(self.line_g)
+        else:
+            self.line_g = None
+
+        if "C" in self.panel_names:
+            self.res_pfn_d = self.init_panel_responses("C", title=r"$PFN_d$", bottom=False)
+        else:
+            self.res_pfn_d = None
+
+        if "D" in self.panel_names:
+            self.res_pfn_v = self.init_panel_responses("D", title=r"$PFN_v$", bottom=False)
+        else:
+            self.res_pfn_v = None
+
+        if "E" in self.panel_names:
+            self.res_hdb = self.init_panel_responses("E", title=r"$h\Delta B$", bottom=False)
+        else:
+            self.res_hdb = None
+
+        if "F" in self.panel_names:
+            self.res_pfl2 = self.init_panel_responses("F", title=r"$PFL2$")
+        else:
+            self.res_pfl2 = None
+
+        if "G" in self.panel_names:
+            self.res_pfn_a = self.init_panel_responses("G", title=r"$PFN_a$", bottom=False, left=False)
+        else:
+            self.res_pfn_a = None
+
+        if "H" in self.panel_names:
+            self.res_pfn_p = self.init_panel_responses("H", title=r"$PFN_p$", bottom=False, left=False)
+        else:
+            self.res_pfn_p = None
+
+        if "I" in self.panel_names:
+            self.res_hdc = self.init_panel_responses("I", title=r"$h\Delta C$", bottom=False, left=False)
+        else:
+            self.res_hdc = None
+
+        if "J" in self.panel_names:
+            self.res_pfl3 = self.init_panel_responses("J", title=r"$PFL3$", left=False)
+        else:
+            self.res_pfl3 = None
+
+        if "K" in self.panel_names:
+            self.res_dfb = self.init_panel_responses("K", title=r"$\Delta\Phi B$", bottom=False)
+        else:
+            self.res_dfb = None
+
+        if "L" in self.panel_names:
+            self.res_dfc = self.init_panel_responses("L", title=r"$\Delta\Phi C$", bottom=False, left=False)
+        else:
+            self.res_dfc = None
+
+        if "O" in self.panel_names:
+            self.res_epg = self.init_panel_responses("O", title=r"$EPG$")
+        else:
+            self.res_epg = None
+
+        if "M" in self.panel_names:
+            self.line_tar, = self.panels["M"].plot([], [], 'g-', lw=2)
+            self.line_tan, = self.panels["M"].plot([], [], 'k--', lw=2)
+            self.line_ang, = self.panels["M"].plot([], [], 'k-', lw=1, alpha=0.5)
+            self.line_phi, = self.panels["M"].plot([], [], 'r-', lw=1, alpha=0.5)  # direction of motion
+            self.panels["M"].set_ylim(-np.pi, np.pi)
+            self.panels["M"].set_yticks([-np.pi, 0, np.pi])
+            self.panels["M"].set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
+            self.panels["M"].set_ylabel("yaw")
+            self.lines.append(self.line_tan)
+            self.lines.append(self.line_tar)
+            self.lines.append(self.line_ang)
+            self.lines.append(self.line_phi)
+        else:
+            self.line_tan = None
+            self.line_tar = None
+            self.line_ang = None
+            self.line_phi = None
+
+        if "N" in self.panel_names:
+            self.line_dis, = self.panels["N"].plot([], [], 'k-', lw=2)
+            self.panels["N"].set_ylim(-.1, 3.1)
+            self.panels["N"].set_ylabel("distance")
+            self.lines.append(self.line_dis)
+        else:
+            self.line_dis = None
+
+    def __call__(self, agent, grad=None, epg=None, pfn_d=None, pfn_v=None, hdb=None, dfb=None, pfl2=None,
+                 pfn_a=None, pfn_p=None, hdc=None, dfc=None, pfl3=None, phi=None):
+        self.update_agent(agent)
+        self.update_gradient(grad)
+        self.update_distance(self.__gradient.last_distance)
+        self.update_epg(epg)
+        self.update_pfn_d(pfn_d)
+        self.update_pfn_v(pfn_v)
+        self.update_hdb(hdb)
+        self.update_dfb(dfb)
+        self.update_pfl2(pfl2)
+        self.update_pfn_a(pfn_a)
+        self.update_pfn_p(pfn_p)
+        self.update_hdc(hdc)
+        self.update_dfc(dfc)
+        self.update_pfl3(pfl3)
+
+        population = np.maximum(dfc[-1][8:] + dfc[-1][:8], 0)
+        v = np.sum(population * np.exp(-1j * np.linspace(0, 2 * np.pi, 8, endpoint=False)))
+
+        self.update_yaw(agent.yaw, phi=phi, target=-np.angle(v))
+        super(GradientAnimation, self).__call__()
+
+    def update_agent(self, agent):
+        self.update_directed_position(self.marker, x=agent.x, y=agent.y, ori=agent.ori)
+        x, y = self.line.get_data()
+        self.line.set_data(list(x) + [agent.x], list(y) + [agent.y])
+
+    def update_gradient(self, grad):
+        if self.line_g is not None and grad is not None:
+            t, g = self.line_g.get_data()
+            t_last = len(t) / self.frames_per_second
+            self.line_g.set_data(list(t) + [t_last], list(g) + [grad])
+            self.panels["B"].set_xlim(0, t_last)
+
+    def update_distance(self, distance):
+        if self.line_dis is not None and distance is not None:
+            t, d = self.line_dis.get_data()
+            t_last = len(t) / self.frames_per_second
+            data = list(d) + [distance]
+            self.line_dis.set_data(list(t) + [t_last], data)
+            self.panels["N"].set_xlim(0, t_last)
+            self.panels["N"].set_ylim(-.1 * np.max(data), 1.1 * np.max(data))
+
+    def update_yaw(self, yaw, phi=None, target=None):
+        if self.line_ang is not None and yaw is not None:
+            t_ang, ang = self.line_ang.get_data()
+            t_phi, phi_ = self.line_phi.get_data()
+            t_tar, tar = self.line_tar.get_data()
+            t_tan, tan = self.line_tan.get_data()
+            t_last = np.isfinite(t_ang).sum() / self.frames_per_second
+
+            def add_value(times, values, val_c):
+                # fix potential jump
+                if len(values) > 0 and np.abs(val_c - values[-1]) > np.pi:
+                    t_llast = times[-1]
+                    times.append(t_last)
+                    if val_c - values[-1] > 0:
+                        values.append(val_c - 2 * np.pi)
+                    else:
+                        values.append(val_c + 2 * np.pi)
+                    times.append(t_last)
+                    values.append(np.nan)
+                    times.append(t_llast)
+                    if val_c - values[-2] > 0:
+                        values.append(values[-3] + 2 * np.pi)
+                    else:
+                        values.append(values[-3] - 2 * np.pi)
+                times.append(t_last)
+                values.append(val_c)
+
+            t_tan = list(t_tan)
+            tan = list(tan)
+            tan_c = (self.__gradient.last_tangent + np.pi) % (2 * np.pi) - np.pi
+            add_value(t_tan, tan, tan_c)
+            self.line_tan.set_data(t_tan, tan)
+
+            t_ang = list(t_ang)
+            ang = list(ang)
+            ang_c = (yaw + np.pi) % (2 * np.pi) - np.pi
+            add_value(t_ang, ang, ang_c)
+            self.line_ang.set_data(t_ang, ang)
+
+            if phi is not None:
+                t_phi = list(t_phi)
+                phi_ = list(phi_)
+                phi_c = (phi + np.pi) % (2 * np.pi) - np.pi
+                add_value(t_phi, phi_, phi_c)
+                self.line_phi.set_data(t_phi, phi_)
+
+            if target is not None:
+                t_tar = list(t_tar)
+                tar = list(tar)
+                tar_c = (target + np.pi) % (2 * np.pi) - np.pi
+                add_value(t_tar, tar, tar_c)
+                self.line_tar.set_data(t_tar, tar)
+
+            self.panels["M"].set_xlim(0, t_last)
+
+    def update_epg(self, epg):
+        self.update_panel_responses("O", self.res_epg, epg)
+
+    def update_pfn_d(self, pfn_d):
+        self.update_panel_responses("C", self.res_pfn_d, pfn_d)
+
+    def update_pfn_v(self, pfn_v):
+        self.update_panel_responses("D", self.res_pfn_v, pfn_v)
+
+    def update_hdb(self, hdb):
+        self.update_panel_responses("E", self.res_hdb, hdb)
+
+    def update_dfb(self, dfb):
+        self.update_panel_responses("K", self.res_dfb, dfb)
+
+    def update_pfl2(self, pfl3):
+        self.update_panel_responses("F", self.res_pfl2, pfl3)
+
+    def update_pfn_a(self, pfn_a):
+        self.update_panel_responses("G", self.res_pfn_a, pfn_a)
+
+    def update_pfn_p(self, pfn_p):
+        self.update_panel_responses("H", self.res_pfn_p, pfn_p)
+
+    def update_hdc(self, hdc):
+        self.update_panel_responses("I", self.res_hdc, hdc)
+
+    def update_dfc(self, dfc):
+        self.update_panel_responses("L", self.res_dfc, dfc)
+
+    def update_pfl3(self, pfl3):
+        self.update_panel_responses("J", self.res_pfl3, pfl3)
+
+    def update_panel_responses(self, panel, handler, new_value):
+        if handler is not None and new_value is not None:
+            handler.set_data(np.array(new_value).T)
+            t_last = len(new_value) / self.frames_per_second
+            if self.panels[panel].get_xticklabels()[-1].get_text() != "":
+                self.panels[panel].set_xticklabels([f"{0:.1f}", f"{t_last:.1f}"])
+            # self.panels[panel].set_xlim(-0.5, len(new_value) - 0.5)
+
+    def init_panel_responses(self, panel, title="", left=True, bottom=True):
+        ax = self.panels[panel].imshow(
+            np.zeros((16, self.max_time), dtype='float32'), cmap='inferno', vmin=-1, vmax=1, origin="upper",
+            interpolation="none", aspect="auto")
+        self.panels[panel].set_ylim(-0.5, 15.5)
+        self.panels[panel].set_xlim(-0.5, self.max_time - 0.5)
+        if left:
+            self.panels[panel].set_yticks([-0.5, 3.5, 7.5, 11.5, 15.5])
+            self.panels[panel].set_yticklabels(["", "L", "", "R", ""])
+        else:
+            self.panels[panel].set_yticks([-0.5, 7.5, 15.5])
+            self.panels[panel].set_yticklabels(["", "", ""])
+        if bottom:
+            self.panels[panel].set_xticks([0, self.max_time - 1])
+            self.panels[panel].set_xticklabels(["0.0", "0.0"])
+        else:
+            self.panels[panel].set_xticks([0, self.max_time - 1])
+            self.panels[panel].set_xticklabels(["", ""])
+        self.panels[panel].set_title(title)
+        self.panels[panel].plot([-0.5, self.max_time-0.5], [7.5, 7.5], 'k-', lw=0.5)
+
+        self.lines.append(ax)
+
+        return ax
+
+
+class AnimationBase(object):
 
     def __init__(self, sim, fps=15, width=11, height=5, name=None):
         """
@@ -61,7 +856,7 @@ class Animation(object):
 
         Parameters
         ----------
-        sim: Simulation
+        sim: SimulationBase
             the simulation to run
         fps: float, optional
             the frames per second of the visualisations. Default is 15 fps
@@ -200,7 +995,7 @@ class Animation(object):
 
         Returns
         -------
-        Simulation
+        SimulationBase
         """
         return self._sim
 
@@ -249,7 +1044,7 @@ class Animation(object):
         return self.sim.name + "-anim"
 
 
-class RouteAnimation(Animation):
+class RouteAnimation(AnimationBase):
 
     def __init__(self, sim, cmap="Greens_r", *args, **kwargs):
         """
@@ -263,6 +1058,8 @@ class RouteAnimation(Animation):
         cmap: str, optional
             the colour map to show the intensity of the ommatidia photo-receptors' responses. Default it 'Greens_r'
         """
+        kwargs.setdefault("width", 7)
+        kwargs.setdefault("height", 3)
         super().__init__(sim, *args, **kwargs)
 
         ax_dict = self.fig.subplot_mosaic(
@@ -299,6 +1096,31 @@ class RouteAnimation(Animation):
         vert, codes = self._marker
         vertices = R.from_euler('Z', -self.sim.eye.ori.as_euler('ZYX', degrees=True)[0], degrees=True).apply(vert)
         self.pos.set_paths((Path(vertices[:, :2], codes),))
+
+        # id = {40: 1, 400: 2, 800: 3, 819: 4}
+        # print(f"Iteration: {i}")
+        # if i in id:
+        #     fig = plt.figure(f"{self.name}-view-{id[i]}", figsize=(7, 3))
+        #     ax_dict = fig.subplot_mosaic(
+        #         """
+        #         AABB
+        #         CDBB
+        #         """
+        #     )
+        #
+        #     omm = create_eye_axis(self.sim.eye, cmap="Greens_r", ax=ax_dict['A'])
+        #     omm_t = create_sphere_eye_axis(self.sim.eye, cmap="Greens_r", side="top", ax=ax_dict['C'])
+        #     omm_s = create_sphere_eye_axis(self.sim.eye, cmap="Greens_r", side="side", ax=ax_dict['D'])
+        #     line, _, pos, self._marker = create_map_axis(world=self.sim.world, ax=ax_dict['B'])[:4]
+        #
+        #     omm.set_array(self.sim.responses)
+        #     omm_t.set_array(self.sim.responses[self.sim.eye.omm_xyz[:, 2] >= 0])
+        #     omm_s.set_array(self.sim.responses[self.sim.eye.omm_xyz[:, 1] >= 0])
+        #     line.set_data(self.sim.route[:(i + 1), 1], self.sim.route[:(i + 1), 0])
+        #     pos.set_offsets(np.array([self.sim.eye.y, self.sim.eye.x]))
+        #     pos.set_paths((Path(vertices[:, :2], codes),))
+        #
+        #     plt.show()
 
     @property
     def omm(self):
@@ -345,7 +1167,7 @@ class RouteAnimation(Animation):
         return self._sim
 
 
-class MapResponsesAnimation(Animation):
+class MapResponsesAnimation(AnimationBase):
     def __init__(self, sim, *args, **kwargs):
         kwargs.setdefault('fps', 100)
         super().__init__(sim, *args, **kwargs)
@@ -747,7 +1569,7 @@ class MapResponsesAnimation(Animation):
         return self._lines[18:]
 
 
-class VisualNavigationAnimation(Animation):
+class VisualNavigationAnimation(AnimationBase):
 
     def __init__(self, sim, cmap="Greens_r", show_history=True, show_weights=False, *args, **kwargs):
         """
@@ -1056,7 +1878,7 @@ class VisualNavigationAnimation(Animation):
             return None
 
 
-class VisualFamiliarityAnimation(Animation):
+class VisualFamiliarityAnimation(AnimationBase):
 
     def __init__(self, sim, cmap="Greens_r", *args, **kwargs):
         """
@@ -1282,7 +2104,7 @@ class VisualFamiliarityAnimation(Animation):
             return None
 
 
-class PathIntegrationAnimation(Animation):
+class PathIntegrationAnimation(AnimationBase):
 
     def __init__(self, sim, show_history=True, cmap="coolwarm", *args, **kwargs):
         """
@@ -1572,7 +2394,7 @@ class PathIntegrationAnimation(Animation):
             return None
 
 
-class NavigationAnimation(Animation):
+class NavigationAnimation(AnimationBase):
 
     def __init__(self, sim, cmap="coolwarm", *args, **kwargs):
         """
