@@ -5,7 +5,7 @@ from invertsy.sim.animation import PathIntegrationAnimation
 
 
 def main(*args):
-    routes = Seville2009.load_routes(degrees=True)
+    routes = Seville2009.load_routes(args[0], degrees=True)
     ant_no, rt_no, rt = routes['ant_no'][0], routes['route_no'][0], routes['path'][0]
     print("Ant#: %d, Route#: %d, steps#: %d" % (ant_no, rt_no, rt.shape[0]))
 
@@ -21,9 +21,18 @@ def main(*args):
 
 if __name__ == '__main__':
     import warnings
-    import sys
+    import argparse
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
 
-        main(*sys.argv)
+        parser = argparse.ArgumentParser(
+            description="Run a path integration test."
+        )
+
+        parser.add_argument("-i", dest='input', type=str, required=False, default=Seville2009.ROUTES_FILENAME,
+                            help="File with the recorded routes.")
+
+        p_args = parser.parse_args()
+
+        main(p_args.input)
