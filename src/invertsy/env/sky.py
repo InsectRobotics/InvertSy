@@ -326,6 +326,9 @@ class Sky(UniformSky):
         # create cloud disturbance
         if eta is None:
             eta = add_noise(noise=noise, shape=y.shape, rng=rng)
+
+        print(eta)
+
         y[eta] = 0.
         p[eta] = 0.  # destroy the polarisation pattern
         a[eta] = np.nan
@@ -702,7 +705,7 @@ def spectrum_influence(v, irgbu):
     return w
 
 
-def visualise_luminance(sky):
+def visualise_luminance(sky, y=None, ax=None):
     """
     Plots the sky luminance.
 
@@ -710,16 +713,26 @@ def visualise_luminance(sky):
     ----------
     sky: Sky
         the sky model
+    y: np.ndarray
+        the luminance replacement
+    ax:
+        the axis
     """
     import matplotlib.pyplot as plt
 
-    plt.figure("Luminance", figsize=(4.5, 4.5))
-    ax = plt.subplot(111, polar=True)
+    if ax is None:
+        plt.figure("Luminance", figsize=(4.5, 4.5))
+        ax = plt.subplot(111, polar=True)
+    else:
+        ax.set_title('Luminance')
     ax.set_theta_zero_location("N")
     ax.set_theta_direction(-1)
 
+    if y is None:
+        y = sky.Y
     theta_s, phi_s = sky.theta_s, sky.phi_s
-    ax.scatter(sky.phi, sky.theta, s=20, c=sky.Y, marker='.', cmap='Blues_r', vmin=0, vmax=6)
+
+    ax.scatter(sky.phi, sky.theta, s=20, c=y, marker='.', cmap='Blues_r', vmin=0, vmax=6)
     ax.scatter(phi_s, theta_s, s=100, edgecolor='black', facecolor='yellow')
     # ax.scatter(env.phi_t + np.pi, env.theta_t, s=200, edgecolor='black', facecolor='greenyellow')
     ax.set_ylim([0, np.pi/2])
@@ -728,10 +741,10 @@ def visualise_luminance(sky):
     ax.set_xticklabels([r'$0^\circ$ (N)', r'$45^\circ$ (NE)', r'$90^\circ$ (E)', r'$135^\circ$ (SE)',
                         r'$180^\circ$ (S)', r'$-135^\circ$ (SW)', r'$-90^\circ$ (W)', r'$-45^\circ$ (NW)'])
 
-    plt.show()
+    return ax
 
 
-def visualise_degree_of_polarisation(sky):
+def visualise_degree_of_polarisation(sky, d=None, ax=None):
     """
     Plots the degree of polarisation in the sky.
 
@@ -739,17 +752,26 @@ def visualise_degree_of_polarisation(sky):
     ----------
     sky: Sky
         the sky model
+    d: np.ndarray
+        the DoP replacement
+    ax:
+        the axis
     """
     import matplotlib.pyplot as plt
 
-    plt.figure("degree-of-polarisation", figsize=(4.5, 4.5))
-    ax = plt.subplot(111, polar=True)
+    if ax is None:
+        plt.figure("degree-of-polarisation", figsize=(4.5, 4.5))
+        ax = plt.subplot(111, polar=True)
+    else:
+        ax.set_title('DoP')
     ax.set_theta_zero_location("N")
     ax.set_theta_direction(-1)
 
+    if d is None:
+        d = sky.DOP
     theta_s, phi_s = sky.theta_s, sky.phi_s
-    print(theta_s, phi_s)
-    ax.scatter(sky.phi, sky.theta, s=10, c=sky.DOP, marker='.', cmap='Greys', vmin=0, vmax=1)
+
+    ax.scatter(sky.phi, sky.theta, s=10, c=d, marker='.', cmap='Greys', vmin=0, vmax=1)
     ax.scatter(phi_s, theta_s, s=100, edgecolor='black', facecolor='yellow')
     # ax.scatter(env.phi_t + np.pi, env.theta_t, s=200, edgecolor='black', facecolor='greenyellow')
     ax.set_ylim([0, np.pi/2])
@@ -758,10 +780,10 @@ def visualise_degree_of_polarisation(sky):
     ax.set_xticklabels([r'$0^\circ$ (N)', r'$45^\circ$ (NE)', r'$90^\circ$ (E)', r'$135^\circ$ (SE)',
                         r'$180^\circ$ (S)', r'$-135^\circ$ (SW)', r'$-90^\circ$ (W)', r'$-45^\circ$ (NW)'])
 
-    plt.show()
+    return ax
 
 
-def visualise_angle_of_polarisation(sky):
+def visualise_angle_of_polarisation(sky, a=None, ax=None):
     """
     Plots the angle of polarisation in the sky.
 
@@ -769,16 +791,26 @@ def visualise_angle_of_polarisation(sky):
     ----------
     sky: Sky
         the sky model
+    a: np.ndarray
+        the AoP replacement
+    ax:
+        the axis
     """
     import matplotlib.pyplot as plt
 
-    plt.figure("angle-of-polarisation", figsize=(4.5, 4.5))
-    ax = plt.subplot(111, polar=True)
+    if ax is None:
+        plt.figure("angle-of-polarisation", figsize=(4.5, 4.5))
+        ax = plt.subplot(111, polar=True)
+    else:
+        ax.set_title('AoP')
     ax.set_theta_zero_location("N")
     ax.set_theta_direction(-1)
 
+    if a is None:
+        a = sky.AOP
     theta_s, phi_s = sky.theta_s, sky.phi_s
-    ax.scatter(sky.phi, sky.theta, s=10, c=sky.AOP, marker='.', cmap='hsv', vmin=-np.pi, vmax=np.pi)
+
+    ax.scatter(sky.phi, sky.theta, s=10, c=a, marker='.', cmap='hsv', vmin=-np.pi, vmax=np.pi)
     ax.scatter(phi_s, theta_s, s=100, edgecolor='black', facecolor='yellow')
     # ax.scatter(env.phi_t + np.pi, env.theta_t, s=200, edgecolor='black', facecolor='greenyellow')
     ax.set_ylim([0, np.pi/2])
@@ -787,4 +819,4 @@ def visualise_angle_of_polarisation(sky):
     ax.set_xticklabels([r'$0^\circ$ (N)', r'$45^\circ$ (NE)', r'$90^\circ$ (E)', r'$135^\circ$ (SE)',
                         r'$180^\circ$ (S)', r'$-135^\circ$ (SW)', r'$-90^\circ$ (W)', r'$-45^\circ$ (NW)'])
 
-    plt.show()
+    return ax

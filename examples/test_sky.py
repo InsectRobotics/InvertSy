@@ -1,8 +1,7 @@
 from invertpy.sense._helpers import fibonacci_sphere
 from invertpy.sense.vision import CompoundEye
 
-from invertsy.env.sky import Sky
-from invertsy.sim._helpers import plot_sky
+from invertsy.env.sky import Sky, visualise_luminance, visualise_angle_of_polarisation, visualise_degree_of_polarisation
 
 from scipy.spatial.transform import Rotation as R
 
@@ -25,8 +24,20 @@ print(eye)
 
 oris = eye.ori * eye.omm_ori
 y, p, a = sky(oris)
-y = np.square(r[..., 1])
-# print(r.min(), r.max())
+# y = np.square(r[..., 1])
 
-plt.figure("env", figsize=(10, 3.33))
-plot_sky(eye.omm_ori, y, p, a, flat=flat).show()
+plt.figure("sky properties", figsize=(10, 3.33))
+
+ax_l = plt.subplot(131, polar=True)
+ax_d = plt.subplot(132, polar=True)
+ax_a = plt.subplot(133, polar=True)
+ax_l.axis('off')
+ax_a.axis('off')
+
+visualise_luminance(sky, y, ax=ax_l)
+visualise_degree_of_polarisation(sky, ax=ax_d)
+visualise_angle_of_polarisation(sky, ax=ax_a)
+
+plt.tight_layout()
+plt.show()
+
