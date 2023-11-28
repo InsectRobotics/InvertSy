@@ -327,8 +327,6 @@ class Sky(UniformSky):
         if eta is None:
             eta = add_noise(noise=noise, shape=y.shape, rng=rng)
 
-        print(eta)
-
         y[eta] = 0.
         p[eta] = 0.  # destroy the polarisation pattern
         a[eta] = np.nan

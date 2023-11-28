@@ -19,7 +19,7 @@ from ._helpers import col2x, row2y, yaw2ori, x2col, y2row, ori2yaw
 from invertsy.__helpers import __data__, RNG
 from invertsy.env import UniformSky, Sky, Seville2009, WorldBase, StaticOdour
 from invertsy.agent import VisualNavigationAgent, VectorMemoryAgent, NavigatingAgent, RouteFollowingAgent, Agent
-from invertsy.agent.agent import VisualProcessingAgent
+from invertsy.agent.agent import VisualProcessingAgent, PathIntegrationAgent
 
 from invertpy.sense import CompoundEye
 from invertpy.sense.polarisation import PolarisationSensor
@@ -27,12 +27,14 @@ from invertpy.brain.preprocessing import Preprocessing
 from invertpy.brain.compass import PolarisationCompass
 from invertpy.brain.memory import MemoryComponent
 from invertpy.brain.centralcomplex import CentralComplexBase
+from invertpy.brain.centralcomplex.dyememory import DyeMemoryCX
 from invertpy.brain.preprocessing import MentalRotation
 
 from scipy.spatial.transform import Rotation as R
 from scipy.special import expit
 
 import numpy as np
+import loguru as lg
 
 from time import time
 from copy import copy
@@ -191,12 +193,12 @@ class GradientVectorSimulation(Simulation):
         else:
             phi = 0.
 
-        print(f"yaw = {np.rad2deg(yaw):.2f}", end=";  ")
+        lg.logger.debug(f"yaw = {np.rad2deg(yaw):.2f}", end=";  ")
         pfl2 = self.__hist["pfl2"][-1]
         l_pfl3, r_pfl3 = self.__hist["pfl3"][-1]
         l_dna_2 = 0.5 * np.abs(l_pfl3 + pfl2)
         r_dna_2 = 0.5 * np.abs(r_pfl3 + pfl2)
-        print(f"_lDNa_2 = {l_dna_2:.2f}, _rDNa_2 = {r_dna_2:.2f}", end="; ")
+        lg.logger.debug(f"_lDNa_2 = {l_dna_2:.2f}, _rDNa_2 = {r_dna_2:.2f}", end="; ")
 
         dna_3 = 0.5 * np.abs(pfl2)
         osc_w = np.clip(self.__oscillation_gain * (1 + dna_3), 0, 1)
@@ -205,14 +207,14 @@ class GradientVectorSimulation(Simulation):
         if self.__differential_steering:
             # differential steering
             steer = self.__steering_gain * (r_dna_2 - l_dna_2)
-            print(f"steer = {np.rad2deg(steer):.2f}", end="; ")
+            lg.logger.debug(f"steer = {np.rad2deg(steer):.2f}", end="; ")
             av = R.from_euler("Z", osc_w * self.osc_steer +
                               np.clip(steer, -np.pi/4, np.pi/4) +
                               rand[2] * np.pi / 2)
         else:
             # vector steering
             steer = (r_pfl3 + l_pfl3 + pfl2) / 3
-            print(f"steer_mag = {np.abs(steer):.2f}, steer_ang = {np.rad2deg(np.angle(steer)):.2f}", end="; ")
+            lg.logger.debug(f"steer_mag = {np.abs(steer):.2f}, steer_ang = {np.rad2deg(np.angle(steer)):.2f}", end="; ")
             av = R.from_euler("Z", osc_w * self.osc_steer +
                               np.clip(np.abs(steer) * np.angle(steer), -np.pi/4, np.pi/4) +
                               rand[2] * np.pi / 2)
@@ -224,7 +226,7 @@ class GradientVectorSimulation(Simulation):
         # lv = [osc_w * side - 1 * np.sin(pfl2_a) + rand[0], osc_w * front + np.cos(pfl2_a) + rand[1], 0]
         # av = R.from_euler("Z", osc_w * self.osc_c)
 
-        print(f"back = {dna_3:.2f}")
+        lg.logger.debug(f"back = {dna_3:.2f}")
 
         # lv = [side * (1 - w * np.clip(pfl2_m, 0, 1)), front * (1 + w * np.clip(pfl2_m, 0, 1)), 0]
         # lv = [side, front * (1 - w * np.clip(pfl2_m, 0, 1)), 0]
@@ -271,8 +273,8 @@ class GradientVectorSimulation(Simulation):
         # backwards motion
         r_lno2 = rho * (0.5 + 0.5 * np.sin(d_phi)) * (0.5 - 0.5 * np.cos(d_phi))
         l_lno2 = rho * (0.5 - 0.5 * np.sin(d_phi)) * (0.5 - 0.5 * np.cos(d_phi))
-        print(f"_lLNO1 = {l_lno1:.2f}, _rLNO1 = {r_lno1:.2f}, _lLNO2 = {l_lno2:.2f}, _rLNO2  = {r_lno2:.2f}", end="; ")
-        print(f"g = {np.power(g, self.__g_power):.4f}, d_phi = {np.rad2deg(d_phi):.2f}", end="; ")
+        lg.logger.debug(f"_lLNO1 = {l_lno1:.2f}, _rLNO1 = {r_lno1:.2f}, _lLNO2 = {l_lno2:.2f}, _rLNO2  = {r_lno2:.2f}", end="; ")
+        lg.logger.debug(f"g = {np.power(g, self.__g_power):.4f}, d_phi = {np.rad2deg(d_phi):.2f}", end="; ")
 
         l_epg = self.l_epg(yaw)
         r_epg = self.r_epg(yaw)
@@ -399,9 +401,9 @@ class GradientSimulation(Simulation):
         pfl3_v = np.sum(pfl3 * np.exp(-1j * np.linspace(0, 2 * np.pi, 8, endpoint=False)))
         pfl3_m = np.abs(pfl3_v)
         pfl3_a = np.angle(pfl3_v)  # - yaw
-        print(f"yaw = {np.rad2deg(yaw):.2f}", end=";  ")
-        print(f"PFL2_ang = {np.rad2deg(pfl2_a):.2f}, PFL2_mag = {pfl2_m:.2f}", end=";  ")
-        print(f"PFL3_ang = {np.rad2deg(pfl3_a):.2f}, PFL3_mag = {pfl3_m:.2f}")
+        lg.logger.debug(f"yaw = {np.rad2deg(yaw):.2f}", end=";  ")
+        lg.logger.debug(f"PFL2_ang = {np.rad2deg(pfl2_a):.2f}, PFL2_mag = {pfl2_m:.2f}", end=";  ")
+        lg.logger.debug(f"PFL3_ang = {np.rad2deg(pfl3_a):.2f}, PFL3_mag = {pfl3_m:.2f}")
 
         lv = [0, front, 0]
         # lv = [side, front, 0]
@@ -448,7 +450,7 @@ class GradientSimulation(Simulation):
         # calculate the relative magnitude (speed) of motion
         # rho = np.sqrt(np.square(d_x) + np.square(d_y)) * 20
         rho = 1
-        # print(f"d_phi = {np.rad2deg(phi):.2f}, d_yaw={np.rad2deg(d_yaw):.2f}")
+        # lg.logger.debug(f"d_phi = {np.rad2deg(phi):.2f}, d_yaw={np.rad2deg(d_yaw):.2f}")
 
         p = 1
         nco = lambda a: np.power(.5 * np.cos(a) + .5, p)
@@ -570,6 +572,7 @@ class SimulationBase(object):
         self._noise = noise
         self.rng = rng
         self._name = name
+        self._saved = None
 
     def reset(self):
         """
@@ -638,8 +641,13 @@ class SimulationBase(object):
         else:
             filename = filename.replace('.npz', '')
         save_path = os.path.join(__stat_dir__, "%s.npz" % filename)
+        dir_path = os.path.dirname(save_path)
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path)
+
         np.savez_compressed(save_path, **self._stats)
-        print("\nSaved stats in: '%s'" % save_path)
+        lg.logger.info("Saved stats in: '%s'" % save_path)
+        self._saved = save_path
 
     def __call__(self, save=False):
         """
@@ -657,11 +665,11 @@ class SimulationBase(object):
             while self._iteration < self.nb_frames:
                 dt = self.step(self._iteration)
                 if self._iteration % self.message_intervals == 0:
-                    print(self.message() + " - time: %.2f sec" % dt)
+                    lg.logger.info(self.message() + " - time: %.2f sec" % dt)
 
                 self._iteration += 1
         except KeyboardInterrupt:
-            print("Simulation interrupted by keyboard!")
+            lg.logger.error("Simulation interrupted by keyboard!")
         finally:
             if save:
                 self.save()
@@ -735,6 +743,17 @@ class SimulationBase(object):
     @message_intervals.setter
     def message_intervals(self, v):
         self._message_intervals = v
+
+    @property
+    def saved(self):
+        """
+        The path that the simulation output was saved.
+
+        Returns
+        -------
+        str
+        """
+        return self._saved
 
     @property
     def name(self):
@@ -1221,6 +1240,10 @@ class PathIntegrationSimulation(CentralPointNavigationSimulationBase):
         self._foraging = True
         self._distant_point = route[-1, :3]
         self._zero_vector = zero_vector
+        if isinstance(self.agent, PathIntegrationAgent) and isinstance(self.agent.central_complex, DyeMemoryCX):
+            self._beta = self._agent.central_complex["memory"].beta
+        else:
+            self._beta = 0.0
 
         self.__file_data = None
 
@@ -1247,6 +1270,10 @@ class PathIntegrationSimulation(CentralPointNavigationSimulationBase):
 
         self.agent.ori = R.from_euler("Z", self.route[0, 3], degrees=True)
         self._foraging = True
+
+        if isinstance(self.agent, PathIntegrationAgent) and isinstance(self.agent.central_complex, DyeMemoryCX):
+            self.agent.central_complex["memory"].beta = 0.0
+            self.agent.central_complex["memory"].reset_integrator()
 
     def init_stats(self):
         super().init_stats()
@@ -1282,10 +1309,13 @@ class PathIntegrationSimulation(CentralPointNavigationSimulationBase):
             self.agent.ori = R.from_euler("Z", self.route[0, 3], degrees=True)
             self.agent.central_complex.reset_integrator()
 
+        if isinstance(self.agent, PathIntegrationAgent) and isinstance(self.agent.central_complex, DyeMemoryCX):
+            self.agent.central_complex["memory"].beta = self._beta
+
         # file_path = os.path.join(__outb_dir__, f"{self.name}.npz")
         # if not os.path.exists(file_path):
         #     np.savez(file_path, **self.stats)
-        #     print(f"Outbound stats are saved in: '{file_path}'")
+        #     lg.logger.info(f"Outbound stats are saved in: '{file_path}'")
 
     def _step(self, i):
         """
@@ -1310,7 +1340,7 @@ class PathIntegrationSimulation(CentralPointNavigationSimulationBase):
 
             file_path = os.path.join(__outb_dir__, f"{self.name}.npz")
             if os.path.exists(file_path) and self.__file_data is None:
-                print(f"Loading outbound stats from: '{file_path}'")
+                lg.logger.info(f"Loading outbound stats from: '{file_path}'")
                 data = np.load(file_path, allow_pickle=True)
                 self.__file_data = {
                     "ommatidia": data["ommatidia"]
@@ -1325,16 +1355,16 @@ class PathIntegrationSimulation(CentralPointNavigationSimulationBase):
             # for process in self.agent.preprocessing:
             #     if isinstance(process, MentalRotation):
             #         process.pref_angles[:] = 0.
-        elif self._foraging and self.distance_from(self.distant_point) < 0.5:
-            self.approach_point(self.distant_point)
-        elif not self._foraging and not self._zero_vector and self.d_nest < 0.5:
-            self.approach_point(self.central_point)
-        elif self._foraging and self.distance_from(self.distant_point) < 0.2:
-            self._foraging = False
-            print("START PI FROM FEEDER")
-        elif not self._foraging and not self._zero_vector and self.d_nest < 0.2:
-            self._foraging = True
-            print("START FORAGING!")
+        # elif self._foraging and self.distance_from(self.distant_point) < 0.5:
+        #     self.approach_point(self.distant_point)
+        # elif not self._foraging and not self._zero_vector and self.d_nest < 0.5:
+        #     self.approach_point(self.central_point)
+        # elif self._foraging and self.distance_from(self.distant_point) < 0.2:
+        #     self._foraging = False
+        #     lg.logger.debug("START PI FROM FEEDER")
+        # elif not self._foraging and not self._zero_vector and self.d_nest < 0.2:
+        #     self._foraging = True
+        #     lg.logger.debug("START FORAGING!")
 
         # if self._foraging:
         #     motivation = np.array([0, 1])
@@ -1343,6 +1373,7 @@ class PathIntegrationSimulation(CentralPointNavigationSimulationBase):
 
         if hasattr(self.agent, "mushroom_body"):
             self.agent.mushroom_body.update = self._foraging
+
         self._agent(sky=self._sky, scene=self._world, act=act, callback=self.update_stats)
 
         if i > self.route.shape[0] and "replace" in self._stats:
@@ -1352,7 +1383,7 @@ class PathIntegrationSimulation(CentralPointNavigationSimulationBase):
                 self.agent.xyz = self.route[point, :3]
                 self.agent.ori = R.from_euler('Z', self.route[point, 3], degrees=True)
                 self._stats["replace"].append(True)
-                print(" ~ REPLACE ~")
+                lg.logger.debug(" ~ REPLACE ~")
             else:
                 self._stats["replace"].append(False)
 
@@ -1613,7 +1644,7 @@ class TwoSourcePathIntegrationSimulation(PathIntegrationSimulation):
 
         if len(self._state) == 0 or route_name != self._state[-1]:
             self._state.append(route_name)
-            print(f"STATE: {self._state}")
+            lg.logger.debug(f"STATE: {self._state}")
 
             self.central_complex.reset_current_memory()
 
@@ -1663,21 +1694,21 @@ class TwoSourcePathIntegrationSimulation(PathIntegrationSimulation):
             if np.sum('b' == np.array(self._state)) > 0:
                 self._foraging = True
                 self._forage_id = 2
-                print("GO TO B FROM A")
+                lg.logger.debug("GO TO B FROM A")
             else:
                 self._foraging = False
                 self._forage_id = 0
-                print("START PI FROM A")
+                lg.logger.debug("START PI FROM A")
         elif self.distance_from(self.route_b[-1, :3]) < .1:
             self.init_inbound('b')
             if np.sum('b' == np.array(self._state)) > 1:
                 self._foraging = True
                 self._forage_id = 1
-                print("GO TO A FROM B")
+                lg.logger.debug("GO TO A FROM B")
             else:
                 self._foraging = False
                 self._forage_id = 0
-                print("START PI FROM B")
+                lg.logger.debug("START PI FROM B")
         elif act and self._state[-1] != 'a' and self.distance_from(self.route_a[-1, :3]) < .5:
             self.approach_point(self.route_a[-1, :3])
             act = False
@@ -1698,7 +1729,7 @@ class TwoSourcePathIntegrationSimulation(PathIntegrationSimulation):
                 self._state.append('n')
             self.agent.central_complex.reset_integrator()
 
-            print("START FORAGING!")
+            lg.logger.debug("START FORAGING!")
 
         elif len(self.stats["L"]) > 1 and self.stats["L"][-2] < self.stats["L"][-1] < 0.5:
             self.approach_point(self.route_a[0, :3])
@@ -2010,7 +2041,7 @@ class NavigationSimulation(PathIntegrationSimulation):
             if np.isclose(self._food.sum(), 0):
                 self._food[1] = 1.  # continue searching towards the first source
             else:
-                print(f"START PI FROM ROUTE {self._current_route_id + 1}")
+                lg.logger.debug(f"START PI FROM ROUTE {self._current_route_id + 1}")
         elif self.is_approaching_distant(tol=0.5):
             self.approach_point(self.distant_point)
             act = False
@@ -2036,7 +2067,7 @@ class NavigationSimulation(PathIntegrationSimulation):
             self._food[:] = np.eye(self.agent.nb_odours)[self._current_route_id % len(self.routes) + 1]
             self.agent.central_complex.reset_integrator()
 
-            print("START FORAGING!")
+            lg.logger.debug("START FORAGING!")
 
         elif self.is_approaching_central(tol=0.5):
             # if the agent has moved for more than 1 meter and is less than 50 cm away from the nest
@@ -2323,7 +2354,7 @@ class VisualNavigationSimulation(NavigationSimulationBase):
                     self._agent.xyz = self._route[point, :3]
                     self._agent.ori = R.from_euler('Z', self._route[point, 3], degrees=True)
                     self._stats["replace"].append(True)
-                    print(" ~ REPLACE ~")
+                    lg.logger.debug(" ~ REPLACE ~")
                 else:
                     self._stats["replace"].append(False)
 
@@ -2904,7 +2935,7 @@ class VisualFamiliarityParallelExplorationSimulation(SimulationBase):
         elif "positions" in data:
             xyz = "positions"
         else:
-            print([key for key in data.keys()])
+            lg.logger.debug([key for key in data.keys()])
             raise KeyError("'xyz' key could not be found in the data.")
 
         route = data[f"{xyz}_out"]

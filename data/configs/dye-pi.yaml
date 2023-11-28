@@ -1,0 +1,15 @@
+simulation_name: dye-pi
+route: random
+ts_outbound: 1000
+ts_inbound: 1500
+step_size: 0.1
+seed: [2000, 2099]
+noise: 0.1
+cx_class: DyeMemoryCX
+cx_params:
+  epsilon: 1000
+  length: 0.001
+  phi: 0.00045
+  k: 0.0001
+  beta: 0.0
+  gain: 1.0

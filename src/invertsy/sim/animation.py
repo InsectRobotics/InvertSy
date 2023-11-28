@@ -25,6 +25,7 @@ from scipy.spatial.transform import Rotation as R
 from matplotlib import animation
 from matplotlib.path import Path
 
+import loguru as lg
 import matplotlib.pyplot as plt
 import matplotlib.cm
 import numpy as np
@@ -328,7 +329,7 @@ class GradientVectorAnimation(Animation):
         if self.__iteration >= self.max_time:
             return self.reset(agent)
 
-        print(f"i = {self.__iteration:03d}", end="; ")
+        lg.logger.debug(f"i = {self.__iteration:03d}", end="; ")
         self.update_agent(agent)
         self.update_target(agent, np.exp(agent.yaw * 1j) * pfl2, np.exp(1j * agent.yaw) * (fc - epg * np.abs(fc)))
         self.update_gradient(grad)
@@ -907,13 +908,13 @@ class AnimationBase(object):
                 if save_name is None:
                     save_name = "%s.%s" % (self.name, save_type.lower())
                 filepath = os.path.join(__anim_dir__, save_name)
-                print("Saving video in '%s'." % filepath)
+                lg.logger.info("Saving video in '%s'." % filepath)
                 self.ani.save(filepath, fps=self._fps)
 
             if show:
                 plt.show()
         except KeyboardInterrupt:
-            print("Animation interrupted by keyboard!")
+            lg.logger.error("Animation interrupted by keyboard!")
         finally:
             if save_stats:
                 self._sim.save()
@@ -974,7 +975,7 @@ class AnimationBase(object):
         """
         time = self._animate(i)
         if isinstance(time, float):
-            print(self.sim.message() + " - time: %.2f sec" % time)
+            lg.logger.info(self.sim.message() + " - time: %.2f sec" % time)
         return tuple(self.__lines)
 
     @property
@@ -1098,7 +1099,7 @@ class RouteAnimation(AnimationBase):
         self.pos.set_paths((Path(vertices[:, :2], codes),))
 
         # id = {40: 1, 400: 2, 800: 3, 819: 4}
-        # print(f"Iteration: {i}")
+        # lg.logger.debug(f"Iteration: {i}")
         # if i in id:
         #     fig = plt.figure(f"{self.name}-view-{id[i]}", figsize=(7, 3))
         #     ax_dict = fig.subplot_mosaic(
@@ -2149,7 +2150,7 @@ class PathIntegrationAnimation(AnimationBase):
             nest = sim.central_point[:2]
             feeders = [sim.feeder_a[:2], sim.feeder_b[:2]]
             route = sim.route_a
-            print(feeders)
+            lg.logger.debug(feeders)
         elif isinstance(sim, PathIntegrationSimulation):
             nest = sim.central_point[:2]
             feeders = [sim.distant_point[:2]]
@@ -2200,7 +2201,7 @@ class PathIntegrationAnimation(AnimationBase):
             route_size = self.sim.route_a.shape[0]
         else:
             route_size = -1
-            print("None INSTANCE!")
+            lg.logger.debug("None INSTANCE!")
         if i == 0:
             self.line_b.set_data([], [])
             # self.sim.reset(nb_samples_calibrate=10)

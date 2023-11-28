@@ -31,11 +31,14 @@ from invertpy.brain.preprocessing import Whitening, ZernikeMoments, MentalRotati
 from scipy.spatial.transform import Rotation as R
 from copy import copy
 
+import loguru as lg
 import numpy as np
 
 import os
 
 __data_calibrate__ = os.path.join(__data__, "calibration")
+DEFAULT_ACC = 0.15
+DEFAULT_DRAG = 0.15
 
 
 class Agent(object):
@@ -90,6 +93,9 @@ class Agent(object):
 
         self._dt_default = delta_time  # seconds
         self._dx = speed  # meters / second
+        self._velocity = np.zeros(2, dtype=float)
+        self._acceleration = DEFAULT_ACC
+        self._drag = DEFAULT_DRAG
 
         self.name = name
         self.dtype = dtype
@@ -105,6 +111,7 @@ class Agent(object):
         ori_c = copy(self._ori)
         self._xyz = copy(self._xyz_init)
         self._ori = copy(self._ori_init)
+        self._velocity = np.zeros(2, dtype=float)
 
         for sensor in self.sensors:
             # reset the sensor (this does not reset the sensor's centre of mass)
@@ -673,7 +680,7 @@ class VisualProcessingAgent(Agent, ABC):
         if os.path.exists(cal_file):
             data = np.load(cal_file, allow_pickle=True)
 
-            print(f"Calibration data loaded from: '{cal_file}'")
+            lg.logger.debug(f"Calibration data loaded from: '{cal_file}'")
 
             samples = data["samples"]
             xyzs = data["xyz"]
@@ -690,18 +697,18 @@ class VisualProcessingAgent(Agent, ABC):
                     xyzs.append(copy(self.xyz))
                     oris.append(copy(self.ori))
 
-                print("Calibration: %d/%d - x: %.2f, y: %.2f, z: %.2f, yaw: %d" % (
+                lg.logger.debug("Calibration: %d/%d - x: %.2f, y: %.2f, z: %.2f, yaw: %d" % (
                     i + 1, nb_samples, self.x, self.y, self.z, self.yaw_deg))
                 samples[i*nb_ms:(i+1)*nb_ms] = self.get_pn_responses(
                     sky, scene, omm_responses[i] if omm_responses is not None else None, pre_whitened=True)
 
             np.savez(cal_file, samples=samples, xyz=xyzs, ori=oris)
-            print(f"Calibration data saved in: '{cal_file}'")
+            lg.logger.info(f"Calibration data saved in: '{cal_file}'")
 
         for p in self._preprocessing:
             if isinstance(p, Whitening):
                 p.reset(samples)
-                print("Calibration: DONE!")
+                lg.logger.info("Calibration: DONE!")
 
         self.xyz = xyz
         self.ori = ori
@@ -896,9 +903,14 @@ class CentralComplexAgent(Agent, ABC):
         """
         Uses the output of the central complex to compute the next movement and moves the agent to its new position.
         """
-        steer = self.get_steering(self._cx)
+        steer = self.get_steering(self._cx) * 0.25  # to kill the noise a bit!
+        yaw_pre = self.yaw
         self.rotate(R.from_euler('Z', steer, degrees=False))
-        self.move_forward()
+
+        thrust = np.array([np.cos(self.yaw - yaw_pre), np.sin(self.yaw - yaw_pre)]) * self._acceleration * self.delta_time
+        x, y = (self._velocity + thrust) * (1 - self._drag) ** self.delta_time
+        self._velocity[:] = [x, y]
+        self.move_towards([x, y, 0])
 
     @property
     def central_complex(self):
@@ -952,8 +964,7 @@ class CentralComplexAgent(Agent, ABC):
         motor = cx.r_motor
         motor += 1. * (cx.rng.rand() - 0.5)
 
-        # output = (motor[0] - motor[1]) * .25  # to kill the noise a bit!
-        output = (motor[0] - motor[1]) * 1.
+        output = motor[0] - motor[1]
         return output
 
 
@@ -1300,9 +1311,9 @@ class VisualNavigationAgent(VisualProcessingAgent):
         if np.isnan(steering):
             steering = 0.
 
-        # print("Steering: %.2f" % steering, end=", ")
+        # lg.logger.debug("Steering: %.2f" % steering, end=", ")
         steering = np.clip(gain * steering, -max_steering, max_steering)
-        # print("Clipped: %.2f" % steering)
+        # lg.logger.debug("Clipped: %.2f" % steering)
         if not degrees:
             steering = np.deg2rad(steering)
 
@@ -1343,16 +1354,16 @@ class VisualNavigationAgent(VisualProcessingAgent):
 
         steer_vector = np.sum(pref_angles_c)
         steer = (np.angle(steer_vector) + np.pi) % (2 * np.pi) - np.pi
-        print("Steering: %.2f" % np.rad2deg(steer), end=", ")
+        lg.logger.debug("Steering: %.2f" % np.rad2deg(steer), end=", ")
         # steer less for small vectors
         steer *= np.clip(np.absolute(steer_vector) * 2., eps, 1.)
-        print("Vector: %.2f" % np.absolute(steer_vector), end=", ")
+        lg.logger.debug("Vector: %.2f" % np.absolute(steer_vector), end=", ")
 
         if np.isnan(steer):
             steer = 0.
-        print("Final steering: %.2f" % np.rad2deg(steer), end=", ")
+        lg.logger.debug("Final steering: %.2f" % np.rad2deg(steer), end=", ")
         steer = np.clip(steer, -max_steering, max_steering)
-        print("Clipped: %d" % np.rad2deg(steer))
+        lg.logger.debug("Clipped: %d" % np.rad2deg(steer))
         if degrees:
             steer = np.rad2deg(steer)
         return steer
