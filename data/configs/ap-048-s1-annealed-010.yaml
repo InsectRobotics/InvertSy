@@ -1,0 +1,19 @@
+simulation_name: AP-048-an-010
+route: random
+ts_outbound: 1000
+ts_inbound: 1500
+step_size: 0.1
+seed: [2000, 2099]
+noise: 0.1
+cx_class: DyeMemoryCX
+cx_params:
+  epsilon: 1.58e+05  # /M/cm
+  length: 10.0e-04  # cm
+  phi: 0.002  # percentile (0.2%)
+  k: 1.2e-05  # s^-1
+  c_tot: 5e-03  # 5 10^-3 M (in solution: 5 mM)
+  wavelength: 6.53e-07  # m
+  volume: 1e-18  # L
+  W_max: 1e-15  # J/s
+  beta: 0.0
+  gain: 0.5

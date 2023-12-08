@@ -174,7 +174,7 @@ def plot_results(data, name='results'):
 
     epg = data['CL1']
     pfn = data['CPU4']
-    mem = data['CPU4mem']
+    fc2 = data['CPU4mem']
     pfl3 = data['CPU1']
 
     mosaic = """
@@ -210,13 +210,13 @@ def plot_results(data, name='results'):
     ax['C'].set_xlim([-0.5, pfn.shape[0] - 0.5])
     plot_twin_angles(ax['C'], pfn, len(l_out), angle_max=4 * np.pi)
 
-    ax['D'].imshow(mem.T, vmin=0, vmax=1, aspect='auto')
-    ax['D'].set_ylabel('memory')
+    ax['D'].imshow(fc2.T, vmin=0, vmax=1, aspect='auto')
+    ax['D'].set_ylabel('FC2')
     ax['D'].set_yticks([0, 15])
     ax['D'].set_xticks([])
-    ax['D'].set_ylim([mem.shape[1] - 0.5, -0.5])
-    ax['D'].set_xlim([-0.5, mem.shape[0] - 0.5])
-    plot_twin_angles(ax['D'], mem, len(l_out), angle_max=4 * np.pi)
+    ax['D'].set_ylim([fc2.shape[1] - 0.5, -0.5])
+    ax['D'].set_xlim([-0.5, fc2.shape[0] - 0.5])
+    plot_twin_angles(ax['D'], fc2, len(l_out), angle_max=4 * np.pi)
 
     ax['E'].imshow(pfl3.T, vmin=0, vmax=1, aspect='auto')
     ax['E'].set_ylabel('PFL3')
@@ -231,7 +231,7 @@ def plot_results(data, name='results'):
     ax['F'].plot(len(tau_out) + np.arange(len(tau_in)), tau_in * 100, color='orange')
     ax['F'].set_xlim([0, len(tau_out) + len(tau_in) - 1])
     ax['F'].set_ylim([0, 100])
-    ax['F'].set_ylabel('tortuosity')
+    ax['F'].set_ylabel('distance')
 
     fig.tight_layout()
     plt.show()
@@ -439,7 +439,7 @@ def main(simulation_name='pi', route='random', ts_outbound=1000, ts_inbound=1500
             seed.append(i)
 
     if threads is None:
-        threads = np.minimum(len(seed), 16)
+        threads = np.minimum(len(seed), 8)
 
     tasks = []
     for sd in seed:
@@ -447,6 +447,7 @@ def main(simulation_name='pi', route='random', ts_outbound=1000, ts_inbound=1500
         tasks.append(
             (simulation_name_i, route, ts_outbound, ts_inbound, step_size, sd, noise, animation, cx_class, cx_params))
 
+    mp.set_start_method('forkserver')  # fixes problem with multiprocessing in mac
     results = mp.Pool(threads).imap_unordered(run_simulation, tasks)
 
     for result in results:

@@ -1,0 +1,16 @@
+simulation_name: AP-048-010
+route: random
+ts_outbound: 1000
+ts_inbound: 1500
+step_size: 0.1
+seed: [2000, 2099]
+noise: 0.1
+cx_class: DyeMemoryCX
+cx_params:
+  epsilon: 15.8  # L/M/cm (1.58 10^5 L/M/cm)
+  length: 0.1  # 1-10 um = 0.01-0.1 cm
+  phi: 0.002  # percentile (0.2%)
+  k: 0.00000433  # s^-1, in solution: 4.3e-3 s^-1, in spin coated film: 6.1e-5 s$-1 (film thickness 3-5 um)
+  c_tot: 0.5  # 5 10^-3 M (in solution: 5 mM)
+  beta: 0.0
+  gain: 0.5
